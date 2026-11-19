@@ -31,7 +31,53 @@ constructor() {
             this.lastExecutedContext = null;
             this.bouncedCharThisTurn = false;
             this.playedFromDeckThisTurn = false;
+            this.usedEventThisTurn = false;
+            this.pendingApDiscounts = [];
             this.usedNamedAbilityThisTurn = new Set();
+        }
+
+        countEventsInMyOutside() {
+            let cnt = 0;
+            document.querySelectorAll('#my-outside-area .card').forEach(c => {
+                const d = this.getCardDef(c);
+                if (d && (d.type === 'EVENT' || (d.effectText && d.effectText.includes('イベントカードとしても扱う')))) {
+                    cnt++;
+                }
+            });
+            return cnt;
+        }
+
+        hasOppLoweredBpChar() {
+            return Array.from(document.querySelectorAll('#opp-front-line .slot')).some(slot => {
+                if (!this.getTopCardInSlot(slot)) return false;
+                const tracker = slot.querySelector('.bp-tracker');
+                return tracker && (parseInt(tracker.dataset.bp, 10) || 0) < 0;
+            });
+        }
+
+        getEffectiveApCost(cardDef) {
+            let cost = cardDef?.apCost !== undefined ? cardDef.apCost : 1;
+            if (!cardDef || !this.pendingApDiscounts || this.pendingApDiscounts.length === 0) return cost;
+            for (const disc of this.pendingApDiscounts) {
+                if (disc.matchFn && disc.matchFn(cardDef)) {
+                    cost = Math.max(0, cost - (disc.amount || 1));
+                    break;
+                }
+            }
+            return cost;
+        }
+
+        payApForCard(cardDef) {
+            let cost = cardDef?.apCost !== undefined ? cardDef.apCost : 1;
+            if (cardDef && this.pendingApDiscounts && this.pendingApDiscounts.length > 0) {
+                const idx = this.pendingApDiscounts.findIndex(d => d.matchFn && d.matchFn(cardDef));
+                if (idx !== -1) {
+                    const disc = this.pendingApDiscounts.splice(idx, 1)[0];
+                    cost = Math.max(0, cost - (disc.amount || 1));
+                    showSysMsg(`💎 已套用 AP 減免效果（${disc.desc}），實際支付 ${cost} AP！`);
+                }
+            }
+            return cost === 0 ? true : this.payAp(cost);
         }
 
         getCardScriptById(cardId) {
@@ -54,6 +100,8 @@ constructor() {
             this.usedExtraDraw = false;
             this.bouncedCharThisTurn = false;
             this.playedFromDeckThisTurn = false;
+            this.usedEventThisTurn = false;
+            this.pendingApDiscounts = [];
             this.usedNamedAbilityThisTurn.clear();
             this.cardRuntime.clear();
             this.deckDominantColor = null;
@@ -1228,6 +1276,8 @@ injectEngineUI() {
             this.usedExtraDraw = false;
             this.bouncedCharThisTurn = false;
             this.playedFromDeckThisTurn = false;
+            this.usedEventThisTurn = false;
+            this.pendingApDiscounts = [];
             this.usedNamedAbilityThisTurn.clear();
 
             this.cardRuntime.forEach(rt => {
@@ -1400,7 +1450,7 @@ injectEngineUI() {
             }
 
             const activeAp = this.getActiveApCards().length;
-            const costAp = cardDef.apCost !== undefined ? cardDef.apCost : 1;
+            const costAp = this.getEffectiveApCost(cardDef);
             if (activeAp < costAp) {
                 return { ok: false, reason: `行動值 (AP) 不足！需要 ${costAp} AP，目前可用 ${activeAp} AP。（提示：點擊 AP 卡可翻面/轉直立）` };
             }
@@ -1548,10 +1598,11 @@ injectEngineUI() {
                         defaultFinalizeFn(cards, null, 'cancel', originalParent, endX);
                         return;
                     }
-                    this.payAp(def.apCost || 1);
+                    this.payApForCard(def);
+                    this.usedEventThisTurn = true;
                     const outsideArea = document.getElementById('my-outside-area');
                     defaultFinalizeFn(cards, outsideArea, 'default', originalParent, endX);
-                    sendSystemChat(`🪄 [規則引擎] 對手消耗 ${def.apCost} AP 使用了事件卡【${def.name}】！`);
+                    sendSystemChat(`🪄 [規則引擎] 對手使用了事件卡【${def.name}】！`);
                     this.triggerCardAbilities(mainCard, 'CONTINUOUS');
                     this.updateEnergyHUD();
                     return;
@@ -1685,7 +1736,7 @@ injectEngineUI() {
         }
 
         completeNormalPlay(cards, mainCard, def, dropZone, originalParent, endX, defaultFinalizeFn) {
-            this.payAp(def.apCost || 1);
+            this.payApForCard(def);
             defaultFinalizeFn(cards, dropZone, 'default', originalParent, endX);
 
             const rt = this.getRuntime(mainCard);
@@ -1745,10 +1796,17 @@ injectEngineUI() {
         }
 
         executeRaidSummon(cardEl, def, targetSlot, moveToFront, originalParent, endX, defaultFinalizeFn, isFreeFromTrigger = false, onComplete = null) {
-            if (!isFreeFromTrigger) this.payAp(def.apCost || 1);
+            const baseCardUnder = this.getTopCardInSlot(targetSlot);
+            if (!isFreeFromTrigger) this.payApForCard(def);
             updateBpDisplay(targetSlot, 0);
 
             defaultFinalizeFn([cardEl], targetSlot, 'top-faceup', originalParent, endX);
+            if (baseCardUnder) {
+                const baseScript = this.getCardScript(baseCardUnder);
+                if (baseScript && typeof baseScript.onRaided === 'function') {
+                    baseScript.onRaided(this, baseCardUnder, cardEl);
+                }
+            }
             cardEl.classList.remove('rest', 'is-flipped');
 
             const rt = this.getRuntime(cardEl);
@@ -1952,6 +2010,10 @@ injectEngineUI() {
             if (script) {
                 if (timing === 'ON_PLAY' && typeof script.onPlay === 'function') {
                     script.onPlay(this, cardEl, () => { this.updateEnergyHUD(); broadcastMyState(); if (onComplete) onComplete(); });
+                    return;
+                }
+                if (timing === 'ON_ATTACK' && typeof script.onAttack === 'function') {
+                    script.onAttack(this, cardEl, () => { this.updateEnergyHUD(); broadcastMyState(); if (onComplete) onComplete(); });
                     return;
                 }
                 if (timing === 'ON_RETIRE' && typeof script.onRetire === 'function') {
@@ -3363,6 +3425,7 @@ injectEngineUI() {
             }
 
             if (def?.type === 'EVENT') {
+                this.usedEventThisTurn = true;
                 this.moveCardToZone(cardEl, document.getElementById('my-outside-area'));
                 sendSystemChat(`🪄 [牌組免費使用] 對手從牌組不支付 AP 使用了事件卡【${def.name}】！`);
                 this.triggerCardAbilities(cardEl, 'CONTINUOUS', onComplete);
@@ -3628,6 +3691,11 @@ handleNetworkEvent(data) {
                     } else {
                         this.inflictPlayerDamage(atkCard);
                     }
+                    break;
+                }
+                case 'FORCE_DISCARD_HAND': {
+                    const cnt = Math.max(1, parseInt(data.count, 10) || 1);
+                    this.executeAbilityActions(null, [{ type: 'DISCARD_HAND', count: cnt }], 0, { selectedTargets: [], addedFromLook: false });
                     break;
                 }
                 case 'TAKE_LIFE_DAMAGE':

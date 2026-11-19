@@ -622,5 +622,9 @@
         }
     };
 
-    window.UACardScripts = scripts;
+    if (typeof window.registerCardScripts === 'function') {
+    window.registerCardScripts(scripts);
+} else {
+    window.UACardScripts = Object.assign(window.UACardScripts || {}, scripts);
+}
 })();

@@ -2872,7 +2872,28 @@ function createCardDOM(cardData, networkId, isMine) {
         };
         
     </script>
-    <script src="card-scripts.js"></script>
+    <script>
+        // ===== UA 卡片腳本 DLC 自動載入器 =====
+        window.UACardScripts = window.UACardScripts || {};
+        window.registerCardScripts = function (map) {
+            if (map && typeof map === 'object') Object.assign(window.UACardScripts, map);
+        };
+        // 未來只要把對應檔名的新 DLC 檔案放進同一資料夾就會自動載入，不需再改 index.html
+        (function loadDLCs() {
+            const dlcFiles = [
+                'card-scripts.js',
+                'dlc-syn-yellow.js', 'dlc-syn-red.js', 'dlc-syn-purple.js',
+                'dlc-rez-yellow.js', 'dlc-rez-blue.js', 'dlc-rez-purple.js', 'dlc-rez-green.js', 'dlc-rez-red.js'
+            ];
+            dlcFiles.forEach(file => {
+                const s = document.createElement('script');
+                s.src = file;
+                s.async = false;
+                s.onerror = () => {}; // 尚未放入的 DLC 靜默略過
+                document.body.appendChild(s);
+            });
+        })();
+    </script>
     <script src="ua-rule-engine.js"></script>
 </body>
 </html>
