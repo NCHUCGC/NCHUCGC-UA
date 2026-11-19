@@ -203,16 +203,17 @@
                 upTo: true,
                 onConfirm: (sel) => {
                     if (sel.length > 0) {
-                        const emptySlot = Array.from(document.querySelectorAll('#my-front-line .slot, #my-energy-line .slot')).find(s => s.querySelectorAll('.card').length === 0);
-                        if (emptySlot) {
-                            engine.moveCardToZone(sel[0], emptySlot);
-                            sel[0].classList.add('rest');
-                            sendSystemChat(`✨ 【エリー】效果將【${engine.getCardDef(sel[0])?.name}】休息登場！`);
-                            engine.triggerCardAbilities(sel[0], 'ON_PLAY', onComplete);
-                            return;
-                        }
+                        engine.chooseEmptyFieldSlotAndPlace(sel[0], { allowFront: true, allowEnergy: true, enterRest: true }, (placed) => {
+                            if (placed) {
+                                sendSystemChat(`✨ 【エリー】效果將【${engine.getCardDef(sel[0])?.name}】休息登場！`);
+                                engine.triggerCardAbilities(sel[0], 'ON_PLAY', onComplete);
+                            } else if (onComplete) {
+                                onComplete();
+                            }
+                        });
+                    } else if (onComplete) {
+                        onComplete();
                     }
-                    if (onComplete) onComplete();
                 }
             });
         }
@@ -623,8 +624,8 @@
     };
 
     if (typeof window.registerCardScripts === 'function') {
-    window.registerCardScripts(scripts);
-} else {
-    window.UACardScripts = Object.assign(window.UACardScripts || {}, scripts);
-}
+        window.registerCardScripts(scripts);
+    } else {
+        window.UACardScripts = Object.assign(window.UACardScripts || {}, scripts);
+    }
 })();

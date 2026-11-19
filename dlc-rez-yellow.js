@@ -254,15 +254,13 @@
                 cards: subaruHand, selectCount: 1, upTo: true,
                 onConfirm: (sel) => {
                     if (sel.length > 0) {
-                        const emptySlot = Array.from(document.querySelectorAll('#my-front-line .slot, #my-energy-line .slot')).find(s => s.querySelectorAll('.card').length === 0);
-                        if (emptySlot) {
-                            engine.moveCardToZone(sel[0], emptySlot);
-                            sel[0].classList.remove('rest');
-                            engine.triggerCardAbilities(sel[0], 'ON_PLAY', step2);
-                            return;
-                        }
+                        engine.chooseEmptyFieldSlotAndPlace(sel[0], { allowFront: true, allowEnergy: true, enterRest: false }, (placed) => {
+                            if (placed) engine.triggerCardAbilities(sel[0], 'ON_PLAY', step2);
+                            else step2();
+                        });
+                    } else {
+                        step2();
                     }
-                    step2();
                 }
             });
         }
@@ -396,15 +394,13 @@
                 cards: cands, selectCount: 1, upTo: true,
                 onConfirm: (sel) => {
                     if (sel.length > 0) {
-                        const emptySlot = Array.from(document.querySelectorAll('#my-front-line .slot, #my-energy-line .slot')).find(s => s.querySelectorAll('.card').length === 0);
-                        if (emptySlot) {
-                            engine.moveCardToZone(sel[0], emptySlot);
-                            sel[0].classList.add('rest');
-                            engine.triggerCardAbilities(sel[0], 'ON_PLAY', onComplete);
-                            return;
-                        }
+                        engine.chooseEmptyFieldSlotAndPlace(sel[0], { allowFront: true, allowEnergy: true, enterRest: true }, (placed) => {
+                            if (placed) engine.triggerCardAbilities(sel[0], 'ON_PLAY', onComplete);
+                            else if (onComplete) onComplete();
+                        });
+                    } else if (onComplete) {
+                        onComplete();
                     }
-                    if (onComplete) onComplete();
                 }
             });
         },
@@ -526,8 +522,17 @@
                 cards: pucks, selectCount: 1, upTo: true,
                 onConfirm: (sel) => {
                     if (sel.length > 0) {
+                        const persist = engine.countEventsInMyOutside() >= 7; // 場外有其他6張以上事件（含剛送進場外的自己共7張）
                         engine.addSlotBp(sel[0].parentElement, 2000);
-                        engine.getRuntime(sel[0]).tempKeywords.IMPACT = Math.max(engine.getRuntime(sel[0]).tempKeywords.IMPACT || 0, 1);
+                        const rt = engine.getRuntime(sel[0]);
+                        if (persist) {
+                            rt.persistentBp = (rt.persistentBp || 0) + 2000;
+                            rt.persistentKeywords = rt.persistentKeywords || {};
+                            rt.persistentKeywords.IMPACT = Math.max(rt.persistentKeywords.IMPACT || 0, 1);
+                            showSysMsg('🔥 【終焉の獣】場外事件 6 張以上：BP+2000 與衝擊將持續至下次我方回合開始！');
+                        } else {
+                            rt.tempKeywords.IMPACT = Math.max(rt.tempKeywords.IMPACT || 0, 1);
+                        }
                     }
                     if (onComplete) onComplete();
                 }
