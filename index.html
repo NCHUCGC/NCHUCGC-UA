@@ -145,7 +145,7 @@
         .slot-group { display: flex; flex-direction: column; align-items: center; }
 
         .slot { width: var(--card-w); height: var(--card-h); background-color: rgba(0,0,0,0.4); border: 2px dashed rgba(209, 196, 233, 0.4); border-radius: 6px; box-shadow: inset 0 0 15px rgba(0,0,0,0.8); position: relative; display: flex; justify-content: center; align-items: center; cursor: pointer; pointer-events: auto;}
-        .slot.life-slot { width: var(--card-h); height: calc(var(--card-w) + 6px); justify-content: flex-start; align-items: flex-start; } 
+        .slot.life-slot { width: var(--card-h); height: calc(var(--card-w) + 6px); justify-content: flex-start; align-items: flex-start; border: none !important; background-color: transparent !important; box-shadow: none !important; } 
         .slot::after { content: attr(data-count); position: absolute; top: -5px; right: -5px; background-color: #c1596f; color: white; border-radius: 50%; width: 22px; height: 22px; display: flex; justify-content: center; align-items: center; font-size: var(--font-size-base); opacity: 0; transition: opacity 0.2s; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.5); z-index: 999; }
         .slot:hover::after { opacity: 1; }
         .slot[data-count="0"]::after, .slot[data-count="1"]::after, .slot:not([data-count])::after { display: none; }
@@ -2023,6 +2023,9 @@
                 if (typeof window.uaEngine.renderKeywordBadgesOnBoard === 'function') {
                     window.uaEngine.renderKeywordBadgesOnBoard();
                 }
+                if (typeof window.uaEngine.updatePublicInfoHUD === 'function') {
+                    window.uaEngine.updatePublicInfoHUD();
+                }
             }
         }
 
@@ -2162,7 +2165,7 @@ function createCardDOM(cardData, networkId, isMine) {
 
         function applyStackingStyle(card, slotBelow, myIndex) {
             if (!slotBelow) return;
-            card.style.zIndex = myIndex; 
+            card.style.zIndex = myIndex + 1; 
             
             if (slotBelow.id.includes('hand') || slotBelow.id.includes('look') || slotBelow.id.includes('modal')) { 
                 card.style.position = 'relative';
@@ -2519,8 +2522,8 @@ function createCardDOM(cardData, networkId, isMine) {
                     let handArea = document.getElementById('my-hand-area');
                     handArea.appendChild(cardToDraw);
                     cardToDraw.style.position = 'relative'; cardToDraw.style.left = '0'; cardToDraw.style.top = '0'; cardToDraw.style.transform = 'none';
-                    cardToDraw.classList.remove('is-flipped', 'rest', 'in-life'); cardToDraw.style.zIndex = '';
-                    recalcStacking(deckArea); updateSlotCounts(); broadcastMyState(); 
+                    cardToDraw.classList.remove('is-flipped', 'rest', 'in-life');
+                    recalcStacking(deckArea); recalcStacking(handArea); updateSlotCounts(); broadcastMyState(); 
                     
                     playSound('draw'); 
                     showCenterAlert('', '抽牌', 'Draw!', '#6fb897');
@@ -2697,8 +2700,8 @@ function createCardDOM(cardData, networkId, isMine) {
                 let handArea = document.getElementById('my-hand-area');
                 handArea.appendChild(cardToDraw);
                 cardToDraw.style.position = 'relative'; cardToDraw.style.left = '0'; cardToDraw.style.top = '0'; cardToDraw.style.transform = 'none';
-                cardToDraw.classList.remove('is-flipped', 'rest', 'in-life'); cardToDraw.style.zIndex = '';
-                recalcStacking(deckArea); updateSlotCounts(); broadcastMyState(); 
+                cardToDraw.classList.remove('is-flipped', 'rest', 'in-life');
+                recalcStacking(deckArea); recalcStacking(handArea); updateSlotCounts(); broadcastMyState(); 
                 
                 playSound('draw'); showCenterAlert('', '抽牌', 'Draw!', '#6fb897');
             } else if (action === 'shuffle' && cards.length > 1) {
