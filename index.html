@@ -1882,7 +1882,10 @@
                 let tiltVal = el.style.getPropertyValue('--tilt') || '0deg';
 
                 let absoluteZIndex = el.style.zIndex !== '' ? parseInt(el.style.zIndex) : index;
-                if (pId.includes('hand') || pId.includes('look')) absoluteZIndex = index;
+                if (pId.includes('hand') || pId.includes('look')) {
+                    const sibs = Array.from(el.parentElement.querySelectorAll('.card'));
+                    absoluteZIndex = sibs.indexOf(el) + 1;
+                }
 
                 state.push({ 
                     id: el.dataset.networkId, parent: pId, 
@@ -2014,6 +2017,8 @@
                 document.querySelectorAll('#opp-front-line .slot').forEach(slot => updateBpDisplay(slot, 0));
             }
 
+            recalcStacking(document.getElementById('opp-hand-area'));
+            recalcStacking(document.getElementById('opp-look-area'));
             updateSlotCounts();
             updateLifeAreaHeight(document.getElementById('opp-life-area'));
             if (window.uaEngine) {
@@ -2898,7 +2903,8 @@ function createCardDOM(cardData, networkId, isMine) {
             const dlcFiles = [
                 'card-scripts.js',
                 'dlc-syn-yellow.js', 'dlc-syn-red.js', 'dlc-syn-purple.js',
-                'dlc-rez-yellow.js', 'dlc-rez-blue.js', 'dlc-rez-purple.js', 'dlc-rez-green.js', 'dlc-rez-red.js'
+                'dlc-rez-yellow.js', 'dlc-rez-blue.js', 'dlc-rez-purple.js', 'dlc-rez-green.js', 'dlc-rez-red.js',
+                'dlc-skm-yellow.js', 'dlc-skm-purple.js', 'dlc-skm-red.js', 'dlc-skm-blue.js', 'dlc-skm-green.js'
             ];
             dlcFiles.forEach(file => {
                 const s = document.createElement('script');
