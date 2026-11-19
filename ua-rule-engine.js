@@ -29,6 +29,19 @@ constructor() {
             this.deckDominantColor = null;
             this.recentLogs = [];
             this.lastExecutedContext = null;
+            this.bouncedCharThisTurn = false;
+            this.playedFromDeckThisTurn = false;
+            this.usedNamedAbilityThisTurn = new Set();
+        }
+
+        getCardScriptById(cardId) {
+            if (!cardId || !window.UACardScripts) return null;
+            return window.UACardScripts[this.getBaseCardId(cardId)] || window.UACardScripts[cardId] || null;
+        }
+
+        getCardScript(cardEl) {
+            if (!cardEl || !cardEl.dataset?.cardId) return null;
+            return this.getCardScriptById(cardEl.dataset.cardId);
         }
 
         resetMatchState() {
@@ -39,6 +52,9 @@ constructor() {
             this.hasTakenFirstTurn = false;
             this.currentPhase = '起始';
             this.usedExtraDraw = false;
+            this.bouncedCharThisTurn = false;
+            this.playedFromDeckThisTurn = false;
+            this.usedNamedAbilityThisTurn.clear();
             this.cardRuntime.clear();
             this.deckDominantColor = null;
             this.resolvedDefCache.clear();
@@ -1210,6 +1226,9 @@ injectEngineUI() {
         beginMyTurn() {
             this.isMyTurn = true;
             this.usedExtraDraw = false;
+            this.bouncedCharThisTurn = false;
+            this.playedFromDeckThisTurn = false;
+            this.usedNamedAbilityThisTurn.clear();
 
             this.cardRuntime.forEach(rt => {
                 rt.enteredThisTurn = false;
@@ -1387,13 +1406,16 @@ injectEngineUI() {
             }
 
             const req = cardDef.requiredEnergy || { color: 'NONE', count: 0 };
-            if (req.count > 0 && req.color !== 'NONE') {
+            const script = this.getCardScriptById(cardDef.id);
+            const discount = (script && typeof script.getEnergyDiscount === 'function') ? (script.getEnergyDiscount(this, cardDef) || 0) : 0;
+            const neededCount = Math.max(0, req.count - discount);
+            if (neededCount > 0 && req.color !== 'NONE') {
                 const myEn = this.calculateMyEnergy();
                 const colorCount = myEn[req.color] || 0;
-                if (colorCount < req.count) {
+                if (colorCount < neededCount) {
                     return {
                         ok: false,
-                        reason: `能源不足！【${cardDef.name}】需要 ${COLOR_NAMES[req.color]}×${req.count}，目前能源線僅產生 ${COLOR_NAMES[req.color]}×${colorCount}。（若能源線有雙球卡，可點擊卡槽下方的能源徽章切換為 ×2）`
+                        reason: `能源不足！【${cardDef.name}】需要 ${COLOR_NAMES[req.color]}×${neededCount}，目前能源線僅產生 ${COLOR_NAMES[req.color]}×${colorCount}。（若能源線有雙球卡，可點擊卡槽下方的能源徽章切換為 ×2）`
                     };
                 }
             }
@@ -1494,8 +1516,11 @@ injectEngineUI() {
                 return;
             }
 
-            // C. 突襲疊牌離場拆解
+            // C. 突襲疊牌離場拆解（若返回手牌則記錄本回合有角色離場回手牌）
             if ((fromFront || fromEnergy) && !toFront && !toEnergy) {
+                if (dropZone.id === 'my-hand-area' && def.type === 'CHARACTER') {
+                    this.bouncedCharThisTurn = true;
+                }
                 const allInSlot = Array.from(originalParent.querySelectorAll('.card'));
                 if (allInSlot.length > 1 && cards.length > 1) {
                     const topCard = allInSlot[allInSlot.length - 1];
@@ -1761,6 +1786,32 @@ injectEngineUI() {
                     const isFront = !!slot.closest('#my-front-line');
                     const isEnergy = !!slot.closest('#my-energy-line');
 
+                    const script = this.getCardScript(topCard);
+                    if (script && typeof script.onActivateMain === 'function') {
+                        const canAct = typeof script.canActivateMain === 'function' ? script.canActivateMain(this, topCard, slot) : true;
+                        if (canAct) {
+                            const btn = document.createElement('button');
+                            btn.className = 'eng-card-btn';
+                            btn.innerText = '⚡ 啟動主要';
+                            btn.style.cssText = `
+                                position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+                                width: 92%; background: linear-gradient(135deg, #f39c12, #d35400); color: #fff;
+                                border: 2px solid #fff; border-radius: 8px; padding: 8px 6px;
+                                font-size: 14px; font-weight: 900; cursor: pointer; z-index: 1200;
+                                box-shadow: 0 4px 12px rgba(0,0,0,0.9); white-space: nowrap;
+                            `;
+                            btn.onclick = (e) => {
+                                e.stopPropagation();
+                                script.onActivateMain(this, topCard, slot, () => {
+                                    this.updateEnergyHUD();
+                                    broadcastMyState();
+                                });
+                            };
+                            slot.appendChild(btn);
+                        }
+                        return;
+                    }
+
                     const mainAbilities = def.parsedAbilities.filter(a => {
                         if (!a.timings.includes('ACTIVATE_MAIN')) return false;
                         if (a.requireRaided && !rt.isRaided) return false;
@@ -1892,7 +1943,28 @@ injectEngineUI() {
         triggerCardAbilities(cardEl, timing, onComplete = null) {
             const def = this.getCardDef(cardEl);
             const rt = this.getRuntime(cardEl);
-            if (!def || !def.parsedAbilities) {
+            if (!def) {
+                if (onComplete) onComplete();
+                return;
+            }
+
+            const script = this.getCardScript(cardEl);
+            if (script) {
+                if (timing === 'ON_PLAY' && typeof script.onPlay === 'function') {
+                    script.onPlay(this, cardEl, () => { this.updateEnergyHUD(); broadcastMyState(); if (onComplete) onComplete(); });
+                    return;
+                }
+                if (timing === 'ON_RETIRE' && typeof script.onRetire === 'function') {
+                    script.onRetire(this, cardEl, () => { this.updateEnergyHUD(); broadcastMyState(); if (onComplete) onComplete(); });
+                    return;
+                }
+                if (timing === 'CONTINUOUS' && def.type === 'EVENT' && typeof script.onEventPlay === 'function') {
+                    script.onEventPlay(this, cardEl, () => { this.updateEnergyHUD(); broadcastMyState(); if (onComplete) onComplete(); });
+                    return;
+                }
+            }
+
+            if (!def.parsedAbilities) {
                 if (onComplete) onComplete();
                 return;
             }
@@ -2142,6 +2214,34 @@ injectEngineUI() {
                     case 'MILL_DECK': {
                         this.millDeckCards(act.count);
                         next();
+                        break;
+                    }
+
+                    case 'PUT_HAND_TO_DECK_TOP': {
+                        const handCards = Array.from(document.querySelectorAll('#my-hand-area .card'));
+                        if (handCards.length === 0) { next(); break; }
+                        const cnt = Math.min(act.count || 1, handCards.length);
+                        this.promptModal({
+                            title: `⬆️ 選擇 ${cnt} 張手牌放回牌組頂端`,
+                            desc: `請選擇 ${cnt} 張手牌放回牌組頂端：`,
+                            cards: handCards,
+                            selectCount: cnt,
+                            upTo: false,
+                            onConfirm: (selected) => {
+                                const deckArea = document.getElementById('my-deck-area');
+                                selected.forEach(c => {
+                                    deckArea.appendChild(c);
+                                    c.classList.add('is-flipped');
+                                    c.classList.remove('rest', 'in-life');
+                                    c.style.position = 'absolute';
+                                });
+                                recalcStacking(deckArea);
+                                updateSlotCounts();
+                                broadcastMyState();
+                                sendSystemChat(`⬆️ [規則引擎] 對手將 ${selected.length} 張手牌放回牌組頂端。`);
+                                next();
+                            }
+                        });
                         break;
                     }
 
@@ -2751,7 +2851,9 @@ injectEngineUI() {
             const slot = cardEl.parentElement;
             const tracker = slot ? slot.querySelector('.bp-tracker') : null;
             const mod = tracker ? (parseInt(tracker.dataset.bp, 10) || 0) : 0;
-            return Math.max(0, def.bp + mod);
+            const script = this.getCardScript(cardEl);
+            const scriptBonus = (script && typeof script.getContinuousBpBonus === 'function') ? (script.getContinuousBpBonus(this, cardEl) || 0) : 0;
+            return Math.max(0, def.bp + mod + scriptBonus);
         }
 
         addSlotBp(slot, delta) {
@@ -2970,6 +3072,10 @@ injectEngineUI() {
 
             if (def?.compiledRules?.staticKeywords?.impact) baseImpact = parseInt(def.compiledRules.staticKeywords.impact, 10) || 1;
             else if (def?.keywords?.includes('インパクト')) baseImpact = 1;
+            const script = this.getCardScript(cardEl);
+            if (script && typeof script.getContinuousImpact === 'function') {
+                baseImpact = Math.max(baseImpact, script.getContinuousImpact(this, cardEl) || 0);
+            }
             if (rt?.tempKeywords?.IMPACT) baseImpact = Math.max(baseImpact, rt.tempKeywords.IMPACT);
             if (rt?.tempKeywords?.IMPACT_PLUS) baseImpact += rt.tempKeywords.IMPACT_PLUS;
             return baseImpact;
@@ -2993,6 +3099,13 @@ injectEngineUI() {
             const dmg = this.getCardDamageValue(attackerCard);
             sendSystemChat(`💔 [直擊傷害] 【${this.getCardDef(attackerCard)?.name}】對玩家造成 ${dmg} 點傷害！`);
             this.sendDamageToOpponent(dmg);
+            const script = this.getCardScript(attackerCard);
+            if (script && typeof script.onUnblockedAttack === 'function') {
+                script.onUnblockedAttack(this, attackerCard, () => {
+                    this.updateEnergyHUD();
+                    broadcastMyState();
+                });
+            }
         }
 
         sendDamageToOpponent(damageCount) {
@@ -3240,6 +3353,38 @@ injectEngineUI() {
             broadcastMyState();
         }
 
+        playCardFreeFromDeck(cardEl, onComplete = null) {
+            const def = this.getCardDef(cardEl);
+            const rt = this.getRuntime(cardEl);
+            this.playedFromDeckThisTurn = true;
+            if (rt) {
+                rt.enteredFromDeck = true;
+                rt.enteredThisTurn = true;
+            }
+
+            if (def?.type === 'EVENT') {
+                this.moveCardToZone(cardEl, document.getElementById('my-outside-area'));
+                sendSystemChat(`🪄 [牌組免費使用] 對手從牌組不支付 AP 使用了事件卡【${def.name}】！`);
+                this.triggerCardAbilities(cardEl, 'CONTINUOUS', onComplete);
+                return;
+            }
+
+            const selector = (def?.type === 'FIELD') ? '#my-energy-line .slot' : '#my-front-line .slot, #my-energy-line .slot';
+            const emptySlot = Array.from(document.querySelectorAll(selector)).find(s => s.querySelectorAll('.card').length === 0);
+            if (!emptySlot) {
+                showSysMsg('❌ 場上沒有空位，改將卡片加入手牌！');
+                this.moveCardToZone(cardEl, document.getElementById('my-hand-area'));
+                if (onComplete) onComplete();
+                return;
+            }
+
+            this.moveCardToZone(cardEl, emptySlot);
+            if (def?.compiledRules?.entersActive) cardEl.classList.remove('rest');
+            else cardEl.classList.add('rest');
+            sendSystemChat(`✨ [牌組免費使用] 對手從牌組不支付 AP 登場了【${def?.name}】！`);
+            this.triggerCardAbilities(cardEl, 'ON_PLAY', onComplete);
+        }
+
         bounceSlotTopCardToHand(slot) {
             if (!slot) return;
             const cards = Array.from(slot.querySelectorAll('.card'));
@@ -3248,6 +3393,10 @@ injectEngineUI() {
             const underCards = cards.slice(0, cards.length - 1);
             const outsideArea = document.getElementById('my-outside-area');
             const handArea = document.getElementById('my-hand-area');
+
+            if (this.getCardDef(topCard)?.type === 'CHARACTER') {
+                this.bouncedCharThisTurn = true;
+            }
 
             updateBpDisplay(slot, 0);
             underCards.forEach(uc => this.moveCardToZone(uc, outsideArea));
