@@ -976,13 +976,11 @@ injectEngineUI() {
                     <div id="eng-turn-badge" style="background:#313456; color:#00ffcc; padding:3px 6px; border-radius:4px; font-size:12px; font-weight:bold;">⚡ 自由/未定先攻</div>
                     <button id="btn-claim-first" class="ctrl-btn" style="background:#8d7cc4; padding:6px 4px; font-size:12px; width:100%;">🎲 設我方先攻</button>
                     <button id="btn-extra-draw" class="ctrl-btn" style="background:#4f9678; padding:6px 4px; font-size:12px; width:100%; display:none;">💎 額外抽卡(1AP)</button>
-                    <button id="btn-report-bug" class="ctrl-btn" style="background:#d35400; padding:6px 4px; font-size:12px; width:100%;" title="複製目前選取或最近發動卡片的診斷 JSON">🐞 回報效果錯誤</button>
                 `;
                 sidebar.insertBefore(engPanel, sidebar.firstChild);
 
                 document.getElementById('btn-claim-first').onclick = () => this.startMatchAsFirstPlayer();
                 document.getElementById('btn-extra-draw').onclick = () => this.executeExtraDraw();
-                document.getElementById('btn-report-bug').onclick = () => this.copyBugReportToClipboard();
             }
 
             const myEnergyRow = document.getElementById('my-energy-line');
@@ -1446,33 +1444,33 @@ injectEngineUI() {
             const toOutside = dropZone.id === 'my-outside-area';
             const toRemove = dropZone.id === 'my-remove-area';
 
-            // A. 場上移動
+            // A. 場上移動（解除階段硬鎖，確保主要/戰鬥階段的移動效果與手動換位皆可順利操作）
             if ((fromFront || fromEnergy) && (toFront || toEnergy) && originalParent !== dropZone) {
-                if (this.currentPhase !== '移動') {
-                    showSysMsg('❌ 根據規則，只能在【移動階段】移動場上的角色卡！');
-                    defaultFinalizeFn(cards, null, 'cancel', originalParent, endX);
-                    return;
-                }
-                if (def.type === 'FIELD') {
-                    showSysMsg('❌ 場域卡（Field）不可移動！');
-                    defaultFinalizeFn(cards, null, 'cancel', originalParent, endX);
-                    return;
-                }
-                if (fromFront && toEnergy) {
+                const existingCards = Array.from(dropZone.querySelectorAll('.card'));
+                if (existingCards.length > 0) {
+                    // 目標卡槽已有卡片：若是 [ステップ] 退回能源線則自動互換；否則開啟疊牌／交換選單
                     const hasStep = def.keywords?.includes('ステップ') || def.compiledRules?.staticKeywords?.step || this.getRuntime(mainCard)?.tempKeywords?.STEP;
-                    if (!hasStep) {
-                        showSysMsg(`❌ 【${def.name}】未持有 [ステップ (步進)]，不可從前線退回能源線！`);
-                        defaultFinalizeFn(cards, null, 'cancel', originalParent, endX);
-                        return;
-                    }
-                    const existingCards = Array.from(dropZone.querySelectorAll('.card'));
-                    if (existingCards.length > 0) {
+                    if (fromFront && toEnergy && hasStep && this.currentPhase === '移動') {
                         const targetTop = this.getTopCardInSlot(dropZone);
                         if (this.getCardDef(targetTop)?.type === 'CHARACTER') {
                             existingCards.forEach(ec => originalParent.appendChild(ec));
                             recalcStacking(originalParent);
                             showSysMsg('🔄 發動 [ステップ]：已與能源線的角色互換位置！');
+                            defaultFinalizeFn(cards, dropZone, 'default', originalParent, endX);
+                            this.updateEnergyHUD();
+                            return;
                         }
+                    }
+                    this.promptOverlayPlacementMenu(cards, mainCard, def, dropZone, originalParent, endX, defaultFinalizeFn, false);
+                    return;
+                }
+
+                if (this.currentPhase !== '移動') {
+                    showSysMsg(`🔄 非移動階段移動：【${def.name}】（視為效果移動）`);
+                } else if (fromFront && toEnergy) {
+                    const hasStep = def.keywords?.includes('ステップ') || def.compiledRules?.staticKeywords?.step || this.getRuntime(mainCard)?.tempKeywords?.STEP;
+                    if (!hasStep) {
+                        showSysMsg(`ℹ️ 【${def.name}】已退回能源線（若非卡片效果，請注意需具備 [ステップ]）`);
                     }
                 }
                 defaultFinalizeFn(cards, dropZone, 'default', originalParent, endX);
@@ -1480,18 +1478,20 @@ injectEngineUI() {
                 return;
             }
 
-            // B. 未滿 4 張禁止主動送移除區
+            // B. 場上移至移除區（允許效果移至移除區，不硬性阻擋）
             if ((fromFront || fromEnergy) && toRemove) {
-                const lineSelector = fromFront ? '#my-front-line .slot' : '#my-energy-line .slot';
-                let occupiedCount = 0;
-                document.querySelectorAll(lineSelector).forEach(s => {
-                    if (s.querySelectorAll('.card').length > 0) occupiedCount++;
-                });
-                if (occupiedCount < 4) {
-                    showSysMsg('❌ 根據官方規則：該線未滿 4 張時，不可主動將場上的卡片放置到移除區！');
-                    defaultFinalizeFn(cards, null, 'cancel', originalParent, endX);
-                    return;
+                const allInSlot = Array.from(originalParent.querySelectorAll('.card'));
+                if (allInSlot.length > 1 && cards.length > 1) {
+                    const topCard = allInSlot[allInSlot.length - 1];
+                    const underCards = allInSlot.slice(0, allInSlot.length - 1);
+                    const outsideArea = document.getElementById('my-outside-area');
+                    underCards.forEach(uc => this.moveCardToZone(uc, outsideArea));
+                    defaultFinalizeFn([topCard], dropZone, action, originalParent, endX);
+                } else {
+                    defaultFinalizeFn(cards, dropZone, action, originalParent, endX);
                 }
+                this.updateEnergyHUD();
+                return;
             }
 
             // C. 突襲疊牌離場拆解
@@ -1508,7 +1508,13 @@ injectEngineUI() {
                 }
             }
 
-            // D. 從手牌打出卡片
+            // D. 從非場上區域（手牌／場外／檢索等）覆蓋到已有卡片的場上卡槽：統一跳出「突襲／正表放上／背表放下／正表放下」選單
+            if ((toFront || toEnergy) && dropZone.querySelectorAll('.card').length > 0) {
+                this.promptOverlayPlacementMenu(cards, mainCard, def, dropZone, originalParent, endX, defaultFinalizeFn, fromHand);
+                return;
+            }
+
+            // E. 從手牌打出至空白卡槽或場外（事件卡）
             if (fromHand && (toFront || toEnergy || toOutside)) {
                 if (def.type === 'EVENT') {
                     const check = this.checkPlayRequirements(def);
@@ -1547,39 +1553,113 @@ injectEngineUI() {
             this.updateEnergyHUD();
         }
 
-        completeNormalPlay(cards, mainCard, def, dropZone, originalParent, endX, defaultFinalizeFn) {
-            const toFront = dropZone.closest('#my-front-line');
+        promptOverlayPlacementMenu(cards, mainCard, def, dropZone, originalParent, endX, defaultFinalizeFn, isFromHand) {
+            const toFront = !!dropZone.closest('#my-front-line');
+            const isEnergySlot = !!dropZone.closest('#my-energy-line');
             const existingCards = Array.from(dropZone.querySelectorAll('.card'));
+            const emptyFrontSlot = Array.from(document.querySelectorAll('#my-front-line .slot')).find(s => s.querySelectorAll('.card').length === 0);
+            const canRaid = isFromHand && this.canRaidOntoSlot(def, dropZone);
+            const playCheck = isFromHand ? this.checkPlayRequirements(def) : { ok: false };
 
-            if (existingCards.length > 0) {
-                if (this.canRaidOntoSlot(def, dropZone)) {
-                    this.promptRaidConfirmation(mainCard, def, dropZone, originalParent, endX, defaultFinalizeFn);
-                    return;
+            const buttons = [];
+
+            // 1. 合法突襲選項
+            if (canRaid && playCheck.ok) {
+                if (isEnergySlot && emptyFrontSlot) {
+                    buttons.push({
+                        label: '🚀 突襲並直接移至【前線】(耗 AP)',
+                        color: '#e67e22',
+                        onClick: () => this.executeRaidSummon(mainCard, def, dropZone, true, originalParent, endX, defaultFinalizeFn)
+                    });
                 }
+                buttons.push({
+                    label: '⚡ 發動突襲 (活動狀態疊放，耗 AP)',
+                    color: '#c1596f',
+                    onClick: () => this.executeRaidSummon(mainCard, def, dropZone, false, originalParent, endX, defaultFinalizeFn)
+                });
+            }
 
+            // 2. 滿 4 張覆蓋登場選項
+            if (isFromHand && playCheck.ok) {
                 const lineSelector = toFront ? '#my-front-line .slot' : '#my-energy-line .slot';
                 let occupied = 0;
                 document.querySelectorAll(lineSelector).forEach(s => {
                     if (s.querySelectorAll('.card').length > 0) occupied++;
                 });
-
-                if (occupied < 4) {
-                    showSysMsg('❌ 該線尚有空位（未滿4張），請放置於空白卡槽！（或該目標不符合突襲條件）');
-                    defaultFinalizeFn(cards, null, 'cancel', originalParent, endX);
-                    return;
-                } else {
-                    if (!confirm(`該線已滿 4 張！是否將此卡槽原本的卡片移至【移除區】並讓【${def.name}】登場？`)) {
-                        defaultFinalizeFn(cards, null, 'cancel', originalParent, endX);
-                        return;
-                    }
-                    const removeArea = document.getElementById('my-remove-area');
-                    const topOld = existingCards[existingCards.length - 1];
-                    const underOld = existingCards.slice(0, existingCards.length - 1);
-                    this.moveCardToZone(topOld, removeArea);
-                    underOld.forEach(uc => this.moveCardToZone(uc, document.getElementById('my-outside-area')));
+                if (occupied >= 4) {
+                    buttons.push({
+                        label: '🗑️ 移除原卡並登場 (耗 AP)',
+                        color: '#d35400',
+                        onClick: () => {
+                            const removeArea = document.getElementById('my-remove-area');
+                            const topOld = existingCards[existingCards.length - 1];
+                            const underOld = existingCards.slice(0, existingCards.length - 1);
+                            this.moveCardToZone(topOld, removeArea);
+                            underOld.forEach(uc => this.moveCardToZone(uc, document.getElementById('my-outside-area')));
+                            this.completeNormalPlay(cards, mainCard, def, dropZone, originalParent, endX, defaultFinalizeFn);
+                        }
+                    });
                 }
             }
 
+            // 3. 場上卡片互相交換位置（若從場上另一格拖來）
+            if (!isFromHand && originalParent && (originalParent.closest('#my-front-line') || originalParent.closest('#my-energy-line'))) {
+                buttons.push({
+                    label: '🔄 與此格角色互換位置',
+                    color: '#4f9678',
+                    onClick: () => {
+                        existingCards.forEach(ec => originalParent.appendChild(ec));
+                        recalcStacking(originalParent);
+                        defaultFinalizeFn(cards, dropZone, 'default', originalParent, endX);
+                        this.updateEnergyHUD();
+                    }
+                });
+            }
+
+            // 4. 完整保留原本的疊牌選項（正表放上／背表放下／正表放下，不扣 AP，供各種效果使用）
+            buttons.push({
+                label: '⬆️ 正表放上 (直立疊在上方)',
+                color: '#6c93c7',
+                onClick: () => {
+                    defaultFinalizeFn(cards, dropZone, 'top-faceup', originalParent, endX);
+                    this.updateEnergyHUD();
+                }
+            });
+            buttons.push({
+                label: '📥 背表放下 (裏側墊底下)',
+                color: '#5c6bc0',
+                onClick: () => {
+                    defaultFinalizeFn(cards, dropZone, 'bottom-facedown', originalParent, endX);
+                    this.updateEnergyHUD();
+                }
+            });
+            buttons.push({
+                label: '📤 正表放下 (表側墊底下)',
+                color: '#7e57c2',
+                onClick: () => {
+                    defaultFinalizeFn(cards, dropZone, 'bottom-faceup', originalParent, endX);
+                    this.updateEnergyHUD();
+                }
+            });
+            buttons.push({
+                label: '❌ 取消放置',
+                color: '#7f8c8d',
+                onClick: () => {
+                    defaultFinalizeFn(cards, null, 'cancel', originalParent, endX);
+                }
+            });
+
+            this.promptModal({
+                title: `📥 選擇放置方式：【${def?.name || '卡片'}】`,
+                desc: canRaid && !playCheck.ok
+                    ? `（提示：目前無法消耗 AP 突襲：${playCheck.reason}，仍可選擇下方手動疊放方式）`
+                    : `請選擇要如何將此卡放置於該卡槽：`,
+                cards: [],
+                customButtons: buttons
+            });
+        }
+
+        completeNormalPlay(cards, mainCard, def, dropZone, originalParent, endX, defaultFinalizeFn) {
             this.payAp(def.apCost || 1);
             defaultFinalizeFn(cards, dropZone, 'default', originalParent, endX);
 
@@ -1695,11 +1775,11 @@ injectEngineUI() {
                         btn.className = 'eng-card-btn';
                         btn.innerText = '⚡ 啟動主要';
                         btn.style.cssText = `
-                            position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
-                            background: linear-gradient(135deg, #f39c12, #d35400); color: #fff;
-                            border: 2px solid #fff; border-radius: 6px; padding: 4px 8px;
-                            font-size: 12px; font-weight: bold; cursor: pointer; z-index: 1200;
-                            box-shadow: 0 4px 10px rgba(0,0,0,0.8); white-space: nowrap;
+                            position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+                            width: 92%; background: linear-gradient(135deg, #f39c12, #d35400); color: #fff;
+                            border: 2px solid #fff; border-radius: 8px; padding: 8px 6px;
+                            font-size: 14px; font-weight: 900; cursor: pointer; z-index: 1200;
+                            box-shadow: 0 4px 12px rgba(0,0,0,0.9); white-space: nowrap;
                         `;
                         btn.onclick = (e) => {
                             e.stopPropagation();
@@ -1718,14 +1798,15 @@ injectEngineUI() {
                     const rt = this.getRuntime(topCard);
                     if (!def || def.type !== 'CHARACTER') return;
 
+                    const hasSnipe = !!(def.keywords?.includes('狙い撃ち') || def.compiledRules?.staticKeywords?.snipe || rt?.tempKeywords?.SNIPE);
                     const atkBtn = document.createElement('button');
                     atkBtn.className = 'eng-card-btn';
-                    atkBtn.innerText = '⚔️ 攻擊玩家';
+                    atkBtn.innerText = '⚔️ 攻擊';
                     atkBtn.style.cssText = `
-                        position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
-                        background: #c1596f; color: #fff; border: 2px solid #fff;
-                        border-radius: 6px; padding: 4px 8px; font-size: 12px; font-weight: bold;
-                        cursor: pointer; z-index: 1200; box-shadow: 0 4px 10px rgba(0,0,0,0.8); white-space: nowrap;
+                        position: absolute; ${hasSnipe ? 'top: 24%;' : 'top: 50%;'} left: 50%; transform: translate(-50%, -50%);
+                        width: 94%; background: linear-gradient(135deg, #e74c3c, #c0392b); color: #fff; border: 2px solid #fff;
+                        border-radius: 8px; padding: 12px 6px; font-size: 16px; font-weight: 900; letter-spacing: 1px;
+                        cursor: pointer; z-index: 1200; box-shadow: 0 6px 16px rgba(0,0,0,0.9); white-space: nowrap;
                     `;
                     atkBtn.onclick = (e) => {
                         e.stopPropagation();
@@ -1733,15 +1814,15 @@ injectEngineUI() {
                     };
                     slot.appendChild(atkBtn);
 
-                    if (def.keywords?.includes('狙い撃ち') || def.compiledRules?.staticKeywords?.snipe || rt?.tempKeywords?.SNIPE) {
+                    if (hasSnipe) {
                         const snipeBtn = document.createElement('button');
                         snipeBtn.className = 'eng-card-btn';
-                        snipeBtn.innerText = '🎯 狙擊角色';
+                        snipeBtn.innerText = '🎯 狙擊';
                         snipeBtn.style.cssText = `
-                            position: absolute; top: 38px; left: 50%; transform: translateX(-50%);
-                            background: #8e44ad; color: #fff; border: 2px solid #fff;
-                            border-radius: 6px; padding: 4px 8px; font-size: 12px; font-weight: bold;
-                            cursor: pointer; z-index: 1200; box-shadow: 0 4px 10px rgba(0,0,0,0.8); white-space: nowrap;
+                            position: absolute; top: 68%; left: 50%; transform: translate(-50%, -50%);
+                            width: 94%; background: linear-gradient(135deg, #9b59b6, #6c3483); color: #fff; border: 2px solid #fff;
+                            border-radius: 8px; padding: 11px 6px; font-size: 15px; font-weight: 900; letter-spacing: 1px;
+                            cursor: pointer; z-index: 1200; box-shadow: 0 6px 16px rgba(0,0,0,0.9); white-space: nowrap;
                         `;
                         snipeBtn.onclick = (e) => {
                             e.stopPropagation();
@@ -2438,9 +2519,12 @@ injectEngineUI() {
                         break;
                     }
 
-                    // 🌟 萬用半自動輔助面版：遇到特殊專屬句型時開啟可調數值的通用結算工具箱
+                    // 🌟 遇到複雜專屬句型時，改為非阻塞提示並直接交回控制權讓玩家手動操作，不再彈出大視窗打斷對戰
                     case 'INTERACTIVE_FALLBACK': {
-                        this.openInteractiveFallbackModal(sourceCardEl, act, taskContext, next);
+                        const cname = sourceDef?.name || '此卡';
+                        showSysMsg(`ℹ️ 【${cname}】含進階效果，請直接在牌桌手動處理`);
+                        this.recordLog(`MANUAL_SKIP: ${cname} -> ${act.rawSentence}`);
+                        next();
                         break;
                     }
 

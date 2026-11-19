@@ -113,7 +113,13 @@
         .cam-btn:hover { background: #b39ddb; color: black; }
         #btn-3d { background: rgba(0,0,0,0.8); border-color: #6c93c7; }
 
-        .hud-top { position: absolute; top: 0px; left: 50%; transform: translateX(-50%) scale(0.65); transform-origin: top center; width: 95%; max-width: 1400px; display: flex; gap: 15px; z-index: 10010; pointer-events: none; }
+        .hud-top { position: absolute; top: 6px; left: 0; width: 100%; padding: 0 170px 0 80px; box-sizing: border-box; display: flex; justify-content: space-between; align-items: flex-start; z-index: 10010; pointer-events: none; }
+        #opp-look-zone { flex: 0 0 auto; width: 260px; align-items: flex-start; transform: scale(0.55); transform-origin: top left; }
+        #opp-look-area { justify-content: flex-start; }
+        #opp-hand-zone { flex: 0 0 auto; width: 480px; align-items: flex-end; transform: scale(0.56); transform-origin: top right; }
+        #opp-hand-area { justify-content: flex-end; }
+        #opp-hand-area .card { margin-left: -82px; }
+        #opp-hand-area .card:first-child { margin-left: 0; }
         .hud-bottom { position: absolute; bottom: 0px; left: 50%; transform: translateX(-50%) scale(0.75); transform-origin: bottom center; width: 90%; max-width: 900px; display: flex; gap: 15px; z-index: 10010; pointer-events: none; align-items: flex-end; justify-content: center; }
         .hand-zone, .look-zone { pointer-events: auto; }
 
@@ -422,8 +428,8 @@
                 </div>
 
                 <div class="hud-top">
-                    <div class="look-zone" id="opp-look-zone"><div class="line-label">檢索區</div><div class="look-area" id="opp-look-area"></div></div>
-                    <div class="hand-zone" style="flex:7;"><div class="line-label" style="color:#c1596f;">對手手牌區</div><div class="hand-area" id="opp-hand-area"></div></div>
+                    <div class="look-zone" id="opp-look-zone"><div class="line-label">對手檢索區</div><div class="look-area" id="opp-look-area"></div></div>
+                    <div class="hand-zone" id="opp-hand-zone"><div class="line-label" style="color:#c1596f;">對手手牌區</div><div class="hand-area" id="opp-hand-area"></div></div>
                 </div>
 
                 <div class="hud-sidebar">
@@ -436,7 +442,6 @@
                         <div class="phase-step" onclick="setPhase(this, '戰鬥')">戰鬥階段</div>
                     </div>
                     <button id="btn-end-turn" onclick="endTurn()" class="start-btn" style="padding: 12px; font-size: 16px; width: 100%; border: 1px solid #a3455a; background: #c1596f;">結束回合</button>
-                    <button id="btn-undo" onclick="undoLastAction()" class="ctrl-btn" style="padding: 10px; width: 100%; background: #313456; border: 1px solid #7f8c8d;" disabled title="快捷鍵：Ctrl+Z">↩️ 復原上一步</button>
                 </div>
 
                 <div class="hud-bottom">
@@ -1229,8 +1234,8 @@
             let wrapper = document.getElementById('board-viewport');
             if(!wrapper) return;
             
-            let topUIHeight = 110;    
-            let bottomUIHeight = 280; 
+            let topUIHeight = 45;    
+            let bottomUIHeight = 260; 
             
             let safeHeight = wrapper.clientHeight - topUIHeight - bottomUIHeight; 
             let targetHeight = 1000; 
