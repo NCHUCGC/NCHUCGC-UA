@@ -302,6 +302,7 @@
 
     // 23. UA40BT/REZ-1-011 ラム (登場二選一：對手前線BP1500以上全體-1000 / BP2500以上1張-2000)
     scripts['UA40BT/REZ-1-011'] = {
+        requireRaided: true,
         onPlay(engine, cardEl, onComplete) {
             engine.promptModal({
                 title: '⬇️ 【ラム】突襲登場時效果二選一',
@@ -339,6 +340,7 @@
 
     // 27. UA40BT/REZ-1-015 レム (我方回合BP+500；登場抽1棄1；前線起動對手前線BP1500以上-1000；攻擊時全レム抽1棄1)
     scripts['UA40BT/REZ-1-015'] = {
+        requireRaided: true,
         getContinuousBpBonus(engine) { return (engine.isFirstPlayer === null || engine.isMyTurn) ? 500 : 0; },
         onPlay(engine, cardEl, onComplete) {
             engine.executeAbilityActions(cardEl, [{ type: 'DRAW', amount: 1 }, { type: 'DISCARD_HAND', count: 1 }], 0, { selectedTargets: [], addedFromLook: false }, onComplete);
@@ -382,6 +384,7 @@
 
     // 31. UA40BT/REZ-1-019 レム (登場從手牌休息特召3費以下AP1黃ラム/レム；前線起動給ラム或其他レム衝擊1)
     scripts['UA40BT/REZ-1-019'] = {
+        requireRaided: true,
         onPlay(engine, cardEl, onComplete) {
             const cands = Array.from(document.querySelectorAll('#my-hand-area .card')).filter(c => {
                 const d = engine.getCardDef(c);
@@ -431,6 +434,7 @@
 
     // 32. UA40BT/REZ-1-020 レム (登場若全無特徵得衝擊1；起動獲得狙擊並將1張突襲基底送場外)
     scripts['UA40BT/REZ-1-020'] = {
+        requireRaided: true,
         onPlay(engine, cardEl, onComplete) {
             if (allMyChars(engine, d => !d.traits || d.traits.length === 0)) {
                 const rt = engine.getRuntime(cardEl);
@@ -474,6 +478,7 @@
 
     // 39. UA40BT/REZ-1-027 エミリア (登場下次3費以下事件AP-1；場外事件>=4橫置對手前線1張，>=8再冰凍)
     scripts['UA40BT/REZ-1-027'] = {
+        requireRaided: true,
         onPlay(engine, cardEl, onComplete) {
             engine.pendingApDiscounts.push({
                 amount: 1,
@@ -602,6 +607,7 @@
 
     // 60. UA40ST/REZ-1-106 エミリア (場外事件>=6得衝擊1；攻擊時看1放頂或場外，用過事件再抽1)
     scripts['UA40ST/REZ-1-106'] = {
+        requireRaided: true,
         getContinuousImpact(engine) { return engine.countEventsInMyOutside() >= 6 ? 1 : 0; },
         onAttack(engine, cardEl, onComplete) {
             const actions = [{ type: 'LOOK_AND_ARRANGE_TOP', count: 1, keepUpTo: 1, upTo: true, remainderTo: 'OUTSIDE' }];

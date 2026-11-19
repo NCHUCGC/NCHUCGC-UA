@@ -34,6 +34,54 @@ constructor() {
             this.usedEventThisTurn = false;
             this.pendingApDiscounts = [];
             this.usedNamedAbilityThisTurn = new Set();
+            this.waitingForOppTrigger = false;
+            this.oppTriggerTimeoutId = null;
+            this.oppSyncedKeywords = {};
+        }
+
+        // Fix #6: 匯出我方場上所有角色的關鍵字徽章，讓對手端能 100% 同步看到
+        exportMyKeywordBadgesMap() {
+            const map = {};
+            if (!this.enabled) return map;
+            document.querySelectorAll('#my-front-line .slot, #my-energy-line .slot').forEach(slot => {
+                const topCard = this.getTopCardInSlot(slot);
+                if (!topCard || topCard.classList.contains('is-flipped')) return;
+                const badges = this.computeBadgesForCard(topCard);
+                if (badges.length > 0) map[slot.id] = badges;
+            });
+            return map;
+        }
+
+        applyOpponentKeywordBadgesMap(kwStates) {
+            this.oppSyncedKeywords = {};
+            if (!kwStates || typeof kwStates !== 'object') return;
+            for (const [mySlotId, badges] of Object.entries(kwStates)) {
+                const oppSlotId = mySlotId.replace('my-', 'opp-');
+                this.oppSyncedKeywords[oppSlotId] = badges;
+            }
+        }
+
+        computeBadgesForCard(cardEl) {
+            const def = this.getCardDef(cardEl);
+            if (!def || def.type !== 'CHARACTER') return [];
+            const rt = this.getRuntime(cardEl);
+            const innate = this.getInnateStaticKeywords(def);
+            const badges = [];
+
+            const impactVal = this.getCardImpactValue(cardEl);
+            if (impactVal > 0) badges.push({ text: `💥衝擊${impactVal}`, bg: '#c0392b' });
+
+            const hasSnipe = innate.snipe || !!(rt?.tempKeywords?.SNIPE);
+            if (hasSnipe) badges.push({ text: '🎯狙擊', bg: '#8e44ad' });
+
+            const hasDoubleBlock = innate.doubleBlock || !!(rt?.tempKeywords?.DOUBLE_BLOCK);
+            if (hasDoubleBlock) badges.push({ text: '🛡️2回阻擋', bg: '#2980b9' });
+
+            const hasDoubleAttack = innate.doubleAttack || !!(rt?.tempKeywords?.DOUBLE_ATTACK);
+            if (hasDoubleAttack) badges.push({ text: '⚡2回攻擊', bg: '#d35400' });
+
+            if (innate.impactNullify) badges.push({ text: '🚫衝擊無效', bg: '#2c3e50' });
+            return badges;
         }
 
         // 精準解析卡片「常駐自帶關鍵字」，排除「給予他人」「條件獲得」「衝擊無效被誤判為衝擊」等誤判
@@ -171,6 +219,9 @@ constructor() {
             this.usedEventThisTurn = false;
             this.pendingApDiscounts = [];
             this.usedNamedAbilityThisTurn.clear();
+            this.waitingForOppTrigger = false;
+            if (this.oppTriggerTimeoutId) { clearTimeout(this.oppTriggerTimeoutId); this.oppTriggerTimeoutId = null; }
+            this.oppSyncedKeywords = {};
             this.cardRuntime.clear();
             this.deckDominantColor = null;
             this.resolvedDefCache.clear();
@@ -1169,17 +1220,17 @@ injectEngineUI() {
                     ? def.generatedEnergy.color
                     : (def?.color && def.color !== 'NONE' ? def.color : domColor);
 
-                let baseCnt = (def?.generatedEnergy?.count > 0) ? def.generatedEnergy.count : 1;
+                // 修正 cards.js 爬蟲將標準 2 球卡誤標為 3 的問題：UA 卡片基礎產生能源上限為 2
+                let rawBase = (def?.generatedEnergy?.count > 0) ? def.generatedEnergy.count : 1;
+                let baseCnt = Math.min(2, rawBase);
                 const hasActiveEnBoost = !!(def?.effectText && def.effectText.includes('このキャラがアクティブの場合') && /発生エナジー\+\[([赤青緑黄紫]+)\]/.test(def.effectText));
                 let cnt;
                 if (rt && rt.manualEnergyCount !== null) {
                     cnt = rt.manualEnergyCount;
                 } else if (hasActiveEnBoost) {
-                    // 圖鑑爬蟲常將「活動時+1能源」的卡直接標為 generatedEnergy.count = 2；避免重複累加變 3
                     const enBoost = def.effectText.match(/発生エナジー\+\[([赤青緑黄紫]+)\]/);
                     const boostVal = enBoost ? enBoost[1].length : 1;
-                    const trueBase = baseCnt >= (1 + boostVal) ? (baseCnt - boostVal) : baseCnt;
-                    cnt = isActive ? (trueBase + boostVal) : trueBase;
+                    cnt = isActive ? (1 + boostVal) : 1;
                 } else {
                     cnt = baseCnt;
                 }
@@ -1737,7 +1788,8 @@ injectEngineUI() {
 
             const buttons = [];
 
-            // 1. 合法突襲選項
+            // 1. 突襲選項：只要此卡具備突襲條件（或為突襲角色），都提供突襲選項
+            const isRaidCard = !!(def?.compiledRules?.raidCondition || (def?.effectText && def.effectText.includes('[レイド]')));
             if (canRaid && playCheck.ok) {
                 if (isEnergySlot && emptyFrontSlot) {
                     buttons.push({
@@ -1750,6 +1802,19 @@ injectEngineUI() {
                     label: '⚡ 發動突襲 (活動狀態疊放，耗 AP)',
                     color: '#c1596f',
                     onClick: () => this.executeRaidSummon(mainCard, def, dropZone, false, originalParent, endX, defaultFinalizeFn)
+                });
+            } else if (isRaidCard) {
+                if (isEnergySlot && emptyFrontSlot) {
+                    buttons.push({
+                        label: '🚀 突襲並移至【前線】(效果/手動免扣 AP)',
+                        color: '#e67e22',
+                        onClick: () => this.executeRaidSummon(mainCard, def, dropZone, true, originalParent, endX, defaultFinalizeFn, true)
+                    });
+                }
+                buttons.push({
+                    label: '⚡ 突襲放上 (活動狀態疊放，免扣 AP)',
+                    color: '#c1596f',
+                    onClick: () => this.executeRaidSummon(mainCard, def, dropZone, false, originalParent, endX, defaultFinalizeFn, true)
                 });
             }
 
@@ -1937,23 +2002,10 @@ injectEngineUI() {
                 const def = this.getCardDef(topCard);
                 if (!def || def.type !== 'CHARACTER') return;
 
-                const rt = this.getRuntime(topCard);
-                const innate = this.getInnateStaticKeywords(def);
-                const badges = [];
-
-                const impactVal = this.getCardImpactValue(topCard);
-                if (impactVal > 0) badges.push({ text: `💥衝擊${impactVal}`, bg: '#c0392b' });
-
-                const hasSnipe = innate.snipe || !!(rt?.tempKeywords?.SNIPE);
-                if (hasSnipe) badges.push({ text: '🎯狙擊', bg: '#8e44ad' });
-
-                const hasDoubleBlock = innate.doubleBlock || !!(rt?.tempKeywords?.DOUBLE_BLOCK);
-                if (hasDoubleBlock) badges.push({ text: '🛡️2回阻擋', bg: '#2980b9' });
-
-                const hasDoubleAttack = innate.doubleAttack || !!(rt?.tempKeywords?.DOUBLE_ATTACK);
-                if (hasDoubleAttack) badges.push({ text: '⚡2回攻擊', bg: '#d35400' });
-
-                if (innate.impactNullify) badges.push({ text: '🚫衝擊無效', bg: '#2c3e50' });
+                const isOppSlot = slot.id.startsWith('opp-');
+                const badges = (isOppSlot && this.oppSyncedKeywords && this.oppSyncedKeywords[slot.id])
+                    ? this.oppSyncedKeywords[slot.id]
+                    : this.computeBadgesForCard(topCard);
 
                 if (badges.length === 0) return;
 
@@ -1996,7 +2048,8 @@ injectEngineUI() {
 
                     const script = this.getCardScript(topCard);
                     if (script && typeof script.onActivateMain === 'function') {
-                        const canAct = typeof script.canActivateMain === 'function' ? script.canActivateMain(this, topCard, slot) : true;
+                        const raidOk = !script.requireRaided || !!rt.isRaided;
+                        const canAct = raidOk && (typeof script.canActivateMain === 'function' ? script.canActivateMain(this, topCard, slot) : true);
                         if (canAct) {
                             const btn = document.createElement('button');
                             btn.className = 'eng-card-btn';
@@ -2051,6 +2104,22 @@ injectEngineUI() {
             }
 
             if (this.currentPhase === '戰鬥') {
+                if (this.waitingForOppTrigger) {
+                    const firstSlot = document.querySelector('#my-front-line .slot');
+                    if (firstSlot) {
+                        const waitBadge = document.createElement('div');
+                        waitBadge.className = 'eng-card-btn';
+                        waitBadge.innerText = '⏳ 對手處理觸發效果中...';
+                        waitBadge.style.cssText = `
+                            position: absolute; top: -42px; left: 0;
+                            background: rgba(241, 196, 15, 0.95); color: #000;
+                            padding: 6px 14px; border-radius: 8px; font-size: 14px; font-weight: 900;
+                            z-index: 1300; white-space: nowrap; box-shadow: 0 4px 12px rgba(0,0,0,0.8);
+                        `;
+                        firstSlot.appendChild(waitBadge);
+                    }
+                    return;
+                }
                 document.querySelectorAll('#my-front-line .slot').forEach(slot => {
                     const topCard = this.getTopCardInSlot(slot);
                     if (!topCard || topCard.classList.contains('rest')) return;
@@ -2160,6 +2229,11 @@ injectEngineUI() {
 
             const script = this.getCardScript(cardEl);
             if (script) {
+                const raidBlocked = !!script.requireRaided && !rt.isRaided;
+                if (raidBlocked) {
+                    if (onComplete) onComplete();
+                    return;
+                }
                 if (timing === 'ON_PLAY' && typeof script.onPlay === 'function') {
                     script.onPlay(this, cardEl, () => { this.updateEnergyHUD(); broadcastMyState(); if (onComplete) onComplete(); });
                     return;
@@ -3074,7 +3148,9 @@ injectEngineUI() {
             const tracker = slot ? slot.querySelector('.bp-tracker') : null;
             const mod = tracker ? (parseInt(tracker.dataset.bp, 10) || 0) : 0;
             const script = this.getCardScript(cardEl);
-            const scriptBonus = (script && typeof script.getContinuousBpBonus === 'function') ? (script.getContinuousBpBonus(this, cardEl) || 0) : 0;
+            const rtBp = this.getRuntime(cardEl);
+            const raidBpOk = !script?.requireRaided || !!rtBp?.isRaided;
+            const scriptBonus = (script && raidBpOk && typeof script.getContinuousBpBonus === 'function') ? (script.getContinuousBpBonus(this, cardEl) || 0) : 0;
             return Math.max(0, def.bp + mod + scriptBonus);
         }
 
@@ -3141,6 +3217,10 @@ injectEngineUI() {
         }
 
         declareAttack(attackerSlot, attackerCard, snipedOppSlot = null) {
+            if (this.waitingForOppTrigger) {
+                showSysMsg('⏳ 對手正在處理生命觸發效果，請稍候！');
+                return;
+            }
             if (this.combatState) {
                 showSysMsg('⏳ 請等待當前攻擊結算完成！');
                 return;
@@ -3251,21 +3331,23 @@ injectEngineUI() {
 
                     this.triggerCardAbilities(blockerCard, 'ON_BLOCK', () => {
                         broadcastMyState();
+                        const finalBlockerBp = this.getEffectiveCardBp(blockerCard);
                         conn.send({
                             type: 'ENGINE_EVENT',
                             subType: 'BLOCK_RESPONSE',
                             attackId: data.attackId,
                             blocked: true,
-                            blockerSlotId: blockerSlot.id.replace('my-', 'opp-')
+                            blockerSlotId: blockerSlot.id.replace('my-', 'opp-'),
+                            blockerBp: finalBlockerBp
                         });
                     });
                 }
             });
         }
 
-        resolveCharacterBattle(attackerSlot, attackerCard, defenderOppSlot, defenderCard) {
+        resolveCharacterBattle(attackerSlot, attackerCard, defenderOppSlot, defenderCard, reportedDefBp = null) {
             const atkBp = this.getEffectiveCardBp(attackerCard);
-            const defBp = this.getEffectiveCardBp(defenderCard);
+            const defBp = (typeof reportedDefBp === 'number' && !isNaN(reportedDefBp)) ? reportedDefBp : this.getEffectiveCardBp(defenderCard);
             const atkDef = this.getCardDef(attackerCard);
             const defDef = this.getCardDef(defenderCard);
 
@@ -3295,7 +3377,8 @@ injectEngineUI() {
             let baseImpact = this.getInnateStaticKeywords(def).impact;
 
             const script = this.getCardScript(cardEl);
-            if (script && typeof script.getContinuousImpact === 'function') {
+            const raidImpOk = !script?.requireRaided || !!rt?.isRaided;
+            if (script && raidImpOk && typeof script.getContinuousImpact === 'function') {
                 baseImpact = Math.max(baseImpact, script.getContinuousImpact(this, cardEl) || 0);
             }
             if (rt?.persistentKeywords?.IMPACT) baseImpact = Math.max(baseImpact, rt.persistentKeywords.IMPACT);
@@ -3333,6 +3416,14 @@ injectEngineUI() {
 
         sendDamageToOpponent(damageCount) {
             if (conn && isConnected) {
+                this.waitingForOppTrigger = true;
+                if (this.oppTriggerTimeoutId) clearTimeout(this.oppTriggerTimeoutId);
+                this.oppTriggerTimeoutId = setTimeout(() => {
+                    this.waitingForOppTrigger = false;
+                    this.updateEnergyHUD();
+                }, 30000);
+                this.updateEnergyHUD();
+                showSysMsg('⏳ 對手正在處理生命觸發效果...');
                 conn.send({ type: 'ENGINE_EVENT', subType: 'TAKE_LIFE_DAMAGE', count: damageCount });
             }
         }
@@ -3352,6 +3443,9 @@ injectEngineUI() {
             }
 
             this.resolveTriggerSequence(flippedCards, () => {
+                if (conn && isConnected) {
+                    conn.send({ type: 'ENGINE_EVENT', subType: 'TRIGGER_RESOLUTION_DONE' });
+                }
                 if (lifeArea.querySelectorAll('.card').length === 0) {
                     alert('💀 我方生命區已歸零，本局對戰落敗！');
                     sendSystemChat('🏆 [規則引擎] 對手生命區歸零，恭喜你獲得對戰勝利！');
@@ -3372,11 +3466,12 @@ injectEngineUI() {
             const trig = def?.compiledRules?.trigger;
             const outsideArea = document.getElementById('my-outside-area');
 
+            const cardImgUrl = cardEl.querySelector('.card-front img')?.src || def?.imageUrl || '';
             if (!trig && (!def?.triggerText || def.triggerText === '-')) {
                 this.moveCardToZone(cardEl, outsideArea);
                 sendSystemChat(`🛡️ [生命觸發確認] 翻開【${def?.name || '卡片'}】（無 Trigger），放置於場外。`);
                 if (conn && isConnected) {
-                    conn.send({ type: 'ENGINE_EVENT', subType: 'OPP_TRIGGER_REVEAL', cardName: def?.name || '卡片', triggerText: '無 Trigger', activated: false });
+                    conn.send({ type: 'ENGINE_EVENT', subType: 'OPP_TRIGGER_REVEAL', cardName: def?.name || '卡片', imageUrl: cardImgUrl, triggerText: '無 Trigger', activated: false });
                 }
                 this.resolveTriggerSequence(cards, onComplete);
                 return;
@@ -3384,7 +3479,7 @@ injectEngineUI() {
 
             const trigType = trig?.type || 'TRIGGER';
             if (conn && isConnected) {
-                conn.send({ type: 'ENGINE_EVENT', subType: 'OPP_TRIGGER_REVEAL', cardName: def.name, triggerText: def.triggerText || trigType, activated: null });
+                conn.send({ type: 'ENGINE_EVENT', subType: 'OPP_TRIGGER_REVEAL', cardName: def.name, imageUrl: cardImgUrl, triggerText: def.triggerText || trigType, activated: null });
             }
             this.promptModal({
                 title: `✨ 生命區觸發確認：【${def.name}】`,
@@ -3396,7 +3491,7 @@ injectEngineUI() {
                         color: '#2ecc71',
                         onClick: () => {
                             if (conn && isConnected) {
-                                conn.send({ type: 'ENGINE_EVENT', subType: 'OPP_TRIGGER_REVEAL', cardName: def.name, triggerText: def.triggerText || trigType, activated: true });
+                                conn.send({ type: 'ENGINE_EVENT', subType: 'OPP_TRIGGER_REVEAL', cardName: def.name, imageUrl: cardImgUrl, triggerText: def.triggerText || trigType, activated: true });
                             }
                             this.executeTriggerEffect(cardEl, def, { type: trigType }, () => {
                                 this.resolveTriggerSequence(cards, onComplete);
@@ -3408,7 +3503,7 @@ injectEngineUI() {
                         color: '#7f8c8d',
                         onClick: () => {
                             if (conn && isConnected) {
-                                conn.send({ type: 'ENGINE_EVENT', subType: 'OPP_TRIGGER_REVEAL', cardName: def.name, triggerText: def.triggerText || trigType, activated: false });
+                                conn.send({ type: 'ENGINE_EVENT', subType: 'OPP_TRIGGER_REVEAL', cardName: def.name, imageUrl: cardImgUrl, triggerText: def.triggerText || trigType, activated: false });
                             }
                             this.moveCardToZone(cardEl, outsideArea);
                             this.resolveTriggerSequence(cards, onComplete);
@@ -3881,7 +3976,7 @@ handleNetworkEvent(data) {
                     if (data.blocked && this.isValidOppSlotId(data.blockerSlotId)) {
                         const defOppSlot = document.getElementById(data.blockerSlotId);
                         const defCard = this.getTopCardInSlot(defOppSlot);
-                        if (defCard) this.resolveCharacterBattle(atkSlot, atkCard, defOppSlot, defCard);
+                        if (defCard) this.resolveCharacterBattle(atkSlot, atkCard, defOppSlot, defCard, data.blockerBp);
                     } else {
                         this.inflictPlayerDamage(atkCard);
                     }
@@ -3893,9 +3988,35 @@ handleNetworkEvent(data) {
                     break;
                 }
                 case 'OPP_TRIGGER_REVEAL': {
-                    const statusTxt = data.activated === true ? '⚡ 對手已發動觸發！' : (data.activated === false ? '🛡️ 未發動 / 無觸發' : '⏳ 對手正在確認是否發動...');
-                    showCenterAlert('✨', `對手生命觸發：【${data.cardName}】`, statusTxt, data.activated === true ? '#f1c40f' : '#6c93c7');
-                    showSysMsg(`✨ 對手生命翻開【${data.cardName}】(${data.triggerText}) — ${statusTxt}`);
+                    const statusTxt = data.activated === true ? '⚡ 對手已發動觸發效果！' : (data.activated === false ? '🛡️ 未發動 / 無觸發' : '⏳ 對手正在處理觸發效果中...');
+                    let overlay = document.getElementById('opp-trigger-img-overlay');
+                    if (!overlay) {
+                        overlay = document.createElement('div');
+                        overlay.id = 'opp-trigger-img-overlay';
+                        overlay.style.cssText = 'position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:rgba(15,18,32,0.96); border:3px solid #f1c40f; border-radius:16px; padding:18px 24px; z-index:100550; text-align:center; box-shadow:0 0 40px rgba(241,196,15,0.6); color:#fff; min-width:260px;';
+                        document.getElementById('app-canvas').appendChild(overlay);
+                    }
+                    const safeUrl = (typeof data.imageUrl === 'string' && /^(https:\/\/|data:image\/)/i.test(data.imageUrl.trim())) ? data.imageUrl.trim() : '';
+                    overlay.innerHTML = `
+                        <div style="font-size:16px; font-weight:900; color:#f1c40f; margin-bottom:10px;">✨ 對手生命觸發確認</div>
+                        ${safeUrl ? `<img src="${safeUrl}" style="width:170px; height:238px; object-fit:cover; border-radius:8px; border:2px solid #fff; margin-bottom:10px;">` : ''}
+                        <div style="font-size:15px; font-weight:bold; margin-bottom:6px;">${data.cardName || ''}</div>
+                        <div style="font-size:14px; color:#00ffcc; font-weight:bold;">${statusTxt}</div>
+                    `;
+                    overlay.style.display = 'block';
+                    clearTimeout(window._oppTrigOverlayTimer);
+                    if (data.activated !== null) {
+                        window._oppTrigOverlayTimer = setTimeout(() => { overlay.style.display = 'none'; }, 1800);
+                    }
+                    break;
+                }
+                case 'TRIGGER_RESOLUTION_DONE': {
+                    this.waitingForOppTrigger = false;
+                    if (this.oppTriggerTimeoutId) { clearTimeout(this.oppTriggerTimeoutId); this.oppTriggerTimeoutId = null; }
+                    const overlay = document.getElementById('opp-trigger-img-overlay');
+                    if (overlay) setTimeout(() => { overlay.style.display = 'none'; }, 900);
+                    this.updateEnergyHUD();
+                    showSysMsg('✅ 對手生命觸發已處理完畢，可繼續操作！');
                     break;
                 }
                 case 'TAKE_LIFE_DAMAGE':

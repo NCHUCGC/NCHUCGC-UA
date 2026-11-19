@@ -113,6 +113,7 @@
 
     // 07. UA16BT/SYN-1-007 デイジーオーガ (場上有ノワール得衝擊1；前線起動棄2手牌公開牌頂免費使用)
     scripts['UA16BT/SYN-1-007'] = {
+        requireRaided: true,
         getContinuousImpact(engine, cardEl) {
             return engine.hasCharacterOnMyField('ノワール') ? 1 : 0;
         },
@@ -147,6 +148,7 @@
 
     // 08. UA16BT/SYN-1-008 リアリド (場上有アンジェ得衝擊1；登場時可彈回3費以下我方角色，退場對手前線BP3000以下1張)
     scripts['UA16BT/SYN-1-008'] = {
+        requireRaided: true,
         getContinuousImpact(engine, cardEl) {
             return engine.hasCharacterOnMyField('アンジェ') ? 1 : 0;
         },
@@ -535,6 +537,7 @@
 
     // 44. UA16ST/SYN-1-102 デイジーオーガ (登場時公開牌頂1張，我方回合且有ノワール且4費以下AP1黃卡可免費使用)
     scripts['UA16ST/SYN-1-102'] = {
+        requireRaided: true,
         onPlay(engine, cardEl, onComplete) {
             revealTopAndPlayFree(engine, cardEl, { maxEnergy: 4, requireYellow: true, requireMyTurnAndNoir: true }, onComplete);
         }
