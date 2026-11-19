@@ -435,7 +435,7 @@
                         <div class="phase-step" onclick="setPhase(this, '主要')">主要階段</div>
                         <div class="phase-step" onclick="setPhase(this, '戰鬥')">戰鬥階段</div>
                     </div>
-                    <button id="btn-end-turn" onclick="endTurn()" class="start-btn" style="padding: 12px; font-size: 16px; width: 100%; border: 1px solid #a3455a; background: #c1596f;">⛔ 結束回合</button>
+                    <button id="btn-end-turn" onclick="endTurn()" class="start-btn" style="padding: 12px; font-size: 16px; width: 100%; border: 1px solid #a3455a; background: #c1596f;">結束回合</button>
                     <button id="btn-undo" onclick="undoLastAction()" class="ctrl-btn" style="padding: 10px; width: 100%; background: #313456; border: 1px solid #7f8c8d;" disabled title="快捷鍵：Ctrl+Z">↩️ 復原上一步</button>
                 </div>
 
@@ -681,25 +681,65 @@
                 }
             });
         }
-
-        let invalidCardsCache = JSON.parse(localStorage.getItem('ua_invalid_cards')) || [];
+// 1. 補回被覆蓋掉的 invalidCardsSet 與 markCardInvalid
+        localStorage.removeItem('ua_invalid_cards');
+        const invalidCardsSet = new Set();
         window.markCardInvalid = function(cardId) {
-            if (!invalidCardsCache.includes(cardId)) {
-                invalidCardsCache.push(cardId);
-                localStorage.setItem('ua_invalid_cards', JSON.stringify(invalidCardsCache));
-            }
+            invalidCardsSet.add(cardId);
         };
+
+        // 2. 將原本的 ensureCatalogMap() 改為支援動態擴充自訂卡片：
+        window.cardCatalogById = new Map();
+        function ensureCatalogMap() {
+            if (typeof masterCardCatalog !== 'undefined' && window.cardCatalogById.size !== masterCardCatalog.length) {
+                masterCardCatalog.forEach(c => window.cardCatalogById.set(c.id, c));
+            }
+        }
+// 建立全域快速卡號索引表 (O(1) 查表)
+        window.cardCatalogById = new Map();
+        function ensureCatalogMap() {
+            if (window.cardCatalogById.size === 0 && typeof masterCardCatalog !== 'undefined') {
+                masterCardCatalog.forEach(c => window.cardCatalogById.set(c.id, c));
+            }
+        }
+
+        // 將儲存的卡號或舊版物件還原為完整卡片參照
+        function hydrateDeckList(list) {
+            if (!Array.isArray(list)) return [];
+            ensureCatalogMap();
+            return list.map(item => {
+                let id = (typeof item === 'string') ? item : item?.id;
+                let found = window.cardCatalogById.get(id);
+                if (found) return found;
+                // 若為自訂上傳圖片卡片 (CUSTOM_ 開頭)，保留其自訂結構
+                return (typeof item === 'object' && item !== null) ? item : null;
+            }).filter(Boolean);
+        }
+
+        // 存檔時：官方卡片只存卡號字串，自訂圖片卡才存物件，省下 95% localStorage 空間！
+        function dehydrateDeckList(list) {
+            return (list || []).map(c => {
+                if (typeof c === 'string') return c;
+                if (c.id && c.id.startsWith('CUSTOM_')) {
+                    return { id: c.id, name: c.name, series: c.series, imageUrl: c.imageUrl };
+                }
+                return c.id;
+            });
+        }
 
         let allDecks = JSON.parse(localStorage.getItem('ua_all_decks')) || { "預設牌組": { main: [], ap: [] } };
         let currentDeckName = localStorage.getItem('ua_current_deck_name') || "預設牌組";
         if (!allDecks[currentDeckName]) currentDeckName = Object.keys(allDecks)[0]; 
-        if(Array.isArray(allDecks[currentDeckName])) allDecks[currentDeckName] = { main: allDecks[currentDeckName], ap: [] };
+        if (Array.isArray(allDecks[currentDeckName])) allDecks[currentDeckName] = { main: allDecks[currentDeckName], ap: [] };
         
-        let myDeckData = allDecks[currentDeckName].main;
-        let myApData = allDecks[currentDeckName].ap || [];
+        let myDeckData = hydrateDeckList(allDecks[currentDeckName].main);
+        let myApData = hydrateDeckList(allDecks[currentDeckName].ap || []);
 
         function saveAllDecks() {
-            allDecks[currentDeckName] = { main: myDeckData, ap: myApData };
+            allDecks[currentDeckName] = {
+                main: dehydrateDeckList(myDeckData),
+                ap: dehydrateDeckList(myApData)
+            };
             localStorage.setItem('ua_all_decks', JSON.stringify(allDecks));
             localStorage.setItem('ua_current_deck_name', currentDeckName);
         }
@@ -717,7 +757,8 @@
         deckSelector.addEventListener('change', (e) => {
             saveAllDecks(); currentDeckName = e.target.value; 
             if(Array.isArray(allDecks[currentDeckName])) allDecks[currentDeckName] = { main: allDecks[currentDeckName], ap: [] };
-            myDeckData = allDecks[currentDeckName].main; myApData = allDecks[currentDeckName].ap;
+            myDeckData = hydrateDeckList(allDecks[currentDeckName].main);
+            myApData = hydrateDeckList(allDecks[currentDeckName].ap);
             renderDeck();
         });
 
@@ -879,8 +920,20 @@
             if(typeof masterCardCatalog === 'undefined') return;
             const filterSelect = document.getElementById('series-filter');
             let seriesSet = new Set(masterCardCatalog.map(c => c.series));
-            filterSelect.innerHTML = '<option value="ALL">全部作品 (All)</option>';
-            seriesSet.forEach(s => { filterSelect.innerHTML += `<option value="${s}">${s}</option>`; });
+            filterSelect.innerHTML = '';
+            
+            let allOpt = document.createElement('option');
+            allOpt.value = 'ALL';
+            allOpt.textContent = '全部作品 (All)';
+            filterSelect.appendChild(allOpt);
+
+            seriesSet.forEach(s => {
+                let opt = document.createElement('option');
+                opt.value = s;
+                opt.textContent = s; // 安全賦值，防止自訂系列名稱觸發 XSS
+                filterSelect.appendChild(opt);
+            });
+
             if (!filterSelect.dataset.bound) {
                 filterSelect.dataset.bound = 'true';
                 filterSelect.addEventListener('change', (e) => renderBuilder(e.target.value));
@@ -891,7 +944,7 @@
                     clearTimeout(searchDebounceTimer);
                     searchDebounceTimer = setTimeout(() => {
                         renderBuilder(document.getElementById('series-filter').value);
-                    }, 200); // 【效能優化】：輸入搜尋時做 200ms 防抖，避免每個按鍵都重新渲染
+                    }, 200);
                 });
             }
         }
@@ -941,7 +994,7 @@
             let searchTerm = (document.getElementById('catalog-search')?.value || '').trim().toUpperCase();
 
             let filteredCards = masterCardCatalog.filter(c => {
-                if (invalidCardsCache.includes(c.id)) return false;
+                if (invalidCardsSet.has(c.id)) return false;
                 if (filterSeries !== 'ALL' && c.series !== filterSeries) return false;
                 if (searchTerm) {
                     let hay = (c.id + ' ' + (c.name || '')).toUpperCase();
@@ -1246,7 +1299,10 @@
         window.onload = () => { 
             let savedCustom = JSON.parse(localStorage.getItem('ua_custom_cards')) || [];
             if(typeof masterCardCatalog !== 'undefined') masterCardCatalog.push(...savedCustom);
-            updateDeckSelector(); initSeriesFilter(); renderBuilder(); renderDeck(); 
+            ensureCatalogMap();
+            myDeckData = hydrateDeckList(allDecks[currentDeckName].main);
+            myApData = hydrateDeckList(allDecks[currentDeckName].ap || []);
+            updateDeckSelector(); initSeriesFilter(); renderBuilder(); renderDeck();
 
             document.querySelectorAll('.slot').forEach(slot => {
                 if (!slot.id.includes('hand') && !slot.id.includes('look') && !slot.id.includes('deck')) {
@@ -1354,7 +1410,14 @@
             }
         };
 
-        let myRoomId = Math.floor(100000 + Math.random() * 900000).toString();
+// 產生高強度 8 碼隨機房號 (排除易混淆的 0/O/1/I)
+        function generateRoomId() {
+            const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+            const arr = new Uint32Array(8);
+            crypto.getRandomValues(arr);
+            return Array.from(arr, x => chars[x % chars.length]).join('');
+        }
+        let myRoomId = generateRoomId();
         
 // ⚡ 啟用專屬的 TURN 中繼伺服器，突破嚴格的防火牆
         let peer = new Peer(myRoomId, { 
@@ -1419,11 +1482,26 @@
 
         peer.on('error', err => {
             console.error(err);
-            if (err.type === 'peer-unavailable') { alert("❌ 找不到這個對手！請確認對手網頁沒有關閉。"); } 
-            else if (err.type === 'network' || err.type === 'server-error') { showSysMsg("配對伺服器塞車中，系統自動重試..."); }
+            if (err.type === 'unavailable-id') {
+                showSysMsg("房號發生碰撞，正在重新產生專屬房號...");
+                setTimeout(() => window.location.reload(), 800);
+            } else if (err.type === 'peer-unavailable') {
+                alert("❌ 找不到這個對手！請確認對手代碼是否正確且網頁沒有關閉。");
+            } else if (err.type === 'network' || err.type === 'server-error') {
+                showSysMsg("配對伺服器連線波動，系統自動重試中...");
+            }
         });
 
-        peer.on('connection', connection => { conn = connection; setupConnection(); });
+        peer.on('connection', connection => {
+            // 防護：若已經在連線對戰中，直接拒絕第三者的連線請求，防止對戰被劫持！
+            if (isConnected && conn && conn.open) {
+                console.warn("已拒絕第三者插入連線:", connection.peer);
+                connection.on('open', () => connection.close());
+                return;
+            }
+            conn = connection;
+            setupConnection();
+        });
         
         document.getElementById('btn-connect').addEventListener('click', () => { 
             let targetId = document.getElementById('target-id').value.trim(); 
@@ -1475,7 +1553,14 @@
                     let shuffledDeck = shuffleArray(deckClone);
                     
                     initMyBoard(shuffledDeck, apClone); 
-                    conn.send({ type: 'START_GAME', deck: shuffledDeck, ap: apClone });
+                    // 原本是傳送整包物件陣列：
+                    // conn.send({ type: 'START_GAME', deck: shuffledDeck, ap: apClone });
+                    // 請改為只傳送乾淨的卡號 (若為自訂圖片卡則保留圖片)：
+                    conn.send({
+                        type: 'START_GAME',
+                        deck: dehydrateDeckList(shuffledDeck),
+                        ap: dehydrateDeckList(apClone)
+                    });
                 };
             });
             conn.on('data', data => {
@@ -1518,11 +1603,15 @@
             });
             conn.on('close', () => {
                 isConnected = false;
-                alert("⚠️ 與對手連線已中斷。對手可能關閉了網頁。");
-                resetBoard();
+                if (window.uaEngine) window.uaEngine.clearCombatLock();
+                const inGame = document.getElementById('game-scene').style.display !== 'none';
+                if (inGame) {
+                    showSysMsg("⚠️ 與對手連線暫時中斷！盤面已為您保留，等待對手重新連線，或可點擊右下角「投降返回」回到大廳。");
+                } else {
+                    showSysMsg("⚠️ 對手已離線。");
+                }
             });
-        }
-
+        } // 👈 就是少了這一個關閉 setupConnection 函式的大括號！
         document.getElementById('btn-back-builder').addEventListener('click', () => {
             if(confirm("確定要投降並返回構築區嗎？")) {
                 if(conn && isConnected) conn.send({ type: 'SURRENDER' });
@@ -1624,7 +1713,13 @@
                 let t = slot.querySelector('.bp-tracker');
                 if (t && t.dataset.bp != 0) bpStates[slot.id] = t.dataset.bp;
             });
-            return { cards, phaseIndex, markedSlots, bpStates };
+            return {
+                cards,
+                phaseIndex,
+                markedSlots,
+                bpStates,
+                engineState: window.uaEngine ? window.uaEngine.exportEngineStateSnapshot() : null
+            };
         }
 
         function updateUndoButtonState() {
@@ -1684,7 +1779,11 @@
             });
 
             updateSlotCounts();
-            lastMySnapshot = { serialized: JSON.stringify(snapshot), data: snapshot }; // 復原後，把這個狀態設為新的比較基準
+            // 🌟 新增這一行：還原規則引擎的執行期狀態 (含每回合一次限制、暫時能源與回合數)
+            if (window.uaEngine && snapshot.engineState) {
+                window.uaEngine.importEngineStateSnapshot(snapshot.engineState);
+            }
+            lastMySnapshot = { serialized: JSON.stringify(snapshot), data: snapshot };
             broadcastMyState(); // 同步給對手，此時 isUndoing 仍為 true，不會又記錄一筆新歷史
             isUndoing = false;
         }
@@ -1869,11 +1968,43 @@
         function shuffleArray(array) { for (let i = array.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [array[i], array[j]] = [array[j], array[i]]; } return array; }
         function shuffleDOMDeck(deckArea) { let cards = Array.from(deckArea.querySelectorAll('.card')); shuffleArray(cards).forEach(c => deckArea.appendChild(c)); recalcStacking(deckArea); }
 
-        function createCardDOM(cardData, networkId, isMine) {
-            let el = document.createElement("div"); el.className = "card is-flipped"; el.dataset.networkId = networkId;
-            el.dataset.cardId = cardData.id; 
-            el.innerHTML = `<div class="card-inner"><div class="card-front"><img src="${cardData.imageUrl}"></div><div class="card-back"></div></div>`;
-            if(isMine) attachMyDragEvents(el); return el;
+function createCardDOM(cardData, networkId, isMine) {
+            ensureCatalogMap();
+            let cardId = (typeof cardData === 'string') ? cardData : (cardData?.id || '');
+            let localDef = window.cardCatalogById.get(cardId);
+
+            // 優先使用本地圖鑑的安全圖片網址；若為對手自訂卡，僅允許 https:// 或 data:image/ 開頭的網址
+            let safeImgUrl = localDef ? localDef.imageUrl : '';
+            if (!safeImgUrl && cardData && typeof cardData.imageUrl === 'string') {
+                if (/^(https:\/\/|data:image\/)/i.test(cardData.imageUrl.trim())) {
+                    safeImgUrl = cardData.imageUrl.trim();
+                }
+            }
+
+            let el = document.createElement("div");
+            el.className = "card is-flipped";
+            el.dataset.networkId = networkId;
+            el.dataset.cardId = cardId;
+
+            let inner = document.createElement("div");
+            inner.className = "card-inner";
+
+            let front = document.createElement("div");
+            front.className = "card-front";
+
+            let img = document.createElement("img");
+            img.src = safeImgUrl; // 透過 DOM 屬性賦值，徹底根絕 XSS 注入
+
+            let back = document.createElement("div");
+            back.className = "card-back";
+
+            front.appendChild(img);
+            inner.appendChild(front);
+            inner.appendChild(back);
+            el.appendChild(inner);
+
+            if(isMine) attachMyDragEvents(el);
+            return el;
         }
 
         function initMyBoard(deck, apDeck) {
@@ -2653,5 +2784,6 @@
         };
         
     </script>
+    <script src="ua-rule-engine.js"></script>
 </body>
 </html>
