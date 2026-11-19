@@ -31,6 +31,25 @@ constructor() {
             this.lastExecutedContext = null;
         }
 
+        resetMatchState() {
+            this.clearCombatLock();
+            this.turnNumber = 1;
+            this.isFirstPlayer = null;
+            this.isMyTurn = false;
+            this.hasTakenFirstTurn = false;
+            this.currentPhase = '起始';
+            this.usedExtraDraw = false;
+            this.cardRuntime.clear();
+            this.deckDominantColor = null;
+            this.resolvedDefCache.clear();
+            this.lastExecutedContext = null;
+            const modal = document.getElementById('ua-prompt-modal');
+            if (modal) modal.style.display = 'none';
+            const btnFirst = document.getElementById('btn-claim-first');
+            if (btnFirst) btnFirst.style.display = 'block';
+            this.updateEnergyHUD();
+        }
+
         recordLog(msg) {
             if (!msg) return;
             const time = new Date().toLocaleTimeString('zh-TW', { hour12: false });
@@ -1279,7 +1298,6 @@ injectEngineUI() {
             }
 
             this.onPhaseChanged('結束');
-            document.querySelectorAll('#my-front-line .card, #my-energy-line .card').forEach(c => c.classList.remove('rest'));
 
             const handCards = Array.from(document.querySelectorAll('#my-hand-area .card'));
             if (handCards.length > 8) {
@@ -1294,15 +1312,16 @@ injectEngineUI() {
                         const removeArea = document.getElementById('my-remove-area');
                         selectedCards.forEach(c => this.moveCardToZone(c, removeArea));
                         sendSystemChat(`🗑️ [規則引擎] 對手在結束階段將 ${excess} 張超額手牌放置於移除區。`);
-                        this.finalizeEndTurn(originalEndTurnFn);
+                        this.finalizeEndTurn();
                     }
                 });
                 return;
             }
-            this.finalizeEndTurn(originalEndTurnFn);
+            this.finalizeEndTurn();
         }
 
-        finalizeEndTurn(originalEndTurnFn) {
+        finalizeEndTurn() {
+            // 僅重置回合限定的 BP 增減與暫時關鍵字，保留場上角色與 AP 的休息狀態（直到下次起始階段才依規則直立）
             document.querySelectorAll('#my-front-line .slot, #opp-front-line .slot').forEach(slot => updateBpDisplay(slot, 0));
             this.cardRuntime.forEach(rt => {
                 rt.tempEnergyBoost = [];
@@ -1312,11 +1331,14 @@ injectEngineUI() {
             this.isMyTurn = false;
             this.currentPhase = '等待中';
 
-            const restedApList = Array.from(document.querySelectorAll('#my-ap-area .card.rest'));
-            originalEndTurnFn();
-            restedApList.forEach(ap => ap.classList.add('rest'));
+            document.querySelectorAll('.phase-step').forEach(btn => btn.classList.remove('active'));
+            const firstPhaseBtn = document.querySelector('.phase-step:first-child');
+            if (firstPhaseBtn) firstPhaseBtn.classList.add('active');
+            document.querySelectorAll('.slot.marked').forEach(s => s.classList.remove('marked'));
 
+            showCenterAlert('⛔', '回合結束', '換對手回合', '#c1596f');
             if (conn && isConnected) {
+                conn.send({ type: 'PHASE_BROADCAST', phase: '結束' });
                 conn.send({ type: 'ENGINE_EVENT', subType: 'YOUR_TURN_START' });
             }
             this.updateEnergyHUD();
@@ -1617,7 +1639,7 @@ injectEngineUI() {
             });
         }
 
-        executeRaidSummon(cardEl, def, targetSlot, moveToFront, originalParent, endX, defaultFinalizeFn, isFreeFromTrigger = false) {
+        executeRaidSummon(cardEl, def, targetSlot, moveToFront, originalParent, endX, defaultFinalizeFn, isFreeFromTrigger = false, onComplete = null) {
             if (!isFreeFromTrigger) this.payAp(def.apCost || 1);
             updateBpDisplay(targetSlot, 0);
 
@@ -1637,9 +1659,9 @@ injectEngineUI() {
             }
 
             sendSystemChat(`🔥 [規則引擎] 對手發動了【${def.name}】的突襲（レイド）！`);
-            this.triggerCardAbilities(cardEl, 'ON_PLAY');
             this.updateEnergyHUD();
             broadcastMyState();
+            this.triggerCardAbilities(cardEl, 'ON_PLAY', onComplete);
         }
 
         // ==================== 逗號時序效果佇列執行器 ====================
@@ -1786,10 +1808,13 @@ injectEngineUI() {
             }
         }
 
-        triggerCardAbilities(cardEl, timing) {
+        triggerCardAbilities(cardEl, timing, onComplete = null) {
             const def = this.getCardDef(cardEl);
             const rt = this.getRuntime(cardEl);
-            if (!def || !def.parsedAbilities) return;
+            if (!def || !def.parsedAbilities) {
+                if (onComplete) onComplete();
+                return;
+            }
 
             const isFront = !!cardEl.closest('#my-front-line');
             const isEnergy = !!cardEl.closest('#my-energy-line');
@@ -1804,10 +1829,22 @@ injectEngineUI() {
                 return true;
             });
 
-            matched.forEach(ab => {
+            const runNextAbility = (idx) => {
+                if (idx >= matched.length) {
+                    if (onComplete) onComplete();
+                    return;
+                }
+                const ab = matched[idx];
                 const orderedActions = this.compileSequentialClauses(ab.rawText || def.effectText);
-                this.executeAbilityActions(cardEl, orderedActions, 0, { selectedTargets: [], addedFromLook: false });
-            });
+                this.executeAbilityActions(
+                    cardEl,
+                    orderedActions,
+                    0,
+                    { selectedTargets: [], addedFromLook: false },
+                    () => runNextAbility(idx + 1)
+                );
+            };
+            runNextAbility(0);
         }
 
         checkActionConditions(sourceCardEl, conditions, taskContext) {
@@ -1821,7 +1858,7 @@ injectEngineUI() {
             });
         }
 
-        executeAbilityActions(sourceCardEl, actions, index = 0, taskContext = { selectedTargets: [], addedFromLook: false }) {
+        executeAbilityActions(sourceCardEl, actions, index = 0, taskContext = { selectedTargets: [], addedFromLook: false }, onComplete = null) {
             const sourceDef = this.getCardDef(sourceCardEl);
             if (!this.recentLogs) this.recentLogs = [];
 
@@ -1838,10 +1875,11 @@ injectEngineUI() {
             if (!actions || index >= actions.length) {
                 this.updateEnergyHUD();
                 broadcastMyState();
+                if (onComplete) onComplete();
                 return;
             }
 
-            const next = () => this.executeAbilityActions(sourceCardEl, actions, index + 1, taskContext);
+            const next = () => this.executeAbilityActions(sourceCardEl, actions, index + 1, taskContext, onComplete);
             let act = null;
 
             try {
@@ -1882,7 +1920,7 @@ injectEngineUI() {
                                                 onConfirm: (sel) => {
                                                     const outside = document.getElementById('my-outside-area');
                                                     sel.forEach(c => this.moveCardToZone(c, outside));
-                                                    this.executeAbilityActions(sourceCardEl, act.thenActions, 0, taskContext);
+                                                    this.executeAbilityActions(sourceCardEl, act.thenActions, 0, taskContext, next);
                                                 }
                                             });
                                         } else if (cost.type === 'PAY_AP') {
@@ -1891,12 +1929,12 @@ injectEngineUI() {
                                                 next();
                                                 return;
                                             }
-                                            this.executeAbilityActions(sourceCardEl, act.thenActions, 0, taskContext);
+                                            this.executeAbilityActions(sourceCardEl, act.thenActions, 0, taskContext, next);
                                         } else if (cost.type === 'MILL_DECK') {
                                             this.millDeckCards(cost.count);
-                                            this.executeAbilityActions(sourceCardEl, act.thenActions, 0, taskContext);
+                                            this.executeAbilityActions(sourceCardEl, act.thenActions, 0, taskContext, next);
                                         } else {
-                                            this.executeAbilityActions(sourceCardEl, act.thenActions, 0, taskContext);
+                                            this.executeAbilityActions(sourceCardEl, act.thenActions, 0, taskContext, next);
                                         }
                                     }
                                 },
@@ -2552,7 +2590,8 @@ injectEngineUI() {
                     sourceCardEl,
                     [{ type: 'LOOK_AND_ARRANGE_TOP', count: n, keepUpTo: n, remainderTo: 'BOTTOM' }],
                     0,
-                    taskContext
+                    taskContext,
+                    reopenSelf
                 );
             };
 
@@ -2570,7 +2609,8 @@ injectEngineUI() {
                         { type: 'MODIFY_BP', amount, target: 'SELECTED' }
                     ],
                     0,
-                    { ...taskContext, selectedTargets: [] }
+                    { ...taskContext, selectedTargets: [] },
+                    reopenSelf
                 );
             };
             toolbox.querySelector('#fb-btn-bp').onclick = () => triggerBpSelect(1);
@@ -2709,48 +2749,50 @@ injectEngineUI() {
                 showSysMsg(`⚡ 發動 [2回アタック]：【${def.name}】在第一次攻擊時重新轉為活動狀態！`);
             }
 
-            this.triggerCardAbilities(attackerCard, 'ON_ATTACK');
-            broadcastMyState();
+            // 等待 [アタック時] 效果（含選發彈窗與 BP 加成）全部結算完畢後，再計算最終 BP 並送出攻擊宣告
+            this.triggerCardAbilities(attackerCard, 'ON_ATTACK', () => {
+                broadcastMyState();
 
-            const atkBp = this.getEffectiveCardBp(attackerCard);
+                const atkBp = this.getEffectiveCardBp(attackerCard);
 
-            if (snipedOppSlot) {
-                const targetCard = this.getTopCardInSlot(snipedOppSlot);
-                sendSystemChat(`🎯 [戰鬥] 對手的【${def.name} (BP ${atkBp})】對你的【${this.getCardDef(targetCard)?.name}】發動了狙擊！`);
-                this.resolveCharacterBattle(attackerSlot, attackerCard, snipedOppSlot, targetCard);
-                return;
-            }
+                if (snipedOppSlot) {
+                    const targetCard = this.getTopCardInSlot(snipedOppSlot);
+                    sendSystemChat(`🎯 [戰鬥] 對手的【${def.name} (BP ${atkBp})】對你的【${this.getCardDef(targetCard)?.name}】發動了狙擊！`);
+                    this.resolveCharacterBattle(attackerSlot, attackerCard, snipedOppSlot, targetCard);
+                    return;
+                }
 
-            sendSystemChat(`⚔️ [戰鬥] 【${def.name} (BP ${atkBp})】向對手玩家宣告攻擊！`);
-            if (conn && isConnected) {
-                const attackId = 'atk_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-                this.combatState = {
-                    attackId,
-                    attackerSlotId: attackerSlot.id,
-                    attackerNetId: attackerCard.dataset.networkId
-                };
-                this.updateEnergyHUD();
+                sendSystemChat(`⚔️ [戰鬥] 【${def.name} (BP ${atkBp})】向對手玩家宣告攻擊！`);
+                if (conn && isConnected) {
+                    const attackId = 'atk_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+                    this.combatState = {
+                        attackId,
+                        attackerSlotId: attackerSlot.id,
+                        attackerNetId: attackerCard.dataset.networkId
+                    };
+                    this.updateEnergyHUD();
 
-                // 設定 25 秒防卡死逾時保護：若對手斷線或關閉視窗未回應，自動解除鎖定
-                this.combatTimeoutId = setTimeout(() => {
-                    if (this.combatState && this.combatState.attackId === attackId) {
-                        showSysMsg('⚠️ 對手逾時未回應防禦，已自動解除戰鬥等待鎖定。');
-                        this.clearCombatLock();
-                    }
-                }, 25000);
+                    // 設定 25 秒防卡死逾時保護：若對手斷線或關閉視窗未回應，自動解除鎖定
+                    this.combatTimeoutId = setTimeout(() => {
+                        if (this.combatState && this.combatState.attackId === attackId) {
+                            showSysMsg('⚠️ 對手逾時未回應防禦，已自動解除戰鬥等待鎖定。');
+                            this.clearCombatLock();
+                        }
+                    }, 25000);
 
-                conn.send({
-                    type: 'ENGINE_EVENT',
-                    subType: 'ATTACK_DECLARED',
-                    attackId,
-                    attackerName: def.name,
-                    attackerBp: atkBp,
-                    unblockableMaxBp: rt.tempKeywords.UNBLOCKABLE_MAX_BP || 0
-                });
-                showSysMsg('⏳ 等待對手選擇是否進行防禦 (Block)...');
-            } else {
-                this.inflictPlayerDamage(attackerCard);
-            }
+                    conn.send({
+                        type: 'ENGINE_EVENT',
+                        subType: 'ATTACK_DECLARED',
+                        attackId,
+                        attackerName: def.name,
+                        attackerBp: atkBp,
+                        unblockableMaxBp: rt.tempKeywords.UNBLOCKABLE_MAX_BP || 0
+                    });
+                    showSysMsg('⏳ 等待對手選擇是否進行防禦 (Block)...');
+                } else {
+                    this.inflictPlayerDamage(attackerCard);
+                }
+            });
         }
 
         onOpponentAttackDeclared(data) {
@@ -2797,15 +2839,15 @@ injectEngineUI() {
                         showSysMsg(`🛡️ 發動 [2回ブロック]：【${bDef.name}】防禦後重新轉為活動狀態！`);
                     }
 
-                    this.triggerCardAbilities(blockerCard, 'ON_BLOCK');
-                    broadcastMyState();
-
-                    conn.send({
-                        type: 'ENGINE_EVENT',
-                        subType: 'BLOCK_RESPONSE',
-                        attackId: data.attackId,
-                        blocked: true,
-                        blockerSlotId: blockerSlot.id.replace('my-', 'opp-')
+                    this.triggerCardAbilities(blockerCard, 'ON_BLOCK', () => {
+                        broadcastMyState();
+                        conn.send({
+                            type: 'ENGINE_EVENT',
+                            subType: 'BLOCK_RESPONSE',
+                            attackId: data.attackId,
+                            blocked: true,
+                            blockerSlotId: blockerSlot.id.replace('my-', 'opp-')
+                        });
                     });
                 }
             });
@@ -3017,21 +3059,20 @@ injectEngineUI() {
                         if (selected.length > 0) {
                             const targetSlot = selected[0].parentElement;
                             const isEn = !!targetSlot.closest('#my-energy-line');
-                            this.executeRaidSummon(cardEl, def, targetSlot, isEn, cardEl.parentElement, 0, window.finalizeDrop, true);
+                            this.executeRaidSummon(cardEl, def, targetSlot, isEn, cardEl.parentElement, 0, window.finalizeDrop, true, callback);
                         } else {
                             this.moveCardToZone(cardEl, handArea);
+                            callback();
                         }
-                        callback();
                     }
                 });
                 return;
             }
 
-            // ACTIVE / SPECIAL / COLOR 等直接透過逗號時序解析器執行 triggerText
+            // ACTIVE / SPECIAL / COLOR 等直接透過逗號時序解析器執行 triggerText，結算完畢才執行下一張 Trigger
             this.moveCardToZone(cardEl, outsideArea);
             const trigActions = this.compileSequentialClauses(def.triggerText.replace(/\[[^\]]+\]/g, ''));
-            this.executeAbilityActions(cardEl, trigActions, 0, { selectedTargets: [], addedFromLook: false });
-            callback();
+            this.executeAbilityActions(cardEl, trigActions, 0, { selectedTargets: [], addedFromLook: false }, callback);
         }
 
         // ==================== 工具方法 ====================
@@ -3166,6 +3207,9 @@ injectEngineUI() {
             const cardsBox = document.getElementById('ua-prompt-cards');
             const actionsBox = document.getElementById('ua-prompt-actions');
 
+            const oldToolbox = document.getElementById('ua-fallback-toolbox');
+            if (oldToolbox) oldToolbox.remove();
+
             titleEl.innerText = title;
             descEl.innerText = desc;
             cardsBox.innerHTML = '';
@@ -3282,12 +3326,22 @@ handleNetworkEvent(data) {
                 case 'FORCE_BOTTOM_SLOT': {
                     if (!this.isValidMySlotId(data.slotId)) return;
                     const slot = document.getElementById(data.slotId);
-                    const top = this.getTopCardInSlot(slot);
+                    const cards = slot ? Array.from(slot.querySelectorAll('.card')) : [];
                     const deck = document.getElementById('my-deck-area');
-                    if (top && deck) {
+                    const outside = document.getElementById('my-outside-area');
+                    if (cards.length > 0 && deck) {
+                        const top = cards[cards.length - 1];
+                        const under = cards.slice(0, cards.length - 1);
+                        updateBpDisplay(slot, 0);
+                        under.forEach(uc => this.moveCardToZone(uc, outside));
                         deck.insertBefore(top, deck.firstChild);
                         top.classList.add('is-flipped');
+                        top.classList.remove('rest', 'in-life');
+                        top.style.position = 'absolute';
                         recalcStacking(deck);
+                        recalcStacking(slot);
+                        updateSlotCounts();
+                        this.updateEnergyHUD();
                         broadcastMyState();
                     }
                     break;
@@ -3295,9 +3349,18 @@ handleNetworkEvent(data) {
                 case 'FORCE_REMOVE_SLOT': {
                     if (!this.isValidMySlotId(data.slotId)) return;
                     const slot = document.getElementById(data.slotId);
-                    const top = this.getTopCardInSlot(slot);
+                    const cards = slot ? Array.from(slot.querySelectorAll('.card')) : [];
                     const rem = document.getElementById('my-remove-area');
-                    if (top && rem) this.moveCardToZone(top, rem);
+                    const outside = document.getElementById('my-outside-area');
+                    if (cards.length > 0 && rem) {
+                        const top = cards[cards.length - 1];
+                        const under = cards.slice(0, cards.length - 1);
+                        updateBpDisplay(slot, 0);
+                        under.forEach(uc => this.moveCardToZone(uc, outside));
+                        this.moveCardToZone(top, rem);
+                        this.updateEnergyHUD();
+                        broadcastMyState();
+                    }
                     break;
                 }
                 case 'FORCE_REST_SLOT': {
@@ -3363,14 +3426,19 @@ handleNetworkEvent(data) {
             window.uaEngine.handleEndTurnIntercept(origEndTurn);
         };
 
-        const origConfirmHand = window.confirmHand;
-        window.confirmHand = function () {
-            origConfirmHand();
-            setTimeout(() => {
-                document.getElementById('btn-claim-first').style.display = 'block';
-                window.uaEngine.updateEnergyHUD();
-            }, 900);
-        };
+        const origSetupLifeArea = window.setupLifeArea;
+        if (typeof origSetupLifeArea === 'function') {
+            window.setupLifeArea = function () {
+                origSetupLifeArea();
+                setTimeout(() => {
+                    const btnFirst = document.getElementById('btn-claim-first');
+                    if (btnFirst && window.uaEngine.isFirstPlayer === null) {
+                        btnFirst.style.display = 'block';
+                    }
+                    window.uaEngine.updateEnergyHUD();
+                }, 300);
+            };
+        }
 
         const origSetupConnection = window.setupConnection;
         window.setupConnection = function (timeoutId) {

@@ -695,13 +695,7 @@
                 masterCardCatalog.forEach(c => window.cardCatalogById.set(c.id, c));
             }
         }
-// 建立全域快速卡號索引表 (O(1) 查表)
-        window.cardCatalogById = new Map();
-        function ensureCatalogMap() {
-            if (window.cardCatalogById.size === 0 && typeof masterCardCatalog !== 'undefined') {
-                masterCardCatalog.forEach(c => window.cardCatalogById.set(c.id, c));
-            }
-        }
+// (已整合至上方動態擴充版 ensureCatalogMap)
 
         // 將儲存的卡號或舊版物件還原為完整卡片參照
         function hydrateDeckList(list) {
@@ -1521,6 +1515,32 @@
                 setupConnection(connectTimeout); 
             } 
         });
+        window.pendingOppSyncData = null;
+        window.lastStartGameReqTime = 0;
+        window.oppCustomImgMap = new Map();
+
+        function sendStartGamePayload(deckList, apList) {
+            if (!conn || !isConnected) return;
+            // 僅傳送卡號字串，避免 Base64 圖片撐爆 WebRTC DataChannel (64KB 上限)
+            const lightDeck = (deckList || []).map(c => (typeof c === 'string') ? c : c.id);
+            const lightAp = (apList || []).map(c => (typeof c === 'string') ? c : c.id);
+            conn.send({ type: 'START_GAME', deck: lightDeck, ap: lightAp });
+
+            // 若牌組含有自訂本地圖片 (CUSTOM_)，改為逐張分批傳送
+            const sentIds = new Set();
+            [...(deckList || []), ...(apList || [])].forEach(c => {
+                if (c && typeof c === 'object' && c.id && c.id.startsWith('CUSTOM_') && c.imageUrl && !sentIds.has(c.id)) {
+                    sentIds.add(c.id);
+                    const idx = sentIds.size;
+                    setTimeout(() => {
+                        if (conn && isConnected) {
+                            conn.send({ type: 'CUSTOM_CARD_IMG', id: c.id, imageUrl: c.imageUrl });
+                        }
+                    }, idx * 40);
+                }
+            });
+        }
+
         function setupConnection(timeoutId) {
             conn.on('open', () => {
                 if(timeoutId) clearTimeout(timeoutId);
@@ -1552,31 +1572,46 @@
                     let apClone = JSON.parse(JSON.stringify(myApData));
                     let shuffledDeck = shuffleArray(deckClone);
                     
-                    initMyBoard(shuffledDeck, apClone); 
-                    // 原本是傳送整包物件陣列：
-                    // conn.send({ type: 'START_GAME', deck: shuffledDeck, ap: apClone });
-                    // 請改為只傳送乾淨的卡號 (若為自訂圖片卡則保留圖片)：
-                    conn.send({
-                        type: 'START_GAME',
-                        deck: dehydrateDeckList(shuffledDeck),
-                        ap: dehydrateDeckList(apClone)
-                    });
+                    // 記錄本次對局的輕量起始牌組，供對手漏接時自動補傳
+                    window.myLastStartDeck = shuffledDeck;
+                    window.myLastStartAp = apClone;
+
+                    // 先送輕量 START_GAME（僅傳 ID，確保 < 2KB 絕不被 WebRTC 丟包）
+                    sendStartGamePayload(shuffledDeck, apClone);
+
+                    // 再初始化我方盤面並廣播 SYNC_BOARD
+                    initMyBoard(shuffledDeck, apClone);
                 };
             });
             conn.on('data', data => {
                 if(data.type === 'START_GAME') { 
-                    // 1. 顯示系統訊息提示
                     showSysMsg("對手已進入盤面，正在等你就緒！"); 
-                    
-                    // 2. 初始化對手的盤面資料（在背景完成，不會干擾你目前的構築畫面）
                     initOpponentBoard(data.deck, data.ap); 
-                    
-                    // 3. 更新開始按鈕的文字與樣式，提醒玩家對手正在等待
                     let startBtn = document.getElementById('start-game-btn');
                     if (startBtn) {
                         startBtn.innerText = "⚔️ 對手已就緒，點擊進入對戰";
-                        startBtn.style.background = "#b39ddb"; // 變更為橘色以示提醒
+                        startBtn.style.background = "#b39ddb";
                         startBtn.style.boxShadow = "0 0 15px #b39ddb";
+                    }
+                }
+                else if(data.type === 'CUSTOM_CARD_IMG') {
+                    // 接收對手分批送來的自訂卡圖片並即時更新對應卡面
+                    if (data.id && typeof data.imageUrl === 'string' && /^(https:\/\/|data:image\/)/i.test(data.imageUrl.trim())) {
+                        window.oppCustomImgMap = window.oppCustomImgMap || new Map();
+                        window.oppCustomImgMap.set(data.id, data.imageUrl.trim());
+                        oppCardsElements.forEach(el => {
+                            if (el.dataset.cardId === data.id) {
+                                let img = el.querySelector('.card-front img');
+                                if (img) img.src = data.imageUrl.trim();
+                            }
+                        });
+                    }
+                }
+                else if(data.type === 'REQUEST_START_GAME') {
+                    // 對手偵測到漏接 START_GAME，立即補傳起始牌組與目前盤面狀態
+                    if (window.myLastStartDeck && window.myLastStartAp) {
+                        sendStartGamePayload(window.myLastStartDeck, window.myLastStartAp);
+                        setTimeout(() => broadcastMyState(), 150);
                     }
                 }
                 else if(data.type === 'SYNC_BOARD') applyOpponentSync(data);
@@ -1650,8 +1685,15 @@
             document.getElementById('builder-scene').style.display = 'flex';
             myCardsElements = []; oppCardsElements = [];
 
-            // 【新增】新的一局開始前，把上一局殘留的復原歷史清空
+            // 【新增】新的一局開始前，把上一局殘留的復原歷史、連線快取與規則引擎狀態清空
             undoHistory = []; lastMySnapshot = null; isUndoing = false;
+            window.pendingOppSyncData = null;
+            window.myLastStartDeck = null;
+            window.myLastStartAp = null;
+            if (window.oppCustomImgMap) window.oppCustomImgMap.clear();
+            if (window.uaEngine && typeof window.uaEngine.resetMatchState === 'function') {
+                window.uaEngine.resetMatchState();
+            }
             updateUndoButtonState();
         }
 
@@ -1862,6 +1904,16 @@
 
         function applyOpponentSync(data) {
             let stateData = data.state || [];
+            // 若尚未收到 START_GAME（oppCardsElements 為空），先暫存同步封包並自動請對手補傳
+            if (oppCardsElements.length === 0 && stateData.length > 0) {
+                window.pendingOppSyncData = data;
+                let now = Date.now();
+                if (conn && isConnected && now - (window.lastStartGameReqTime || 0) > 1500) {
+                    window.lastStartGameReqTime = now;
+                    conn.send({ type: 'REQUEST_START_GAME' });
+                }
+                return;
+            }
             stateData.forEach(d => {
                 let el = oppCardsElements.find(c => c.dataset.networkId === d.id);
                 if(el) {
@@ -1973,12 +2025,18 @@ function createCardDOM(cardData, networkId, isMine) {
             let cardId = (typeof cardData === 'string') ? cardData : (cardData?.id || '');
             let localDef = window.cardCatalogById.get(cardId);
 
-            // 優先使用本地圖鑑的安全圖片網址；若為對手自訂卡，僅允許 https:// 或 data:image/ 開頭的網址
+            // 優先使用本地圖鑑或已接收的對手自訂圖片；最後針對文字匯入卡號補上圖床 fallback
             let safeImgUrl = localDef ? localDef.imageUrl : '';
+            if (!safeImgUrl && window.oppCustomImgMap && window.oppCustomImgMap.has(cardId)) {
+                safeImgUrl = window.oppCustomImgMap.get(cardId);
+            }
             if (!safeImgUrl && cardData && typeof cardData.imageUrl === 'string') {
                 if (/^(https:\/\/|data:image\/)/i.test(cardData.imageUrl.trim())) {
                     safeImgUrl = cardData.imageUrl.trim();
                 }
+            }
+            if (!safeImgUrl && cardId && !cardId.startsWith('CUSTOM_')) {
+                safeImgUrl = `https://rugiacreation.com/ua/cardlist/small/${cardId.replace(/\//g, '_')}.jpg`;
             }
 
             let el = document.createElement("div");
@@ -2025,15 +2083,40 @@ function createCardDOM(cardData, networkId, isMine) {
 
         function initOpponentBoard(deck, apDeck) {
             oppCardsElements.forEach(c => { if(c && c.parentNode) c.remove(); });
-            oppCardsElements = []; document.getElementById('opp-deck-area').innerHTML = '';
+            oppCardsElements = [];
+            let oppDeckArea = document.getElementById('opp-deck-area');
+            oppDeckArea.innerHTML = '';
             
-            deck.forEach((card, i) => { let el = createCardDOM(card, `p_card_${i}`, false); oppCardsElements.push(el); document.getElementById('opp-deck-area').appendChild(el); });
+            (deck || []).forEach((card, i) => {
+                let el = createCardDOM(card, `p_card_${i}`, false);
+                oppCardsElements.push(el);
+                oppDeckArea.appendChild(el);
+                el.style.left = '0px';
+                el.style.top = '0px';
+            });
+            recalcStacking(oppDeckArea);
+
             let apSlots = document.querySelectorAll('#opp-ap-area .slot');
-            apSlots.forEach((slot, i) => { slot.innerHTML = ''; let apData = apDeck[i] || apDeck[0]; let apEl = createCardDOM(apData, `p_ap_${i}`, false); apEl.classList.add('ap-card'); oppCardsElements.push(apEl); slot.appendChild(apEl); });
+            apSlots.forEach((slot, i) => {
+                Array.from(slot.querySelectorAll('.card')).forEach(c => c.remove());
+                let apData = (apDeck && (apDeck[i] || apDeck[0])) || { id: 'UA44BT/EVA-1-AP03', imageUrl: 'https://rugiacreation.com/ua/cardlist/small/UA44BT_EVA-1-AP03.jpg' };
+                let apEl = createCardDOM(apData, `p_ap_${i}`, false);
+                apEl.classList.add('ap-card');
+                oppCardsElements.push(apEl);
+                slot.appendChild(apEl);
+                apEl.style.left = '0px';
+                apEl.style.top = '0px';
+            });
             updateSlotCounts();
+
+            // 若稍早已先收到對手的 SYNC_BOARD，立刻補套用，徹底消除競態條件
+            if (window.pendingOppSyncData) {
+                let cached = window.pendingOppSyncData;
+                window.pendingOppSyncData = null;
+                applyOpponentSync(cached);
+            }
             
-            // 【新增】：確保資料初始化後，也向對手同步一次目前狀態 (加上連線防呆)
-            if (isConnected) broadcastMyState(); 
+            if (isConnected && myCardsElements.length > 0) broadcastMyState(); 
         }
 
         function drawInitialHand() {
@@ -2054,11 +2137,11 @@ function createCardDOM(cardData, networkId, isMine) {
             }, 600);
         };
 
-        function setupLifeArea() {
+        window.setupLifeArea = function setupLifeArea() {
             let deckArea = document.getElementById('my-deck-area'), lifeArea = document.getElementById('my-life-area'); let cards = Array.from(deckArea.querySelectorAll('.card'));
             for(let i=0; i<7; i++) { if(cards.length > 0) { let c = cards.pop(); lifeArea.appendChild(c); c.style.position = 'absolute'; c.classList.add('is-flipped'); } }
             recalcStacking(deckArea); recalcStacking(lifeArea); updateSlotCounts(); broadcastMyState(); showSysMsg("對戰開始！");
-        }
+        };
 
         function applyStackingStyle(card, slotBelow, myIndex) {
             if (!slotBelow) return;
@@ -2261,7 +2344,7 @@ function createCardDOM(cardData, networkId, isMine) {
                         let hasExistingCards = isDropFieldSlot && dropZone.querySelectorAll('.card').length > 0;
                         let isSameSlot = originalParent === dropZone;
 
-                        if (isDropFieldSlot && hasExistingCards && !isSameSlot) {
+                        if (isDropFieldSlot && hasExistingCards && !isSameSlot && !(window.uaEngine && window.uaEngine.enabled)) {
                             let menu = document.getElementById('drop-menu');
                             let canvasRect = document.getElementById('app-canvas').getBoundingClientRect();
                             let localX = (endX - canvasRect.left) / (window.appScale || 1);
