@@ -196,6 +196,9 @@
         .tier-sandbox-actions { display: flex; flex-wrap: wrap; gap: 8px; }
         .tier-deck-card.is-draggable { cursor: grab; }
         .tier-deck-card.is-draggable:active { cursor: grabbing; opacity: 0.7; }
+        .tier-deck-card.is-dragging { opacity: 0.4; }
+        .tier-deck-card.drop-before { box-shadow: -6px 0 0 -1px #6fb897, -10px 0 14px -2px rgba(111, 184, 151, 0.6); }
+        .tier-deck-card.drop-after { box-shadow: 6px 0 0 -1px #6fb897, 10px 0 14px -2px rgba(111, 184, 151, 0.6); }
         .tier-deck-card.is-custom { box-shadow: 0 0 0 1px rgba(111, 184, 151, 0.55) inset; }
         #tier-add-modal {
             display: none; position: fixed; inset: 0; z-index: 100560;
@@ -725,7 +728,7 @@
             <div class="tier-tag-panel" id="tier-tag-panel"></div>
             </div>
             <div class="tier-sandbox-bar" id="tier-admin-bar">
-                <span>管理員即時編輯模式：可直接拖曳牌組調整 T0–T5，或點擊牌組修改難度與資訊，變更將即時同步給所有玩家。</span>
+                <span>管理員即時編輯模式：可直接拖曳牌組跨階級調整（T0–T5）或在同一階級內左右排序，點擊牌組可修改難度與資訊，變更將即時同步給所有玩家。</span>
             </div>
             <div class="tier-board" id="tier-board"></div>
         </section>
@@ -4180,18 +4183,52 @@ function createCardDOM(cardData, networkId, isMine) {
                     row.innerHTML = `<div class="tier-label ${t.key}">${t.label}</div><div class="tier-cards"></div>`;
                     const cardsBox = row.querySelector('.tier-cards');
 
+                    const clearDropIndicators = () => {
+                        board.querySelectorAll('.drop-before, .drop-after, .drag-over').forEach(el => {
+                            el.classList.remove('drop-before', 'drop-after', 'drag-over');
+                        });
+                    };
+
+                    const moveDeckInTierList = (sourceId, targetTier, targetDeckId, insertAfter) => {
+                        const arr = window.NCHUCGC_TIER_LIST || [];
+                        const fromIdx = arr.findIndex(d => d.id === sourceId);
+                        if (fromIdx === -1) return false;
+                        if (targetDeckId && targetDeckId === sourceId) return false;
+
+                        const prevSig = arr.map(d => `${d.id}:${d.tier}`).join('|');
+                        const [moved] = arr.splice(fromIdx, 1);
+                        moved.tier = targetTier;
+
+                        if (targetDeckId) {
+                            const toIdx = arr.findIndex(d => d.id === targetDeckId);
+                            if (toIdx !== -1) {
+                                arr.splice(insertAfter ? toIdx + 1 : toIdx, 0, moved);
+                            } else {
+                                arr.push(moved);
+                            }
+                        } else {
+                            arr.push(moved);
+                        }
+
+                        const nextSig = arr.map(d => `${d.id}:${d.tier}`).join('|');
+                        return nextSig !== prevSig;
+                    };
+
                     if (admin) {
-                        row.addEventListener('dragover', (e) => { e.preventDefault(); row.classList.add('drag-over'); });
-                        row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
+                        row.addEventListener('dragover', (e) => {
+                            e.preventDefault();
+                            row.classList.add('drag-over');
+                        });
+                        row.addEventListener('dragleave', (e) => {
+                            if (!row.contains(e.relatedTarget)) row.classList.remove('drag-over');
+                        });
                         row.addEventListener('drop', (e) => {
                             e.preventDefault();
-                            row.classList.remove('drag-over');
+                            clearDropIndicators();
                             const id = draggedDeckId || e.dataTransfer.getData('text/plain');
                             stopDragScroll();
                             if (!id) return;
-                            const targetDeck = (window.NCHUCGC_TIER_LIST || []).find(d => d.id === id);
-                            if (targetDeck && targetDeck.tier !== t.key) {
-                                targetDeck.tier = t.key;
+                            if (moveDeckInTierList(id, t.key, null, true)) {
                                 renderTierBoard();
                                 syncTierListNow();
                             }
@@ -4204,12 +4241,50 @@ function createCardDOM(cardData, networkId, isMine) {
                         matched.forEach(deck => {
                             const card = document.createElement('div');
                             card.className = `tier-deck-card ${deck.color}` + (admin ? ' is-draggable' : '');
+                            card.dataset.deckId = deck.id;
                             if (admin) {
                                 card.draggable = true;
                                 card.addEventListener('dragstart', (e) => {
                                     draggedDeckId = deck.id;
+                                    card.classList.add('is-dragging');
+                                    e.dataTransfer.effectAllowed = 'move';
                                     e.dataTransfer.setData('text/plain', deck.id);
                                     startDragScroll();
+                                });
+                                card.addEventListener('dragend', () => {
+                                    card.classList.remove('is-dragging');
+                                    clearDropIndicators();
+                                    stopDragScroll();
+                                });
+                                card.addEventListener('dragover', (e) => {
+                                    e.preventDefault();
+                                    if (!draggedDeckId || draggedDeckId === deck.id) return;
+                                    const rect = card.getBoundingClientRect();
+                                    const isAfter = e.clientX > rect.left + rect.width / 2;
+                                    board.querySelectorAll('.drop-before, .drop-after').forEach(el => {
+                                        if (el !== card) el.classList.remove('drop-before', 'drop-after');
+                                    });
+                                    card.classList.toggle('drop-before', !isAfter);
+                                    card.classList.toggle('drop-after', isAfter);
+                                });
+                                card.addEventListener('dragleave', (e) => {
+                                    if (!card.contains(e.relatedTarget)) {
+                                        card.classList.remove('drop-before', 'drop-after');
+                                    }
+                                });
+                                card.addEventListener('drop', (e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    const rect = card.getBoundingClientRect();
+                                    const isAfter = e.clientX > rect.left + rect.width / 2;
+                                    clearDropIndicators();
+                                    const id = draggedDeckId || e.dataTransfer.getData('text/plain');
+                                    stopDragScroll();
+                                    if (!id) return;
+                                    if (moveDeckInTierList(id, t.key, deck.id, isAfter)) {
+                                        renderTierBoard();
+                                        syncTierListNow();
+                                    }
                                 });
                             }
                             card.innerHTML = `
