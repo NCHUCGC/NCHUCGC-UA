@@ -480,19 +480,39 @@
 
     // ==================== 雲端牌組同步 ====================
 
+    // Firebase 的鍵名不可含 . $ # [ ] /，牌組名稱（例如「[排表] …」）可能含有這些字元，寫入前先編碼、讀回後解碼
+    function encodeDeckKey(name) {
+        return String(name).replace(/[%.$#\[\]\/]/g, ch => '%' + ch.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0'));
+    }
+    function decodeDeckKey(key) {
+        try { return decodeURIComponent(key); } catch (e) { return key; }
+    }
+    // 轉成可寫入 Firebase 的格式：編碼鍵名，並用 JSON 轉換去掉 undefined
+    function toCloudDecks(decks) {
+        const clean = JSON.parse(JSON.stringify(decks || {}));
+        const out = {};
+        Object.keys(clean).forEach(name => { out[encodeDeckKey(name)] = clean[name]; });
+        return out;
+    }
+    function fromCloudDecks(cloud) {
+        const out = {};
+        Object.keys(cloud || {}).forEach(key => { out[decodeDeckKey(key)] = cloud[key]; });
+        return out;
+    }
+
     function syncCloudDecksOnLogin(uid) {
         if (!state.db || !uid) return;
         const userDecksRef = state.db.ref(`users/${uid}/decks`);
         userDecksRef.once('value').then(snap => {
             const cloudDecks = snap.val();
             if (cloudDecks && typeof cloudDecks === 'object') {
-                Object.assign(window.allDecks, cloudDecks);
+                Object.assign(window.allDecks, fromCloudDecks(cloudDecks));
                 localStorage.setItem('ua_all_decks', JSON.stringify(window.allDecks));
                 if (typeof window.updateDeckSelector === 'function') window.updateDeckSelector();
                 if (typeof window.renderDeck === 'function') window.renderDeck();
                 showSysMsg('已從雲端同步你的牌組資料。');
             } else {
-                userDecksRef.set(window.allDecks).catch(() => {});
+                try { userDecksRef.set(toCloudDecks(window.allDecks)).catch(() => {}); } catch (e) { console.warn('雲端牌組初始化失敗', e); }
             }
         }).catch(() => {});
     }
@@ -502,10 +522,16 @@
         window._fbDeckHooked = true;
         const origSave = window.saveAllDecks;
         window.saveAllDecks = function () {
-            origSave();
-            if (state.ready && state.user && state.db) {
-                state.db.ref(`users/${state.user.uid}/decks`).set(window.allDecks).catch(() => {});
+            const result = origSave.apply(this, arguments);
+            // 雲端同步失敗不可中斷本機操作（否則新增牌組等流程會整段中止）
+            try {
+                if (state.ready && state.user && state.db && window.allDecks) {
+                    state.db.ref(`users/${state.user.uid}/decks`).set(toCloudDecks(window.allDecks)).catch(() => {});
+                }
+            } catch (e) {
+                console.warn('雲端牌組同步失敗（本機已存檔）', e);
             }
+            return result;
         };
     }
 

@@ -1259,6 +1259,8 @@
         }
 
         let allDecks = JSON.parse(localStorage.getItem('ua_all_decks')) || { "預設牌組": { main: [], ap: [] } };
+        // 讓 firebase-lobby.js 的雲端同步讀得到牌組（top-level let 不會自動成為 window 屬性）
+        Object.defineProperty(window, 'allDecks', { get: () => allDecks, set: v => { allDecks = v; }, configurable: true });
         let currentDeckName = localStorage.getItem('ua_current_deck_name') || "預設牌組";
         if (!allDecks[currentDeckName]) currentDeckName = Object.keys(allDecks)[0]; 
         if (Array.isArray(allDecks[currentDeckName])) allDecks[currentDeckName] = { main: allDecks[currentDeckName], ap: [] };
