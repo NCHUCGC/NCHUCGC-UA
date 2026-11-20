@@ -220,7 +220,7 @@
         }
         #tier-back-top:hover { background: #cbb8ee; }
         .tier-deck-cover-dual { display: flex; height: 96px; background: #101322; }
-        .tier-deck-cover-dual img { flex: 1 1 50%; min-width: 0; width: 50%; height: 100%; object-fit: cover; object-position: center 22%; }
+        .tier-deck-cover-dual img { flex: 1 1 0; min-width: 0; width: 0; height: 100%; object-fit: cover; object-position: center 22%; }
         .tier-deck-cover-dual img + img { border-left: 2px solid #1b1f38; }
         .td-covers { display: flex; gap: 8px; flex-shrink: 0; }
         .tier-tag-panel {
@@ -271,8 +271,9 @@
             border-radius: 7px; font-size: 13px; outline: none; resize: vertical; font-family: inherit; line-height: 1.5;
         }
         .tier-form-field input:focus, .tier-form-field textarea:focus, .td-edit-grid input:focus, .td-edit-grid textarea:focus { border-color: #b39ddb; }
-        .cover-input-row { display: flex; gap: 10px; align-items: center; }
-        .cover-input-row input { flex: 1; min-width: 0; }
+        .cover-input-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+        .cover-slot { display: flex; gap: 6px; align-items: center; min-width: 0; }
+        .cover-slot input { flex: 1; min-width: 0; }
         .cover-preview { width: 44px; height: 62px; object-fit: cover; border-radius: 5px; border: 1px solid #3c4370; background: #101322; display: none; flex-shrink: 0; }
         .td-edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: #111426; border: 1px solid #2b3052; border-radius: 8px; padding: 14px; }
         .td-edit-grid label { font-size: 12px; color: #9aa0b8; font-weight: 700; display: flex; flex-direction: column; gap: 5px; }
@@ -739,12 +740,11 @@
                         </select>
                     </div>
                     <div class="tier-form-field" style="grid-column: 1 / -1;">
-                        <label>代表卡號（可填 1～2 張；混軸牌組請填兩張，卡面會左右並排。留空則自動帶入該作品同色卡片）</label>
+                        <label>代表卡號（可填 1～3 張；混軸牌組請填多張，卡面會左右並排。留空則自動帶入該作品同色卡片）</label>
                         <div class="cover-input-row">
-                            <input type="text" id="add-deck-cover1" list="tier-card-datalist" placeholder="代表卡 1（可輸入卡號或從建議挑選）">
-                            <img class="cover-preview" id="add-deck-prev1" alt="">
-                            <input type="text" id="add-deck-cover2" list="tier-card-datalist" placeholder="代表卡 2（混軸用，選填）">
-                            <img class="cover-preview" id="add-deck-prev2" alt="">
+                            <div class="cover-slot"><input type="text" id="add-deck-cover1" list="tier-card-datalist" placeholder="代表卡 1"><img class="cover-preview" id="add-deck-prev1" alt=""></div>
+                            <div class="cover-slot"><input type="text" id="add-deck-cover2" list="tier-card-datalist" placeholder="代表卡 2（選填）"><img class="cover-preview" id="add-deck-prev2" alt=""></div>
+                            <div class="cover-slot"><input type="text" id="add-deck-cover3" list="tier-card-datalist" placeholder="代表卡 3（選填）"><img class="cover-preview" id="add-deck-prev3" alt=""></div>
                         </div>
                     </div>
                     <div class="tier-form-field" style="grid-column: 1 / -1;">
@@ -783,7 +783,7 @@
                 <div class="lobby-panel">
                     <div class="home-panel-title"><span>建立對戰房間</span></div>
                     <div class="lobby-form">
-                        <input type="text" id="lobby-new-room-name" placeholder="房間名稱">
+                        <input type="text" id="lobby-new-room-name" placeholder="房間名稱（例如：興大社課練習房）">
                         <select id="lobby-new-room-mode">
                             <option value="auto">模式：全自動規則引擎</option>
                             <option value="sandbox">模式：沙盒手動模式</option>
@@ -3579,11 +3579,11 @@ function createCardDOM(cardData, networkId, isMine) {
                 return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
             }
 
-            // 代表卡：優先使用 coverCardIds（最多 2 張，混軸用），相容舊資料 coverCardId
+            // 代表卡：優先使用 coverCardIds（最多 3 張，混軸用），相容舊資料 coverCardId
             function getDeckCoverIds(deck) {
                 const ids = (Array.isArray(deck.coverCardIds) && deck.coverCardIds.length)
                     ? deck.coverCardIds : (deck.coverCardId ? [deck.coverCardId] : []);
-                return ids.filter(Boolean).slice(0, 2);
+                return ids.filter(Boolean).slice(0, 3);
             }
 
             function coverThumbHtml(deck) {
@@ -3617,7 +3617,7 @@ function createCardDOM(cardData, networkId, isMine) {
             }
 
             function parseCoverInputs(...vals) {
-                return vals.map(v => (v || '').trim().toUpperCase()).filter(Boolean).slice(0, 2);
+                return vals.map(v => (v || '').trim().toUpperCase()).filter(Boolean).slice(0, 3);
             }
             function parseTags(str) {
                 return (str || '').split(/[,，、;；\s]+/).map(t => t.trim()).filter(Boolean);
@@ -3866,6 +3866,7 @@ function createCardDOM(cardData, networkId, isMine) {
                         <label class="full">牌組名稱<input type="text" id="te-name" value="${esc(deck.name)}"></label>
                         <label>代表卡 1<input type="text" id="te-cover1" list="tier-card-datalist" value="${esc(coverIds[0] || '')}" placeholder="卡號"></label>
                         <label>代表卡 2（混軸用，選填）<input type="text" id="te-cover2" list="tier-card-datalist" value="${esc(coverIds[1] || '')}" placeholder="卡號"></label>
+                        <label>代表卡 3（選填）<input type="text" id="te-cover3" list="tier-card-datalist" value="${esc(coverIds[2] || '')}" placeholder="卡號"></label>
                         <label class="full">牌組簡介<textarea id="te-summary" rows="3">${esc(deck.summary || '')}</textarea></label>
                         <label class="full">標籤（逗號或空白分隔）<input type="text" id="te-tags" value="${esc((deck.tags || []).join(', '))}"></label>
                         <label>優勢（一行一條）<textarea id="te-pros" rows="4">${esc((deck.pros || []).join('\n'))}</textarea></label>
@@ -3954,7 +3955,7 @@ function createCardDOM(cardData, networkId, isMine) {
                         const target = cur();
                         const name = box.querySelector('#te-name').value.trim();
                         if (!name) { showSysMsg('牌組名稱不可為空。'); return; }
-                        const ids = parseCoverInputs(box.querySelector('#te-cover1').value, box.querySelector('#te-cover2').value);
+                        const ids = parseCoverInputs(box.querySelector('#te-cover1').value, box.querySelector('#te-cover2').value, box.querySelector('#te-cover3').value);
                         target.name = name;
                         target.coverCardIds = ids;
                         target.coverCardId = ids[0] || '';
@@ -4265,16 +4266,17 @@ function createCardDOM(cardData, networkId, isMine) {
                 // 新增牌組視窗
                 bindCoverPreview(document.getElementById('add-deck-cover1'), document.getElementById('add-deck-prev1'));
                 bindCoverPreview(document.getElementById('add-deck-cover2'), document.getElementById('add-deck-prev2'));
+                bindCoverPreview(document.getElementById('add-deck-cover3'), document.getElementById('add-deck-prev3'));
                 document.getElementById('add-deck-series')?.addEventListener('change', (e) => fillCardDatalist(e.target.value));
 
                 document.getElementById('btn-tier-add-deck')?.addEventListener('click', () => {
                     if (!isAdmin()) return;
                     populateAddDeckSeriesSelect();
                     fillCardDatalist(document.getElementById('add-deck-series').value);
-                    ['add-deck-name', 'add-deck-cover1', 'add-deck-cover2', 'add-deck-summary', 'add-deck-tags', 'add-deck-deck'].forEach(id => {
+                    ['add-deck-name', 'add-deck-cover1', 'add-deck-cover2', 'add-deck-cover3', 'add-deck-summary', 'add-deck-tags', 'add-deck-deck'].forEach(id => {
                         document.getElementById(id).value = '';
                     });
-                    ['add-deck-prev1', 'add-deck-prev2'].forEach(id => { document.getElementById(id).style.display = 'none'; });
+                    ['add-deck-prev1', 'add-deck-prev2', 'add-deck-prev3'].forEach(id => { document.getElementById(id).style.display = 'none'; });
                     document.getElementById('add-deck-tools').innerHTML = deckToolsHtml('ad');
                     bindDeckTools('ad', document.getElementById('add-deck-deck'), () => document.getElementById('add-deck-series').value);
                     document.getElementById('tier-add-modal').style.display = 'flex';
@@ -4291,7 +4293,7 @@ function createCardDOM(cardData, networkId, isMine) {
                     const name = document.getElementById('add-deck-name').value.trim();
                     const tier = document.getElementById('add-deck-tier').value;
                     const diffRaw = document.getElementById('add-deck-diff').value;
-                    const coverIds = parseCoverInputs(document.getElementById('add-deck-cover1').value, document.getElementById('add-deck-cover2').value);
+                    const coverIds = parseCoverInputs(document.getElementById('add-deck-cover1').value, document.getElementById('add-deck-cover2').value, document.getElementById('add-deck-cover3').value);
                     const summary = document.getElementById('add-deck-summary').value.trim();
                     const tags = parseTags(document.getElementById('add-deck-tags').value);
                     const deckIds = parseDeckText(document.getElementById('add-deck-deck').value);
