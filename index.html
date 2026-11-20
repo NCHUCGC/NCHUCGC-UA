@@ -228,7 +228,22 @@
             display: none; padding: 10px 14px; border-radius: 9px; font-size: 13px;
             background: rgba(241, 196, 15, 0.12); border: 1px solid rgba(241, 196, 15, 0.45); color: #f6e08b;
         }
-        .lobby-layout { display: grid; grid-template-columns: 1.6fr 1fr; gap: 16px; flex: 1; min-height: 0; }
+        .lobby-layout { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 14px; flex: 1; min-height: 0; }
+        .friend-row {
+            display: flex; justify-content: space-between; align-items: center; gap: 8px;
+            background: #1b1f38; border: 1px solid #2e3559; border-radius: 8px; padding: 8px 10px;
+        }
+        #nchucgc-invite-toast {
+            display: none; position: fixed; top: 72px; right: 24px; z-index: 100700;
+            width: 300px; background: #181c33; border: 2px solid #6fb897; border-radius: 12px;
+            padding: 14px 16px; box-shadow: 0 12px 35px rgba(0,0,0,0.85);
+        }
+        .vote-stars { display: flex; gap: 6px; align-items: center; }
+        .vote-star-btn {
+            background: #232845; color: #cfd4e6; border: 1px solid #3c4370; border-radius: 6px;
+            padding: 4px 10px; font-size: 12px; font-weight: 700; cursor: pointer;
+        }
+        .vote-star-btn.active { background: #6fb897; color: #111; border-color: #6fb897; }
         .lobby-panel {
             background: #141729; border: 1px solid #2b3052; border-radius: 12px; padding: 18px 20px;
             display: flex; flex-direction: column; gap: 12px; min-height: 0;
@@ -532,7 +547,7 @@
                     <div class="entry-cards">
                         <div class="entry-card" onclick="switchMainView('tier')">
                             <div class="entry-card-title">環境排表 (Tier List)</div>
-                            <div class="entry-card-desc">依 T0–T5 整理社團環境與操作難度，支援社員開啟自排／提案模式。</div>
+                            <div class="entry-card-desc">檢視社團 T0–T5 環境強度排表與操作難度，管理員可即時拖曳調整。</div>
                         </div>
                         <div class="entry-card" onclick="switchMainView('builder')">
                             <div class="entry-card-title">牌組構築與連線</div>
@@ -575,16 +590,10 @@
                     <option value="4">難度：4</option>
                     <option value="5">難度：5</option>
                 </select>
-                <button id="btn-tier-sandbox" class="ctrl-btn" style="background:#262c4a; border:1px solid #485080; padding:8px 14px;">開啟自排／提案模式</button>
+                <button id="btn-tier-add-deck" class="start-btn" style="display:none; padding:8px 14px; font-size:13px;">新增牌組</button>
             </div>
-            <div class="tier-sandbox-bar" id="tier-sandbox-bar">
-                <span>自排／提案模式已開啟：可直接拖曳牌組調整 T0–T5，或點擊牌組修改操作難度（僅儲存於本機，不會更動社團正式版）。</span>
-                <div class="tier-sandbox-actions">
-                    <button class="ctrl-btn" id="btn-tier-add-deck" style="background:#4f9678;">新增牌組提案</button>
-                    <button class="ctrl-btn" id="btn-tier-copy-text" style="background:#4f739e;">複製提案文字</button>
-                    <button class="ctrl-btn" id="btn-tier-copy-json" style="background:#6f5a9e;">複製提案 JSON</button>
-                    <button class="ctrl-btn danger" id="btn-tier-reset-local">還原社團正式版</button>
-                </div>
+            <div class="tier-sandbox-bar" id="tier-admin-bar">
+                <span>管理員即時編輯模式：可直接拖曳牌組調整 T0–T5，或點擊牌組修改難度與資訊，變更將即時同步給所有玩家。</span>
             </div>
             <div class="tier-board" id="tier-board"></div>
         </section>
@@ -595,7 +604,7 @@
 
         <div id="tier-add-modal">
             <div class="tier-detail-box" style="width:560px;">
-                <h3 style="margin:0; font-size:18px; color:#fff;">新增牌組提案</h3>
+                <h3 style="margin:0; font-size:18px; color:#fff;">新增牌組至排表</h3>
                 <div class="tier-form-grid">
                     <div class="tier-form-field">
                         <label>作品系列</label>
@@ -616,7 +625,7 @@
                         <input type="text" id="add-deck-name" placeholder="請輸入牌組名稱">
                     </div>
                     <div class="tier-form-field">
-                        <label>提案階級</label>
+                        <label>階級</label>
                         <select id="add-deck-tier">
                             <option value="T0">T0</option>
                             <option value="T1">T1</option>
@@ -645,7 +654,7 @@
                 </div>
                 <div class="td-actions">
                     <button class="ctrl-btn" id="btn-add-deck-cancel" style="background:#313456; padding:8px 16px;">取消</button>
-                    <button class="start-btn" id="btn-add-deck-confirm" style="padding:8px 18px;">加入自排清單</button>
+                    <button class="start-btn" id="btn-add-deck-confirm" style="padding:8px 18px;">即時新增並同步</button>
                 </div>
             </div>
         </div>
@@ -683,8 +692,22 @@
                         <button class="ctrl-btn" onclick="switchMainView('builder')" style="background:#232845; border:1px solid #3c4370; padding:9px;">前往牌組構築 / 檢查已選牌組</button>
                     </div>
                 </div>
+
+                <div class="lobby-panel">
+                    <div class="home-panel-title">
+                        <span>社團好友</span>
+                        <span style="font-size:12px; color:#8c93ad; font-weight:400;">我的好友碼：<b id="lobby-my-friend-code" style="color:#d1c4e9; cursor:pointer;" title="點擊複製">請先登入</b></span>
+                    </div>
+                    <div style="display:flex; gap:8px;">
+                        <input type="text" id="lobby-friend-code-input" placeholder="輸入 6 碼好友碼" style="flex:1; background:#111426; border:1px solid #353c66; color:#fff; padding:8px 10px; border-radius:7px; font-size:13px; outline:none; text-transform:uppercase;">
+                        <button class="ctrl-btn" id="btn-lobby-add-friend" style="background:#4f739e; padding:8px 12px;">加好友</button>
+                    </div>
+                    <div class="lobby-room-list" id="lobby-friends-list"></div>
+                </div>
             </div>
         </section>
+
+        <div id="nchucgc-invite-toast"></div>
 
         <div id="builder-scene">
             
@@ -1989,6 +2012,7 @@
                     sendStartGamePayload(shuffledDeck, apClone);
 
                     // 再初始化我方盤面並廣播 SYNC_BOARD
+                    if (window.nchucgcLobby) window.nchucgcLobby.setMyPresence('playing');
                     initMyBoard(shuffledDeck, apClone);
                 };
             });
@@ -2104,6 +2128,7 @@
             if (window.uaEngine && typeof window.uaEngine.resetMatchState === 'function') {
                 window.uaEngine.resetMatchState();
             }
+            if (window.nchucgcLobby) window.nchucgcLobby.setMyPresence('online');
             updateUndoButtonState();
         }
 
@@ -3339,40 +3364,18 @@ function createCardDOM(cardData, networkId, isMine) {
                 { key: 'T5', label: 'T5' },
                 { key: 'UNRATED', label: '待評定' }
             ];
-            const SANDBOX_STORAGE_KEY = 'nchucgc_tier_sandbox_v1';
 
             let tierColorFilter = 'ALL';
-            let sandboxMode = false;
             let draggedDeckId = null;
 
-            function loadSandboxState() {
-                try {
-                    const parsed = JSON.parse(localStorage.getItem(SANDBOX_STORAGE_KEY) || 'null');
-                    if (parsed && typeof parsed === 'object') {
-                        return { overrides: parsed.overrides || {}, customDecks: Array.isArray(parsed.customDecks) ? parsed.customDecks : [] };
-                    }
-                } catch (e) {}
-                return { overrides: {}, customDecks: [] };
+            function isAdmin() {
+                return !!(window.nchucgcLobby && window.nchucgcLobby.isAdminUser());
             }
 
-            let sandboxState = loadSandboxState();
-
-            function saveSandboxState() {
-                localStorage.setItem(SANDBOX_STORAGE_KEY, JSON.stringify(sandboxState));
-            }
-
-            function getMergedTierList() {
-                const base = (window.NCHUCGC_TIER_LIST || []).map(d => {
-                    const ov = sandboxMode ? sandboxState.overrides[d.id] : null;
-                    return ov ? { ...d, tier: ov.tier ?? d.tier, difficulty: ov.difficulty !== undefined ? ov.difficulty : d.difficulty } : { ...d };
-                });
-                if (sandboxMode && sandboxState.customDecks.length > 0) {
-                    sandboxState.customDecks.forEach(cd => {
-                        const ov = sandboxState.overrides[cd.id];
-                        base.push(ov ? { ...cd, tier: ov.tier ?? cd.tier, difficulty: ov.difficulty !== undefined ? ov.difficulty : cd.difficulty, _isCustom: true } : { ...cd, _isCustom: true });
-                    });
-                }
-                return base;
+            function syncTierListNow() {
+                if (!isAdmin()) return;
+                const cleanList = (window.NCHUCGC_TIER_LIST || []).map(({ _isCustom, ...rest }) => rest);
+                window.nchucgcLobby.publishOfficialTierList(cleanList);
             }
 
             window.switchMainView = function (viewName) {
@@ -3426,26 +3429,20 @@ function createCardDOM(cardData, networkId, isMine) {
                 }
             }
 
-            function updateSandboxOverride(deckId, patch) {
-                const prev = sandboxState.overrides[deckId] || {};
-                sandboxState.overrides[deckId] = { ...prev, ...patch };
-                saveSandboxState();
-                renderTierBoard();
-            }
-
             function openTierDetail(deck) {
                 const modal = document.getElementById('tier-detail-modal');
                 const box = document.getElementById('tier-detail-content');
                 const imgUrl = getCoverUrl(deck.coverCardId, deck.series, deck.color);
                 const tagsHtml = (deck.tags || []).map(t => `<span class="td-badge">${t}</span>`).join('');
-                const prosHtml = (deck.pros && deck.pros.length) ? deck.pros.map(p => `<li>${p}</li>`).join('') : '<li style="color:#7f85a3;">尚待社團補充</li>';
-                const consHtml = (deck.cons && deck.cons.length) ? deck.cons.map(c => `<li>${c}</li>`).join('') : '<li style="color:#7f85a3;">尚待社團補充</li>';
+                const prosHtml = (deck.pros && deck.pros.length) ? deck.pros.map(p => `<li>${p}</li>`).join('') : '<li style="color:#7f85a3;">尚待補充</li>';
+                const consHtml = (deck.cons && deck.cons.length) ? deck.cons.map(c => `<li>${c}</li>`).join('') : '<li style="color:#7f85a3;">尚待補充</li>';
                 const sampleCount = (deck.sampleDeck || []).length;
                 const tierLabel = TIER_DEFS.find(t => t.key === deck.tier)?.label || deck.tier;
+                const admin = isAdmin();
 
-                const sandboxControlsHtml = sandboxMode ? `
+                const adminControlsHtml = admin ? `
                     <div style="background:rgba(111,184,151,0.1); border:1px solid rgba(111,184,151,0.4); border-radius:8px; padding:12px 14px; display:flex; flex-wrap:wrap; gap:14px; align-items:center;">
-                        <strong style="font-size:13px; color:#82cca9;">自排提案設定</strong>
+                        <strong style="font-size:13px; color:#82cca9;">管理員即時調整</strong>
                         <label style="font-size:13px; display:flex; align-items:center; gap:6px;">
                             階級
                             <select id="td-edit-tier" class="tier-select">
@@ -3459,7 +3456,7 @@ function createCardDOM(cardData, networkId, isMine) {
                                 ${[1, 2, 3, 4, 5].map(n => `<option value="${n}" ${Number(deck.difficulty) === n ? 'selected' : ''}>${n} / 5</option>`).join('')}
                             </select>
                         </label>
-                        ${deck._isCustom ? `<button class="ctrl-btn danger" id="td-btn-del-custom" style="margin-left:auto;">刪除此自訂提案</button>` : ''}
+                        <button class="ctrl-btn danger" id="td-btn-del-deck" style="margin-left:auto;">刪除此牌組</button>
                     </div>
                 ` : '';
 
@@ -3476,7 +3473,7 @@ function createCardDOM(cardData, networkId, isMine) {
                             <p style="margin:8px 0 0 0; font-size:14px; color:#d5d9ea; line-height:1.6;">${deck.summary || '尚無簡介。'}</p>
                         </div>
                     </div>
-                    ${sandboxControlsHtml}
+                    ${adminControlsHtml}
                     <div class="td-cols">
                         <div class="td-list-box">
                             <h4>優勢</h4>
@@ -3494,29 +3491,31 @@ function createCardDOM(cardData, networkId, isMine) {
                 `;
 
                 box.querySelector('#td-btn-close').onclick = () => { modal.style.display = 'none'; };
+
                 const editTier = box.querySelector('#td-edit-tier');
                 if (editTier) {
                     editTier.onchange = () => {
-                        updateSandboxOverride(deck.id, { tier: editTier.value });
-                        showSysMsg(`已將「${deck.name}」調整至 ${editTier.options[editTier.selectedIndex].text}。`);
+                        deck.tier = editTier.value;
+                        renderTierBoard();
+                        syncTierListNow();
                     };
                 }
                 const editDiff = box.querySelector('#td-edit-diff');
                 if (editDiff) {
                     editDiff.onchange = () => {
-                        const val = editDiff.value === '' ? null : Number(editDiff.value);
-                        updateSandboxOverride(deck.id, { difficulty: val });
-                        showSysMsg(`已將「${deck.name}」操作難度設為 ${formatDiff(val)}。`);
+                        deck.difficulty = editDiff.value === '' ? null : Number(editDiff.value);
+                        renderTierBoard();
+                        syncTierListNow();
                     };
                 }
-                const delBtn = box.querySelector('#td-btn-del-custom');
+                const delBtn = box.querySelector('#td-btn-del-deck');
                 if (delBtn) {
                     delBtn.onclick = () => {
-                        sandboxState.customDecks = sandboxState.customDecks.filter(c => c.id !== deck.id);
-                        delete sandboxState.overrides[deck.id];
-                        saveSandboxState();
+                        if (!confirm(`確定要從排表刪除「${deck.name}」嗎？`)) return;
+                        window.NCHUCGC_TIER_LIST = (window.NCHUCGC_TIER_LIST || []).filter(d => d.id !== deck.id);
                         modal.style.display = 'none';
                         renderTierBoard();
+                        syncTierListNow();
                     };
                 }
                 const importBtn = box.querySelector('#td-btn-import');
@@ -3541,17 +3540,15 @@ function createCardDOM(cardData, networkId, isMine) {
             window.renderTierBoard = function () {
                 const board = document.getElementById('tier-board');
                 if (!board) return;
-                const list = getMergedTierList();
+                const list = window.NCHUCGC_TIER_LIST || [];
                 const q = (document.getElementById('tier-search-input')?.value || '').trim().toLowerCase();
                 const diffFilter = document.getElementById('tier-diff-filter')?.value || 'ALL';
+                const admin = isAdmin();
 
-                const sandboxBar = document.getElementById('tier-sandbox-bar');
-                if (sandboxBar) sandboxBar.style.display = sandboxMode ? 'flex' : 'none';
-                const toggleBtn = document.getElementById('btn-tier-sandbox');
-                if (toggleBtn) {
-                    toggleBtn.textContent = sandboxMode ? '退出自排／提案模式' : '開啟自排／提案模式';
-                    toggleBtn.style.background = sandboxMode ? '#4f9678' : '#262c4a';
-                }
+                const adminBar = document.getElementById('tier-admin-bar');
+                if (adminBar) adminBar.style.display = admin ? 'flex' : 'none';
+                const addBtn = document.getElementById('btn-tier-add-deck');
+                if (addBtn) addBtn.style.display = admin ? 'inline-block' : 'none';
 
                 board.innerHTML = '';
                 TIER_DEFS.forEach(t => {
@@ -3567,33 +3564,40 @@ function createCardDOM(cardData, networkId, isMine) {
                         return true;
                     });
 
+                    // 一般玩家若「待評定」為空則不顯示該列，保持畫面簡潔
+                    if (!admin && t.key === 'UNRATED' && matched.length === 0) return;
+
                     const row = document.createElement('div');
                     row.className = 'tier-row';
                     row.dataset.tier = t.key;
                     row.innerHTML = `<div class="tier-label ${t.key}">${t.label}</div><div class="tier-cards"></div>`;
                     const cardsBox = row.querySelector('.tier-cards');
 
-                    if (sandboxMode) {
+                    if (admin) {
                         row.addEventListener('dragover', (e) => { e.preventDefault(); row.classList.add('drag-over'); });
                         row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
                         row.addEventListener('drop', (e) => {
                             e.preventDefault();
                             row.classList.remove('drag-over');
                             const id = draggedDeckId || e.dataTransfer.getData('text/plain');
-                            if (id) {
-                                updateSandboxOverride(id, { tier: t.key });
-                                draggedDeckId = null;
+                            draggedDeckId = null;
+                            if (!id) return;
+                            const targetDeck = (window.NCHUCGC_TIER_LIST || []).find(d => d.id === id);
+                            if (targetDeck && targetDeck.tier !== t.key) {
+                                targetDeck.tier = t.key;
+                                renderTierBoard();
+                                syncTierListNow();
                             }
                         });
                     }
 
                     if (matched.length === 0) {
-                        cardsBox.innerHTML = `<div style="color:#6c7290; font-size:13px; padding:12px;">${sandboxMode ? '可將牌組拖曳至此階級' : '尚無牌組'}</div>`;
+                        cardsBox.innerHTML = `<div style="color:#6c7290; font-size:13px; padding:12px;">${admin ? '可將牌組拖曳至此階級' : '尚無牌組'}</div>`;
                     } else {
                         matched.forEach(deck => {
                             const card = document.createElement('div');
-                            card.className = `tier-deck-card ${deck.color}` + (sandboxMode ? ' is-draggable' : '') + (deck._isCustom ? ' is-custom' : '');
-                            if (sandboxMode) {
+                            card.className = `tier-deck-card ${deck.color}` + (admin ? ' is-draggable' : '');
+                            if (admin) {
                                 card.draggable = true;
                                 card.addEventListener('dragstart', (e) => {
                                     draggedDeckId = deck.id;
@@ -3641,12 +3645,8 @@ function createCardDOM(cardData, networkId, isMine) {
                     });
                 });
 
-                document.getElementById('btn-tier-sandbox')?.addEventListener('click', () => {
-                    sandboxMode = !sandboxMode;
-                    renderTierBoard();
-                });
-
                 document.getElementById('btn-tier-add-deck')?.addEventListener('click', () => {
+                    if (!isAdmin()) return;
                     populateAddDeckSeriesSelect();
                     document.getElementById('add-deck-name').value = '';
                     document.getElementById('add-deck-cover').value = '';
@@ -3658,6 +3658,7 @@ function createCardDOM(cardData, networkId, isMine) {
                 });
 
                 document.getElementById('btn-add-deck-confirm')?.addEventListener('click', () => {
+                    if (!isAdmin()) return;
                     const series = document.getElementById('add-deck-series').value;
                     const color = document.getElementById('add-deck-color').value;
                     const name = document.getElementById('add-deck-name').value.trim();
@@ -3666,51 +3667,24 @@ function createCardDOM(cardData, networkId, isMine) {
                     const coverCardId = document.getElementById('add-deck-cover').value.trim().toUpperCase();
                     if (!name) { showSysMsg('請輸入牌組名稱。'); return; }
                     const newDeck = {
-                        id: 'custom-' + Date.now(),
+                        id: 'deck-' + Date.now(),
                         tier,
                         series,
                         color,
                         name,
                         coverCardId,
                         difficulty: diffRaw === '' ? null : Number(diffRaw),
-                        tags: ['社員提案'],
+                        tags: [],
                         summary: '',
                         pros: [],
                         cons: [],
                         sampleDeck: coverCardId ? [coverCardId] : []
                     };
-                    sandboxState.customDecks.push(newDeck);
-                    saveSandboxState();
+                    window.NCHUCGC_TIER_LIST = window.NCHUCGC_TIER_LIST || [];
+                    window.NCHUCGC_TIER_LIST.push(newDeck);
                     document.getElementById('tier-add-modal').style.display = 'none';
                     renderTierBoard();
-                    showSysMsg(`已新增牌組提案「${name}」。`);
-                });
-
-                document.getElementById('btn-tier-copy-text')?.addEventListener('click', () => {
-                    const list = getMergedTierList();
-                    const lines = ['【NCHUCGC Union Arena 排表提案】'];
-                    TIER_DEFS.forEach(t => {
-                        const items = list.filter(d => d.tier === t.key);
-                        if (items.length > 0) {
-                            const names = items.map(d => `${d.name}(難度:${d.difficulty ?? '待評'})`).join('、');
-                            lines.push(`${t.label}：${names}`);
-                        }
-                    });
-                    navigator.clipboard.writeText(lines.join('\n')).then(() => showSysMsg('已複製排表提案文字，可直接貼至社團群組。'));
-                });
-
-                document.getElementById('btn-tier-copy-json')?.addEventListener('click', () => {
-                    const exported = getMergedTierList().map(({ _isCustom, ...rest }) => rest);
-                    navigator.clipboard.writeText(JSON.stringify(exported, null, 4)).then(() => showSysMsg('已複製排表 JSON，幹部可直接覆蓋 tier-data.js。'));
-                });
-
-                document.getElementById('btn-tier-reset-local')?.addEventListener('click', () => {
-                    if (confirm('確定要清除本機自排修改與自訂提案，還原為社團正式版嗎？')) {
-                        sandboxState = { overrides: {}, customDecks: [] };
-                        saveSandboxState();
-                        renderTierBoard();
-                        showSysMsg('已還原為社團正式版排表。');
-                    }
+                    syncTierListNow();
                 });
 
                 document.getElementById('tier-detail-modal')?.addEventListener('click', (e) => {

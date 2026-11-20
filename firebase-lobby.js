@@ -1,8 +1,5 @@
 /**
- * NCHUCGC 第二階段：Firebase 帳號登入、即時多房間對戰大廳與牌組雲端同步 (firebase-lobby.js)
- * 設計原則：
- * - 若尚未填入 firebase-config.js，自動降級為純 PeerJS 手動輸入代碼模式，不影響現有對戰。
- * - 大廳僅透過 Realtime Database 交換房主的 PeerJS ID，實際對戰維持 P2P 連線以節省資料庫流量。
+ * NCHUCGC 第三階段：Firebase 帳號登入、即時多房間大廳、好友與邀請系統、雲端 Tier List 與難度投票 (firebase-lobby.js)
  */
 (function () {
     const state = {
@@ -10,9 +7,14 @@
         auth: null,
         db: null,
         user: null,
+        myFriendCode: null,
         myHostedRoomRef: null,
         myHostedRoomId: null,
-        roomsMap: {}
+        roomsMap: {},
+        friendsMap: {},
+        statusesMap: {},
+        cloudTierList: null,
+        tierVotes: {}
     };
 
     function isConfigFilled(cfg) {
@@ -21,6 +23,18 @@
 
     function escapeHtml(str) {
         return String(str || '').replace(/[&<>"']/g, s => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[s]));
+    }
+
+    function isAdminUser() {
+        const admins = window.NCHUCGC_ADMIN_UIDS || [];
+        return !!(state.user && Array.isArray(admins) && admins.includes(state.user.uid));
+    }
+
+    function generateFriendCode() {
+        const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+        let code = '';
+        for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+        return code;
     }
 
     function updateAuthUI() {
@@ -32,11 +46,19 @@
         }
         if (state.user) {
             const name = escapeHtml(state.user.displayName || '社員');
+            const adminTag = isAdminUser() ? `<span style="font-size:11px; background:#6fb897; color:#111; padding:2px 6px; border-radius:4px; font-weight:900;">管理員</span>` : '';
             authBox.innerHTML = `
-                <span style="font-size:13px; color:#d1c4e9; font-weight:700;">${name}</span>
+                ${adminTag}
+                <span id="nav-user-name" title="點擊複製你的 UID（用於設定管理員權限）" style="font-size:13px; color:#d1c4e9; font-weight:700; cursor:pointer;">${name}</span>
                 <button class="ctrl-btn" id="btn-fb-logout" style="background:#313456; padding:5px 10px; font-size:12px;">登出</button>
             `;
-            document.getElementById('btn-fb-logout').onclick = () => state.auth.signOut();
+            document.getElementById('nav-user-name').onclick = () => {
+                navigator.clipboard.writeText(state.user.uid).then(() => showSysMsg(`已複製你的 UID：${state.user.uid}`));
+            };
+            document.getElementById('btn-fb-logout').onclick = () => {
+                setMyPresence('offline');
+                state.auth.signOut();
+            };
         } else {
             authBox.innerHTML = `
                 <button class="ctrl-btn" id="btn-fb-login" style="background:#4f739e; padding:6px 12px; font-size:12px;">Google 登入</button>
@@ -49,7 +71,237 @@
                 });
             };
         }
+        if (typeof window.renderTierBoard === 'function') window.renderTierBoard();
     }
+
+    // ==================== 在線狀態 (Presence) ====================
+
+    function setMyPresence(statusStr) {
+        if (!state.ready || !state.user || !state.db) return;
+        const ref = state.db.ref(`status/${state.user.uid}`);
+        ref.set({
+            state: statusStr,
+            name: state.user.displayName || '社員',
+            peerId: window.myRoomId || '',
+            updatedAt: Date.now()
+        }).catch(() => {});
+    }
+
+    function initPresence(user) {
+        const ref = state.db.ref(`status/${user.uid}`);
+        const connectedRef = state.db.ref('.info/connected');
+        connectedRef.on('value', snap => {
+            if (snap.val() === true) {
+                ref.onDisconnect().set({
+                    state: 'offline',
+                    name: user.displayName || '社員',
+                    peerId: '',
+                    updatedAt: Date.now()
+                });
+                setMyPresence('online');
+            }
+        });
+    }
+
+    // ==================== 好友系統與直接邀請 ====================
+
+    function ensureUserProfileAndFriendCode(user) {
+        const profileRef = state.db.ref(`users/${user.uid}/profile`);
+        profileRef.once('value').then(snap => {
+            const val = snap.val();
+            if (val && val.friendCode) {
+                state.myFriendCode = val.friendCode;
+                // 同步更新顯示名稱
+                profileRef.update({ name: user.displayName || '社員' }).catch(() => {});
+                renderFriendsPanel();
+            } else {
+                const newCode = generateFriendCode();
+                state.myFriendCode = newCode;
+                profileRef.set({
+                    name: user.displayName || '社員',
+                    friendCode: newCode,
+                    createdAt: Date.now()
+                }).catch(() => {});
+                state.db.ref(`friendCodes/${newCode}`).set({
+                    uid: user.uid,
+                    name: user.displayName || '社員'
+                }).catch(() => {});
+                renderFriendsPanel();
+            }
+        }).catch(() => {});
+    }
+
+    function listenFriendsAndInvites(uid) {
+        // 監聽好友名單
+        state.db.ref(`users/${uid}/friends`).on('value', snap => {
+            state.friendsMap = snap.val() || {};
+            renderFriendsPanel();
+        });
+
+        // 監聽全體在線狀態（社團規模輕量直接監聽）
+        state.db.ref('status').on('value', snap => {
+            state.statusesMap = snap.val() || {};
+            renderFriendsPanel();
+        });
+
+        // 監聽收到的對戰邀請
+        state.db.ref(`invites/${uid}`).on('value', snap => {
+            const invMap = snap.val() || {};
+            const list = Object.entries(invMap)
+                .map(([fromUid, data]) => ({ fromUid, ...data }))
+                .filter(inv => inv && inv.peerId && (Date.now() - (inv.createdAt || 0) < 120000));
+            renderInviteToast(list[0] || null);
+        });
+    }
+
+    function renderInviteToast(invite) {
+        const box = document.getElementById('nchucgc-invite-toast');
+        if (!box) return;
+        if (!invite) {
+            box.style.display = 'none';
+            return;
+        }
+        box.innerHTML = `
+            <div style="font-size:12px; color:#6fb897; font-weight:700; margin-bottom:4px;">收到好友對戰邀請</div>
+            <div style="font-size:15px; font-weight:900; color:#fff; margin-bottom:10px;">${escapeHtml(invite.fromName || '好友')} 邀請你進行對戰</div>
+            <div style="display:flex; gap:8px; justify-content:flex-end;">
+                <button class="ctrl-btn" id="btn-inv-decline" style="background:#313456; padding:6px 12px;">婉拒</button>
+                <button class="start-btn" id="btn-inv-accept" style="padding:6px 14px;">接受並加入</button>
+            </div>
+        `;
+        box.style.display = 'block';
+
+        box.querySelector('#btn-inv-decline').onclick = () => {
+            if (state.db && state.user) state.db.ref(`invites/${state.user.uid}/${invite.fromUid}`).remove().catch(() => {});
+            box.style.display = 'none';
+        };
+        box.querySelector('#btn-inv-accept').onclick = () => {
+            if (state.db && state.user) state.db.ref(`invites/${state.user.uid}/${invite.fromUid}`).remove().catch(() => {});
+            box.style.display = 'none';
+            const targetInput = document.getElementById('target-id');
+            const connectBtn = document.getElementById('btn-connect');
+            if (targetInput && connectBtn) {
+                if (typeof window.switchMainView === 'function') window.switchMainView('builder');
+                targetInput.value = invite.peerId;
+                connectBtn.click();
+                showSysMsg(`已接受 ${invite.fromName} 的邀請，正在建立連線...`);
+            }
+        };
+    }
+
+    function addFriendByCode() {
+        if (!state.ready || !state.user) {
+            showSysMsg('請先使用 Google 登入以使用好友功能。');
+            return;
+        }
+        const input = document.getElementById('lobby-friend-code-input');
+        const code = (input?.value || '').trim().toUpperCase();
+        if (!code || code.length < 4) {
+            showSysMsg('請輸入有效的 6 碼好友碼。');
+            return;
+        }
+        if (code === state.myFriendCode) {
+            showSysMsg('不能加自己為好友。');
+            return;
+        }
+        state.db.ref(`friendCodes/${code}`).once('value').then(snap => {
+            const target = snap.val();
+            if (!target || !target.uid) {
+                showSysMsg('找不到此好友碼，請確認輸入是否正確。');
+                return;
+            }
+            const myUid = state.user.uid;
+            const myName = state.user.displayName || '社員';
+            // 雙向加入好友
+            state.db.ref(`users/${myUid}/friends/${target.uid}`).set({ name: target.name || '社員', addedAt: Date.now() }).catch(() => {});
+            state.db.ref(`users/${target.uid}/friends/${myUid}`).set({ name: myName, addedAt: Date.now() }).catch(() => {});
+            if (input) input.value = '';
+            showSysMsg(`已成功與「${target.name || '社員'}」成為好友。`);
+        }).catch(err => {
+            console.error('加好友失敗:', err);
+            showSysMsg('加好友失敗，請確認已更新 Firebase 安全規則。');
+        });
+    }
+
+    function sendInviteToFriend(friendUid, friendName) {
+        if (!state.ready || !state.user) return;
+        const myPeerId = document.getElementById('my-peer-id')?.textContent?.trim();
+        if (!myPeerId || myPeerId === '產生中...') {
+            showSysMsg('正在取得連線代碼，請稍候再試。');
+            return;
+        }
+        state.db.ref(`invites/${friendUid}/${state.user.uid}`).set({
+            fromUid: state.user.uid,
+            fromName: state.user.displayName || '社員',
+            peerId: myPeerId,
+            createdAt: Date.now()
+        }).then(() => {
+            showSysMsg(`已發送對戰邀請給「${friendName}」，請等待對方接受。`);
+        }).catch(err => {
+            console.error('發送邀請失敗:', err);
+            showSysMsg('發送邀請失敗，請確認 Firebase 安全規則。');
+        });
+    }
+
+    function renderFriendsPanel() {
+        const codeEl = document.getElementById('lobby-my-friend-code');
+        const listEl = document.getElementById('lobby-friends-list');
+        if (!listEl) return;
+
+        if (!state.ready || !state.user) {
+            if (codeEl) codeEl.textContent = '請先登入';
+            listEl.innerHTML = `<div class="lobby-empty" style="padding:16px;">登入 Google 帳號後即可查看好友名單與發送直接邀請。</div>`;
+            return;
+        }
+
+        if (codeEl) {
+            codeEl.textContent = state.myFriendCode || '產生中...';
+            codeEl.onclick = () => {
+                if (state.myFriendCode) navigator.clipboard.writeText(state.myFriendCode).then(() => showSysMsg(`已複製好友碼：${state.myFriendCode}`));
+            };
+        }
+
+        const friends = Object.entries(state.friendsMap || {}).map(([uid, info]) => {
+            const st = state.statusesMap[uid] || { state: 'offline' };
+            return { uid, name: st.name || info.name || '社員', status: st.state || 'offline' };
+        }).sort((a, b) => {
+            const order = { online: 0, playing: 1, offline: 2 };
+            return (order[a.status] ?? 2) - (order[b.status] ?? 2);
+        });
+
+        if (friends.length === 0) {
+            listEl.innerHTML = `<div class="lobby-empty" style="padding:16px;">尚無好友，輸入對方的 6 碼好友碼即可加入。</div>`;
+            return;
+        }
+
+        listEl.innerHTML = '';
+        friends.forEach(f => {
+            const statusText = f.status === 'online' ? '在線' : (f.status === 'playing' ? '對戰中' : '離線');
+            const dotColor = f.status === 'online' ? '#2ecc71' : (f.status === 'playing' ? '#f1c40f' : '#6c7290');
+            const row = document.createElement('div');
+            row.className = 'friend-row';
+            row.innerHTML = `
+                <div style="display:flex; align-items:center; gap:8px; min-width:0;">
+                    <span style="width:9px; height:9px; border-radius:50%; background:${dotColor}; flex-shrink:0;"></span>
+                    <span style="font-size:13px; font-weight:700; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(f.name)}</span>
+                    <span style="font-size:11px; color:#8c93ad;">${statusText}</span>
+                </div>
+                <div style="display:flex; gap:6px; flex-shrink:0;">
+                    <button class="ctrl-btn btn-invite-friend" style="background:#4f9678; padding:4px 9px; font-size:12px;" ${f.status === 'offline' ? 'disabled' : ''}>邀請</button>
+                    <button class="ctrl-btn btn-remove-friend" style="background:#313456; padding:4px 8px; font-size:12px;">移除</button>
+                </div>
+            `;
+            row.querySelector('.btn-invite-friend').onclick = () => sendInviteToFriend(f.uid, f.name);
+            row.querySelector('.btn-remove-friend').onclick = () => {
+                if (confirm(`確定要移除好友「${f.name}」嗎？`)) {
+                    state.db.ref(`users/${state.user.uid}/friends/${f.uid}`).remove().catch(() => {});
+                }
+            };
+            listEl.appendChild(row);
+        });
+    }
+
+    // ==================== 房間列表 ====================
 
     function renderRoomList() {
         const listBox = document.getElementById('lobby-room-list');
@@ -59,7 +311,7 @@
         if (!state.ready) {
             if (statusBanner) {
                 statusBanner.style.display = 'block';
-                statusBanner.textContent = '尚未設定 firebase-config.js，目前為單機／手動代碼連線模式。請先完成 Firebase 設定以啟用即時多房間大廳。';
+                statusBanner.textContent = '尚未設定 firebase-config.js，目前為單機／手動代碼連線模式。';
             }
             listBox.innerHTML = `<div class="lobby-empty">填入 Firebase 設定後，此處將即時顯示所有線上對戰房間。</div>`;
             return;
@@ -73,7 +325,7 @@
             .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
         if (rooms.length === 0) {
-            listBox.innerHTML = `<div class="lobby-empty">目前沒有等待中的房間，點擊上方「建立對戰房間」開始配對。</div>`;
+            listBox.innerHTML = `<div class="lobby-empty">目前沒有等待中的房間，點擊右側「建立對戰房間」開始配對。</div>`;
             return;
         }
 
@@ -105,9 +357,7 @@
             `;
 
             const closeBtn = row.querySelector('.btn-close-room');
-            if (closeBtn) {
-                closeBtn.onclick = () => closeMyHostedRoom();
-            }
+            if (closeBtn) closeBtn.onclick = () => closeMyHostedRoom();
 
             const joinBtn = row.querySelector('.btn-join-room');
             if (joinBtn && !isPlaying) {
@@ -115,39 +365,26 @@
                     if (room.hasPassword) {
                         const pin = prompt('此房間設有密碼，請輸入房間密碼：');
                         if (pin === null) return;
-                        if (pin.trim() !== String(room.pin || '')) {
-                            showSysMsg('房間密碼錯誤。');
-                            return;
-                        }
+                        if (pin.trim() !== String(room.pin || '')) { showSysMsg('房間密碼錯誤。'); return; }
                     }
                     const targetInput = document.getElementById('target-id');
                     const connectBtn = document.getElementById('btn-connect');
                     if (targetInput && connectBtn) {
                         targetInput.value = room.peerId;
                         connectBtn.click();
-                        // 標記房間為對戰中
-                        if (state.db) {
-                            state.db.ref(`rooms/${room.id}/status`).set('playing').catch(() => {});
-                        }
+                        if (state.db) state.db.ref(`rooms/${room.id}/status`).set('playing').catch(() => {});
                         showSysMsg(`正在連線至「${room.roomName}」...`);
                     }
                 };
             }
-
             listBox.appendChild(row);
         });
     }
 
     function createHostedRoom() {
-        if (!state.ready) {
-            showSysMsg('請先於 firebase-config.js 填入 Firebase 設定。');
-            return;
-        }
+        if (!state.ready) { showSysMsg('請先於 firebase-config.js 填入 Firebase 設定。'); return; }
         const myPeerId = document.getElementById('my-peer-id')?.textContent?.trim();
-        if (!myPeerId || myPeerId === '產生中...') {
-            showSysMsg('正在取得 PeerJS 連線代碼，請稍候 1 秒再試。');
-            return;
-        }
+        if (!myPeerId || myPeerId === '產生中...') { showSysMsg('正在取得 PeerJS 連線代碼，請稍候 1 秒再試。'); return; }
         const nameInput = document.getElementById('lobby-new-room-name');
         const modeSelect = document.getElementById('lobby-new-room-mode');
         const pinInput = document.getElementById('lobby-new-room-pin');
@@ -156,13 +393,10 @@
         const mode = modeSelect?.value || 'auto';
         const pin = (pinInput?.value || '').trim();
 
-        // 若已有舊房先關閉
-        if (state.myHostedRoomRef) {
-            state.myHostedRoomRef.remove().catch(() => {});
-        }
+        if (state.myHostedRoomRef) state.myHostedRoomRef.remove().catch(() => {});
 
         const roomRef = state.db.ref(`rooms/${myPeerId}`);
-        const payload = {
+        roomRef.set({
             roomName,
             hostUid: state.user ? state.user.uid : 'guest',
             hostName: state.user ? (state.user.displayName || '社員') : '訪客',
@@ -172,9 +406,7 @@
             pin: pin.length > 0 ? pin : '',
             status: 'waiting',
             createdAt: Date.now()
-        };
-
-        roomRef.set(payload).then(() => {
+        }).then(() => {
             roomRef.onDisconnect().remove();
             state.myHostedRoomRef = roomRef;
             state.myHostedRoomId = myPeerId;
@@ -183,7 +415,7 @@
             showSysMsg(`已建立房間「${roomName}」，等待對手加入...`);
         }).catch(err => {
             console.error('建立房間失敗:', err);
-            showSysMsg('建立房間失敗，請檢查 Firebase Realtime Database 權限規則。');
+            showSysMsg('建立房間失敗，請檢查 Firebase 安全規則。');
         });
     }
 
@@ -196,24 +428,73 @@
         }
     }
 
-    // 雲端牌組同步：登入時拉取雲端牌組合併，存檔時同步寫回
+    // ==================== 雲端 Tier List 與難度投票 ====================
+
+    function listenCloudTierList() {
+        state.db.ref('tierList').on('value', snap => {
+            const val = snap.val();
+            if (Array.isArray(val) && val.length > 0) {
+                state.cloudTierList = val;
+                window.NCHUCGC_TIER_LIST = val;
+                if (typeof window.renderTierBoard === 'function') window.renderTierBoard();
+            }
+        });
+        state.db.ref('tierVotes').on('value', snap => {
+            state.tierVotes = snap.val() || {};
+            if (typeof window.renderTierBoard === 'function') window.renderTierBoard();
+        });
+    }
+
+    function publishOfficialTierList(cleanList) {
+        if (!state.ready || !isAdminUser()) {
+            showSysMsg('僅限管理員帳號可調整排表。');
+            return;
+        }
+        state.db.ref('tierList').set(cleanList).then(() => {
+            showSysMsg('排表已即時同步更新');
+        }).catch(err => {
+            console.error('發佈排表失敗:', err);
+            showSysMsg('同步失敗，請確認 Firebase 安全規則已加入你的管理員 UID。');
+        });
+    }
+
+    function voteDeckDifficulty(deckId, score) {
+        if (!state.ready || !state.user) {
+            showSysMsg('請先 Google 登入後再進行難度評分。');
+            return;
+        }
+        state.db.ref(`tierVotes/${deckId}/${state.user.uid}`).set(Number(score)).then(() => {
+            showSysMsg(`已送出你的難度評分（${score} / 5）。`);
+        }).catch(() => showSysMsg('評分送出失敗，請確認 Firebase 安全規則。'));
+    }
+
+    function getDeckVoteSummary(deckId) {
+        const votesObj = state.tierVotes[deckId];
+        if (!votesObj) return null;
+        const vals = Object.values(votesObj).map(Number).filter(n => n >= 1 && n <= 5);
+        if (vals.length === 0) return null;
+        const avg = (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1);
+        const myVote = state.user ? votesObj[state.user.uid] : null;
+        return { avg, count: vals.length, myVote };
+    }
+
+    // ==================== 雲端牌組同步 ====================
+
     function syncCloudDecksOnLogin(uid) {
         if (!state.db || !uid) return;
         const userDecksRef = state.db.ref(`users/${uid}/decks`);
         userDecksRef.once('value').then(snap => {
             const cloudDecks = snap.val();
             if (cloudDecks && typeof cloudDecks === 'object') {
-                // 合併雲端與本機牌組（雲端同名牌組優先）
                 Object.assign(window.allDecks, cloudDecks);
                 localStorage.setItem('ua_all_decks', JSON.stringify(window.allDecks));
                 if (typeof window.updateDeckSelector === 'function') window.updateDeckSelector();
                 if (typeof window.renderDeck === 'function') window.renderDeck();
                 showSysMsg('已從雲端同步你的牌組資料。');
             } else {
-                // 首次登入：將本機牌組備份至雲端
                 userDecksRef.set(window.allDecks).catch(() => {});
             }
-        }).catch(err => console.warn('讀取雲端牌組失敗:', err));
+        }).catch(() => {});
     }
 
     function hookSaveAllDecks() {
@@ -230,27 +511,21 @@
 
     function initFirebaseLobby() {
         const cfg = window.NCHUCGC_FIREBASE_CONFIG;
-        const createBtn = document.getElementById('btn-lobby-create-room');
-        if (createBtn) createBtn.onclick = createHostedRoom;
-
-        const quickConnectBtn = document.getElementById('btn-lobby-quick-connect');
-        if (quickConnectBtn) {
-            quickConnectBtn.onclick = () => {
-                const code = (document.getElementById('lobby-manual-code')?.value || '').trim();
-                if (!code) { showSysMsg('請輸入對手房號。'); return; }
-                const targetInput = document.getElementById('target-id');
-                const connectBtn = document.getElementById('btn-connect');
-                if (targetInput && connectBtn) {
-                    targetInput.value = code;
-                    connectBtn.click();
-                }
-            };
-        }
+        document.getElementById('btn-lobby-create-room')?.addEventListener('click', createHostedRoom);
+        document.getElementById('btn-lobby-add-friend')?.addEventListener('click', addFriendByCode);
+        document.getElementById('btn-lobby-quick-connect')?.addEventListener('click', () => {
+            const code = (document.getElementById('lobby-manual-code')?.value || '').trim();
+            if (!code) { showSysMsg('請輸入對手房號。'); return; }
+            const targetInput = document.getElementById('target-id');
+            const connectBtn = document.getElementById('btn-connect');
+            if (targetInput && connectBtn) { targetInput.value = code; connectBtn.click(); }
+        });
 
         if (typeof firebase === 'undefined' || !isConfigFilled(cfg)) {
             state.ready = false;
             updateAuthUI();
             renderRoomList();
+            renderFriendsPanel();
             return;
         }
 
@@ -263,7 +538,13 @@
             state.auth.onAuthStateChanged(user => {
                 state.user = user || null;
                 updateAuthUI();
-                if (user) syncCloudDecksOnLogin(user.uid);
+                renderFriendsPanel();
+                if (user) {
+                    initPresence(user);
+                    ensureUserProfileAndFriendCode(user);
+                    listenFriendsAndInvites(user.uid);
+                    syncCloudDecksOnLogin(user.uid);
+                }
             });
 
             state.db.ref('rooms').on('value', snap => {
@@ -271,20 +552,29 @@
                 renderRoomList();
             });
 
+            listenCloudTierList();
             hookSaveAllDecks();
             updateAuthUI();
             renderRoomList();
+            renderFriendsPanel();
         } catch (err) {
             console.error('Firebase 初始化失敗:', err);
             state.ready = false;
             updateAuthUI();
             renderRoomList();
+            renderFriendsPanel();
         }
     }
 
     window.nchucgcLobby = {
         closeMyHostedRoom,
-        renderRoomList
+        renderRoomList,
+        setMyPresence,
+        isAdminUser,
+        isLoggedIn: () => !!(state.ready && state.user),
+        publishOfficialTierList,
+        voteDeckDifficulty,
+        getDeckVoteSummary
     };
 
     window.addEventListener('load', () => {
