@@ -8,4 +8,7 @@ window.NCHUCGC_FIREBASE_CONFIG = {
     appId: "1:24176797118:web:731ed36e24d9c3ea5fc5ef"
 };
 
-window.NCHUCGC_ADMIN_UIDS = ["xv0SxnDZZbeT9NHQgnRiTQv8xHu2"];
+window.NCHUCGC_ADMIN_UIDS = [
+    "xv0SxnDZZbeT9NHQgnRiTQv8xHu2",
+    "P1wurKFT1HOtYre3MNEc4PfhYCA2"
+];
