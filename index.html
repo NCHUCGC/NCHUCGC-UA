@@ -198,6 +198,82 @@
         .tier-deck-name { font-size: 14px; font-weight: 900; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .tier-deck-sub { font-size: 11px; color: #9aa0b8; display: flex; justify-content: space-between; }
 
+        /* ===== Tier 優化：固定工具列／快速跳轉／雙代表卡 ===== */
+        #tier-scene { touch-action: pan-y; position: relative; }
+        #tier-sticky {
+            position: sticky; top: 0; z-index: 30; background: #0c0e1a;
+            padding: 0 0 8px 0; display: flex; flex-direction: column; gap: 8px;
+        }
+        .tier-jump { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+        .tier-jump-label { font-size: 12px; color: #8c93ad; font-weight: 700; margin-right: 2px; }
+        .tier-jump-chip {
+            padding: 4px 11px; border-radius: 999px; border: 1px solid #353c66; background: #1e223a;
+            color: #cfd4e6; font-size: 12px; font-weight: 800; cursor: pointer;
+        }
+        .tier-jump-chip:hover { border-color: #b39ddb; color: #fff; }
+        .tier-jump-chip small { opacity: 0.65; font-weight: 600; margin-left: 3px; }
+        #tier-back-top {
+            display: none; position: absolute; right: 34px; bottom: 26px; z-index: 100400;
+            background: #b39ddb; color: #121424; border: none; border-radius: 999px;
+            padding: 10px 16px; font-size: 13px; font-weight: 900; cursor: pointer;
+            box-shadow: 0 6px 18px rgba(0,0,0,0.6);
+        }
+        #tier-back-top:hover { background: #cbb8ee; }
+        .tier-deck-cover-dual { display: flex; height: 96px; background: #101322; }
+        .tier-deck-cover-dual img { flex: 1 1 50%; min-width: 0; width: 50%; height: 100%; object-fit: cover; object-position: center 22%; }
+        .tier-deck-cover-dual img + img { border-left: 2px solid #1b1f38; }
+        .td-covers { display: flex; gap: 8px; flex-shrink: 0; }
+        .tier-tag-panel {
+            display: none; flex-wrap: wrap; gap: 6px; max-height: 92px; overflow-y: auto;
+            background: #141729; border: 1px solid #2b3052; border-radius: 8px; padding: 8px 10px;
+        }
+        .tier-tag-chip {
+            padding: 3px 10px; border-radius: 999px; border: 1px solid #353c66; background: #1e223a;
+            color: #cfd4e6; font-size: 12px; font-weight: 700; cursor: pointer;
+        }
+        .tier-tag-chip small { opacity: 0.6; margin-left: 3px; font-weight: 600; }
+        .tier-tag-chip:hover { border-color: #b39ddb; color: #fff; }
+        .tier-tag-chip.active { background: #b39ddb; color: #121424; border-color: #b39ddb; }
+        .tier-pill.has-filter { border-color: #b39ddb; color: #fff; }
+        .tier-deck-tags { display: flex; flex-wrap: nowrap; gap: 4px; overflow: hidden; }
+        .tier-deck-tag {
+            font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px; white-space: nowrap;
+            background: #252b4a; color: #c9bce0; cursor: pointer;
+        }
+        .tier-deck-tag:hover, .tier-deck-tag.active { background: #b39ddb; color: #121424; }
+        .td-tag-link { cursor: pointer; }
+        .td-tag-link:hover { background: #b39ddb; color: #121424; }
+        #tier-detail-content { width: 920px; }
+        .td-section { background: #111426; border: 1px solid #2b3052; border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 12px; }
+        .td-section h4 { margin: 0; font-size: 13px; color: #9aa0b8; display: flex; justify-content: space-between; align-items: center; }
+        .td-section h4 small { font-weight: 500; color: #7f85a3; }
+        .ds-stats { display: grid; grid-template-columns: 1.3fr 1fr; gap: 14px; }
+        .ds-badges { display: flex; flex-wrap: wrap; gap: 6px; }
+        .ds-curve { display: flex; align-items: flex-end; gap: 6px; height: 92px; padding-top: 6px; }
+        .ds-bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 3px; font-size: 11px; color: #cfd4e6; }
+        .ds-bar { width: 100%; max-width: 34px; background: linear-gradient(180deg, #b39ddb, #6c93c7); border-radius: 4px 4px 0 0; min-height: 2px; }
+        .ds-bar-label { color: #8c93ad; font-size: 11px; }
+        .ds-warn { font-size: 12px; color: #f6e08b; background: rgba(241,196,15,0.1); border: 1px solid rgba(241,196,15,0.4); border-radius: 6px; padding: 6px 10px; }
+        .ds-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 8px; }
+        .ds-card { position: relative; border-radius: 6px; overflow: hidden; border: 1px solid #2f365c; background: #0c0e1a; }
+        .ds-card img { width: 100%; aspect-ratio: 5 / 7; object-fit: cover; display: block; }
+        .ds-count { position: absolute; right: 3px; bottom: 3px; background: rgba(10,11,20,0.9); color: #fff; font-size: 12px; font-weight: 900; padding: 1px 7px; border-radius: 10px; border: 1px solid #b39ddb; }
+        .ds-cost { position: absolute; left: 3px; top: 3px; background: #b39ddb; color: #121424; font-size: 11px; font-weight: 900; min-width: 18px; text-align: center; padding: 1px 4px; border-radius: 9px; }
+        .ds-card.is-unknown { opacity: 0.55; border-style: dashed; }
+        .tier-empty-note { padding: 18px; text-align: center; color: #8c93ad; font-size: 14px; border: 1px dashed #2e3459; border-radius: 9px; }
+        .tier-form-field textarea, .td-edit-grid textarea {
+            background: #111426; border: 1px solid #353c66; color: #fff; padding: 8px 10px;
+            border-radius: 7px; font-size: 13px; outline: none; resize: vertical; font-family: inherit; line-height: 1.5;
+        }
+        .tier-form-field input:focus, .tier-form-field textarea:focus, .td-edit-grid input:focus, .td-edit-grid textarea:focus { border-color: #b39ddb; }
+        .cover-input-row { display: flex; gap: 10px; align-items: center; }
+        .cover-input-row input { flex: 1; min-width: 0; }
+        .cover-preview { width: 44px; height: 62px; object-fit: cover; border-radius: 5px; border: 1px solid #3c4370; background: #101322; display: none; flex-shrink: 0; }
+        .td-edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: #111426; border: 1px solid #2b3052; border-radius: 8px; padding: 14px; }
+        .td-edit-grid label { font-size: 12px; color: #9aa0b8; font-weight: 700; display: flex; flex-direction: column; gap: 5px; }
+        .td-edit-grid input { background: #0c0e1a; border: 1px solid #353c66; color: #fff; padding: 8px 10px; border-radius: 7px; font-size: 13px; outline: none; }
+        .td-edit-grid .full { grid-column: 1 / -1; }
+
         /* Tier Detail Modal */
         #tier-detail-modal {
             display: none; position: fixed; inset: 0; z-index: 100550;
@@ -571,6 +647,7 @@
         </section>
 
         <section id="tier-scene">
+            <div id="tier-sticky">
             <div class="tier-toolbar">
                 <input type="text" id="tier-search-input" class="tier-search" placeholder="搜尋作品名稱、牌組軸或標籤...">
                 <div class="tier-color-pills" id="tier-color-pills">
@@ -590,7 +667,13 @@
                     <option value="4">難度：4</option>
                     <option value="5">難度：5</option>
                 </select>
+                <select id="tier-series-filter" class="tier-select" style="max-width:200px;"><option value="ALL">全部作品</option></select>
+                <button id="tier-tag-toggle" class="tier-pill">標籤 ▾</button>
+                <button id="tier-clear-filters" class="tier-pill" style="display:none;">✕ 清除篩選</button>
                 <button id="btn-tier-add-deck" class="start-btn" style="display:none; padding:8px 14px; font-size:13px;">新增牌組</button>
+            </div>
+            <div class="tier-jump" id="tier-jump"></div>
+            <div class="tier-tag-panel" id="tier-tag-panel"></div>
             </div>
             <div class="tier-sandbox-bar" id="tier-admin-bar">
                 <span>管理員即時編輯模式：可直接拖曳牌組調整 T0–T5，或點擊牌組修改難度與資訊，變更將即時同步給所有玩家。</span>
@@ -602,8 +685,10 @@
             <div class="tier-detail-box" id="tier-detail-content"></div>
         </div>
 
+        <datalist id="tier-card-datalist"></datalist>
+        <button id="tier-back-top" title="回到頂端">▲ 回到頂端</button>
         <div id="tier-add-modal">
-            <div class="tier-detail-box" style="width:560px;">
+            <div class="tier-detail-box" style="width:620px;">
                 <h3 style="margin:0; font-size:18px; color:#fff;">新增牌組至排表</h3>
                 <div class="tier-form-grid">
                     <div class="tier-form-field">
@@ -648,8 +733,25 @@
                         </select>
                     </div>
                     <div class="tier-form-field" style="grid-column: 1 / -1;">
-                        <label>代表卡號（選填，留空則自動帶入該作品同色卡片）</label>
-                        <input type="text" id="add-deck-cover" placeholder="例如：UA40BT/REZ-1-090">
+                        <label>代表卡號（可填 1～2 張；混軸牌組請填兩張，卡面會左右並排。留空則自動帶入該作品同色卡片）</label>
+                        <div class="cover-input-row">
+                            <input type="text" id="add-deck-cover1" list="tier-card-datalist" placeholder="代表卡 1（可輸入卡號或從建議挑選）">
+                            <img class="cover-preview" id="add-deck-prev1" alt="">
+                            <input type="text" id="add-deck-cover2" list="tier-card-datalist" placeholder="代表卡 2（混軸用，選填）">
+                            <img class="cover-preview" id="add-deck-prev2" alt="">
+                        </div>
+                    </div>
+                    <div class="tier-form-field" style="grid-column: 1 / -1;">
+                        <label>牌組簡介（顯示於牌組詳情頁）</label>
+                        <textarea id="add-deck-summary" rows="3" placeholder="例如：以〈聖域〉與艾姬多娜橫置連動為核心，後期穩定控場。"></textarea>
+                    </div>
+                    <div class="tier-form-field" style="grid-column: 1 / -1;">
+                        <label>標籤（選填，用逗號或空白分隔，例如：控場, 抽濾）</label>
+                        <input type="text" id="add-deck-tags" placeholder="控場, 抽濾">
+                    </div>
+                    <div class="tier-form-field" style="grid-column: 1 / -1;">
+                        <label>牌表（選填：一行一種「卡號 x張數」，例如 UA40BT/REZ-1-090 x4；留空則只放代表卡）</label>
+                        <textarea id="add-deck-deck" rows="5" style="font-family:monospace;" placeholder="UA40BT/REZ-1-090 x4&#10;UA40BT/REZ-1-081 x3"></textarea>
                     </div>
                 </div>
                 <div class="td-actions">
@@ -3372,6 +3474,10 @@ function createCardDOM(cardData, networkId, isMine) {
             ];
 
             let tierColorFilter = 'ALL';
+            let tierSeriesFilter = 'ALL';
+            const tierTagFilter = new Set();
+            let tagPanelOpen = false;
+            let seriesOptionsSig = '';
             let draggedDeckId = null;
 
             function isAdmin() {
@@ -3398,6 +3504,7 @@ function createCardDOM(cardData, networkId, isMine) {
                     btn.classList.toggle('active', btn.dataset.view === viewName);
                 });
                 if (viewName === 'tier') renderTierBoard();
+                if (typeof updateBackTop === 'function') updateBackTop();
             };
 
             function getCoverUrl(cardId, series, color) {
@@ -3435,16 +3542,191 @@ function createCardDOM(cardData, networkId, isMine) {
                 }
             }
 
+            function esc(v) {
+                return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+            }
+
+            // 代表卡：優先使用 coverCardIds（最多 2 張，混軸用），相容舊資料 coverCardId
+            function getDeckCoverIds(deck) {
+                const ids = (Array.isArray(deck.coverCardIds) && deck.coverCardIds.length)
+                    ? deck.coverCardIds : (deck.coverCardId ? [deck.coverCardId] : []);
+                return ids.filter(Boolean).slice(0, 2);
+            }
+
+            function coverThumbHtml(deck) {
+                const ids = getDeckCoverIds(deck);
+                if (ids.length >= 2) {
+                    return `<div class="tier-deck-cover-dual">${ids.map(id => `<img src="${esc(getCoverUrl(id, deck.series, deck.color))}" loading="lazy" alt="">`).join('')}</div>`;
+                }
+                return `<img class="tier-deck-cover" src="${esc(getCoverUrl(ids[0] || '', deck.series, deck.color))}" loading="lazy" alt="${esc(deck.name)}">`;
+            }
+
+            function fillCardDatalist(series) {
+                const dl = document.getElementById('tier-card-datalist');
+                if (!dl || typeof masterCardCatalog === 'undefined') return;
+                dl.innerHTML = masterCardCatalog
+                    .filter(c => c.series === series && c.type !== 'AP')
+                    .map(c => `<option value="${esc(c.id)}">${esc((COLOR_ZH[c.color] || '') + ' ' + c.name)}</option>`).join('');
+            }
+
+            function bindCoverPreview(input, img) {
+                if (!input || !img) return;
+                const update = () => {
+                    const id = input.value.trim().toUpperCase();
+                    if (!id) { img.style.display = 'none'; img.removeAttribute('src'); return; }
+                    img.src = getCoverUrl(id);
+                    img.style.display = 'block';
+                };
+                input.addEventListener('input', update);
+                input.addEventListener('change', update);
+                img.onerror = () => { img.style.display = 'none'; };
+                update();
+            }
+
+            function parseCoverInputs(...vals) {
+                return vals.map(v => (v || '').trim().toUpperCase()).filter(Boolean).slice(0, 2);
+            }
+            function parseTags(str) {
+                return (str || '').split(/[,，、;；\s]+/).map(t => t.trim()).filter(Boolean);
+            }
+            function parseLines(str) {
+                return (str || '').split(/\r?\n/).map(t => t.trim()).filter(Boolean);
+            }
+
+            // ===== 牌表與統計（資料來源：cards.js 的 masterCardCatalog；sampleDeck 為卡號平面清單，重複＝張數） =====
+            const TRIGGER_ORDER = ['ドロー', 'アクティブ', 'ゲット', 'カラー', 'スペシャル', 'ファイナル', 'レイド'];
+
+            function parseDeckText(text) {
+                const out = [];
+                const re = /(?:(\d{1,2})\s*[x×*＊]\s*)?((?:UA|EX)[0-9A-Z]*\/[0-9A-Z]+(?:-[0-9A-Z]+)+)(?:\s*[x×*＊]\s*(\d{1,2}))?/gi;
+                let m;
+                while ((m = re.exec(text || '')) !== null) {
+                    const id = m[2].toUpperCase();
+                    const n = Math.min(Number(m[1] || m[3] || 1), 60);
+                    for (let i = 0; i < n; i++) out.push(id);
+                }
+                return out;
+            }
+
+            function cardCost(c) { return (c && c.requiredEnergy && Number(c.requiredEnergy.count)) || 0; }
+
+            function groupDeck(ids) {
+                if (typeof ensureCatalogMap === 'function') ensureCatalogMap();
+                const map = new Map();
+                (ids || []).forEach(id => map.set(id, (map.get(id) || 0) + 1));
+                const typeRank = { CHARACTER: 0, EVENT: 1, FIELD: 2 };
+                return Array.from(map.entries()).map(([id, n]) => ({ id, n, card: window.cardCatalogById && window.cardCatalogById.get(id) }))
+                    .sort((a, b) => {
+                        const ca = a.card ? cardCost(a.card) : 999, cb = b.card ? cardCost(b.card) : 999;
+                        if (ca !== cb) return ca - cb;
+                        const ta = a.card ? (typeRank[a.card.type] ?? 9) : 9, tb = b.card ? (typeRank[b.card.type] ?? 9) : 9;
+                        return ta - tb || a.id.localeCompare(b.id);
+                    });
+            }
+
+            function deckToText(ids) {
+                return groupDeck(ids).map(g => `${g.id} x${g.n}`).join('\n');
+            }
+
+            function computeDeckStats(ids) {
+                const groups = groupDeck(ids);
+                const known = groups.filter(g => g.card && g.card.type !== 'AP');
+                const st = { total: 0, unknown: 0, ap: 0, buckets: Array(8).fill(0), types: { CHARACTER: 0, EVENT: 0, FIELD: 0 },
+                    triggers: {}, triggerTotal: 0, costSum: 0, bpSum: 0, bpCount: 0, over4: [] };
+                groups.forEach(g => {
+                    if (!g.card) st.unknown += g.n;
+                    else if (g.card.type === 'AP') st.ap += g.n;
+                    if (g.n > 4) st.over4.push(g.id);
+                });
+                known.forEach(({ card, n }) => {
+                    st.total += n;
+                    const cost = cardCost(card);
+                    st.buckets[Math.min(cost >= 100 ? 0 : cost, 7)] += n;
+                    st.costSum += (cost >= 100 ? 0 : cost) * n;
+                    if (st.types[card.type] !== undefined) st.types[card.type] += n;
+                    if (card.type === 'CHARACTER' && card.bp) { st.bpSum += card.bp * n; st.bpCount += n; }
+                    const tt = (card.triggerText || '').trim();
+                    if (tt) {
+                        const m = tt.match(/^\[([^\]]+)\]/);
+                        const name = m ? m[1] : '其他';
+                        st.triggers[name] = (st.triggers[name] || 0) + n;
+                        st.triggerTotal += n;
+                    }
+                });
+                return st;
+            }
+
+            function deckSectionHtml(deck) {
+                const ids = deck.sampleDeck || [];
+                if (!ids.length) return '';
+                const st = computeDeckStats(ids);
+                const groups = groupDeck(ids);
+                const isFull = ids.length >= 40;
+                const title = isFull ? `牌表（${ids.length} 張）` : `核心組件（${ids.length} 張，非完整牌表）`;
+                const avg = st.total ? (st.costSum / st.total).toFixed(2) : '-';
+                const avgBp = st.bpCount ? Math.round(st.bpSum / st.bpCount) : '-';
+                const maxB = Math.max(1, ...st.buckets);
+                const warns = [];
+                if (ids.length > 50) warns.push(`牌表共 ${ids.length} 張，超過 50 張。`);
+                if (st.over4.length) warns.push(`有卡片超過 4 張：${st.over4.map(esc).join('、')}`);
+                if (st.unknown) warns.push(`有 ${st.unknown} 張卡號在卡庫中找不到，未列入統計。`);
+                if (!isFull) warns.push('張數不足完整牌表，統計僅供參考。');
+                const trigNames = Object.keys(st.triggers).sort((a, b) => {
+                    const ia = TRIGGER_ORDER.indexOf(a), ib = TRIGGER_ORDER.indexOf(b);
+                    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+                });
+                return `
+                    <div class="td-section">
+                        <h4><span>${title}</span><small>統計依 cards.js 卡庫自動計算</small></h4>
+                        ${warns.length ? `<div class="ds-warn">${warns.join('<br>')}</div>` : ''}
+                        <div class="ds-stats">
+                            <div>
+                                <div style="font-size:12px; color:#9aa0b8; margin-bottom:4px;">費用曲線（必要能源）</div>
+                                <div class="ds-curve">
+                                    ${st.buckets.map((n, i) => `<div class="ds-bar-col"><span>${n || ''}</span><div class="ds-bar" style="height:${Math.round(n / maxB * 62)}px;${n ? '' : 'opacity:0.25;'}"></div><span class="ds-bar-label">${i === 7 ? '7+' : i}</span></div>`).join('')}
+                                </div>
+                            </div>
+                            <div style="display:flex; flex-direction:column; gap:8px;">
+                                <div class="ds-badges">
+                                    <span class="td-badge">平均費用 ${avg}</span>
+                                    <span class="td-badge">平均 BP ${avgBp}</span>
+                                </div>
+                                <div class="ds-badges">
+                                    <span class="td-badge">角色 ${st.types.CHARACTER}</span>
+                                    <span class="td-badge">事件 ${st.types.EVENT}</span>
+                                    <span class="td-badge">場域 ${st.types.FIELD}</span>
+                                </div>
+                                <div style="font-size:12px; color:#9aa0b8;">Trigger 共 ${st.triggerTotal} 張${st.total ? `（${Math.round(st.triggerTotal / st.total * 100)}%）` : ''}</div>
+                                <div class="ds-badges">
+                                    ${trigNames.length ? trigNames.map(n => `<span class="td-badge">${esc(n)} ${st.triggers[n]}</span>`).join('') : '<span style="color:#7f85a3; font-size:12px;">無 Trigger 資料</span>'}
+                                </div>
+                            </div>
+                        </div>
+                        <div class="ds-grid">
+                            ${groups.map(g => `
+                                <div class="ds-card ${g.card ? '' : 'is-unknown'}" title="${esc(g.id)}${g.card ? ' ' + esc(g.card.name) : '（卡庫查無此卡號）'}">
+                                    <img src="${esc(getCoverUrl(g.id))}" loading="lazy" alt="${esc(g.id)}" onerror="this.style.opacity=0.2">
+                                    ${g.card && g.card.type !== 'AP' ? `<span class="ds-cost">${cardCost(g.card) >= 100 ? '-' : cardCost(g.card)}</span>` : ''}
+                                    <span class="ds-count">×${g.n}</span>
+                                </div>`).join('')}
+                        </div>
+                    </div>`;
+            }
+
             function openTierDetail(deck) {
                 const modal = document.getElementById('tier-detail-modal');
                 const box = document.getElementById('tier-detail-content');
-                const imgUrl = getCoverUrl(deck.coverCardId, deck.series, deck.color);
-                const tagsHtml = (deck.tags || []).map(t => `<span class="td-badge">${t}</span>`).join('');
-                const prosHtml = (deck.pros && deck.pros.length) ? deck.pros.map(p => `<li>${p}</li>`).join('') : '<li style="color:#7f85a3;">尚待補充</li>';
-                const consHtml = (deck.cons && deck.cons.length) ? deck.cons.map(c => `<li>${c}</li>`).join('') : '<li style="color:#7f85a3;">尚待補充</li>';
+                const coverIds = getDeckCoverIds(deck);
+                const coversHtml = (coverIds.length ? coverIds : ['']).map(id =>
+                    `<img class="td-cover" src="${esc(getCoverUrl(id, deck.series, deck.color))}" alt="${esc(deck.name)}">`).join('');
+                const tagsHtml = (deck.tags || []).map(t => `<span class="td-badge td-tag-link" data-tag="${esc(t)}" title="點擊篩選此標籤">#${esc(t)}</span>`).join('');
+                const prosHtml = (deck.pros && deck.pros.length) ? deck.pros.map(p => `<li>${esc(p)}</li>`).join('') : '<li style="color:#7f85a3;">尚待補充</li>';
+                const consHtml = (deck.cons && deck.cons.length) ? deck.cons.map(c => `<li>${esc(c)}</li>`).join('') : '<li style="color:#7f85a3;">尚待補充</li>';
                 const sampleCount = (deck.sampleDeck || []).length;
                 const tierLabel = TIER_DEFS.find(t => t.key === deck.tier)?.label || deck.tier;
                 const admin = isAdmin();
+                // 雲端同步會把清單換成新物件，因此每次修改都依 id 重新取得最新的牌組
+                const cur = () => (window.NCHUCGC_TIER_LIST || []).find(d => d.id === deck.id) || deck;
 
                 const adminControlsHtml = admin ? `
                     <div style="background:rgba(111,184,151,0.1); border:1px solid rgba(111,184,151,0.4); border-radius:8px; padding:12px 14px; display:flex; flex-wrap:wrap; gap:14px; align-items:center;">
@@ -3462,21 +3744,36 @@ function createCardDOM(cardData, networkId, isMine) {
                                 ${[1, 2, 3, 4, 5].map(n => `<option value="${n}" ${Number(deck.difficulty) === n ? 'selected' : ''}>${n} / 5</option>`).join('')}
                             </select>
                         </label>
+                        <button class="ctrl-btn" id="td-btn-edit" style="background:#3b6ea8; padding:7px 14px;">編輯牌組資訊</button>
                         <button class="ctrl-btn danger" id="td-btn-del-deck" style="margin-left:auto;">刪除此牌組</button>
+                    </div>
+                    <div id="td-edit-panel" class="td-edit-grid" style="display:none;">
+                        <label class="full">牌組名稱<input type="text" id="te-name" value="${esc(deck.name)}"></label>
+                        <label>代表卡 1<input type="text" id="te-cover1" list="tier-card-datalist" value="${esc(coverIds[0] || '')}" placeholder="卡號"></label>
+                        <label>代表卡 2（混軸用，選填）<input type="text" id="te-cover2" list="tier-card-datalist" value="${esc(coverIds[1] || '')}" placeholder="卡號"></label>
+                        <label class="full">牌組簡介<textarea id="te-summary" rows="3">${esc(deck.summary || '')}</textarea></label>
+                        <label class="full">標籤（逗號或空白分隔）<input type="text" id="te-tags" value="${esc((deck.tags || []).join(', '))}"></label>
+                        <label>優勢（一行一條）<textarea id="te-pros" rows="4">${esc((deck.pros || []).join('\n'))}</textarea></label>
+                        <label>弱點與對局注意（一行一條）<textarea id="te-cons" rows="4">${esc((deck.cons || []).join('\n'))}</textarea></label>
+                        <label class="full">牌表（一行一種：「卡號 x張數」，也可貼上逗號分隔的卡號；滿 50 張即為完整牌表）<textarea id="te-deck" rows="7" style="font-family:monospace;">${esc(deckToText(deck.sampleDeck))}</textarea></label>
+                        <div class="full" style="display:flex; justify-content:flex-end; gap:10px;">
+                            <button class="ctrl-btn" id="te-cancel" style="background:#313456; padding:7px 14px;">取消</button>
+                            <button class="start-btn" id="te-save" style="padding:7px 18px;">儲存並同步</button>
+                        </div>
                     </div>
                 ` : '';
 
                 box.innerHTML = `
                     <div class="td-header">
-                        <img class="td-cover" src="${imgUrl}" alt="${deck.name}">
+                        <div class="td-covers">${coversHtml}</div>
                         <div style="flex:1;">
-                            <div style="font-size:12px; color:#9aa0b8; margin-bottom:4px;">${deck.series} / ${COLOR_ZH[deck.color] || deck.color} / ${tierLabel}</div>
-                            <h2 style="margin:0 0 8px 0; font-size:22px; color:#fff;">${deck.name}</h2>
+                            <div style="font-size:12px; color:#9aa0b8; margin-bottom:4px;">${esc(deck.series)} / ${COLOR_ZH[deck.color] || deck.color} / ${tierLabel}</div>
+                            <h2 style="margin:0 0 8px 0; font-size:22px; color:#fff;">${esc(deck.name)}</h2>
                             <div class="td-meta-row">
                                 <span class="td-badge">操作難度：${formatDiff(deck.difficulty)}</span>
                                 ${tagsHtml}
                             </div>
-                            <p style="margin:8px 0 0 0; font-size:14px; color:#d5d9ea; line-height:1.6;">${deck.summary || '尚無簡介。'}</p>
+                            <p style="margin:8px 0 0 0; font-size:14px; color:#d5d9ea; line-height:1.6; white-space:pre-wrap;">${deck.summary ? esc(deck.summary) : '尚無簡介。'}</p>
                         </div>
                     </div>
                     ${adminControlsHtml}
@@ -3490,6 +3787,7 @@ function createCardDOM(cardData, networkId, isMine) {
                             <ul>${consHtml}</ul>
                         </div>
                     </div>
+                    ${deckSectionHtml(deck)}
                     <div class="td-actions">
                         <button class="ctrl-btn" id="td-btn-close" style="background:#313456; padding:9px 16px;">關閉</button>
                         ${sampleCount > 0 ? `<button class="start-btn" id="td-btn-import" style="padding:9px 18px;">匯入核心組件至牌組（${sampleCount} 張）</button>` : ''}
@@ -3497,11 +3795,20 @@ function createCardDOM(cardData, networkId, isMine) {
                 `;
 
                 box.querySelector('#td-btn-close').onclick = () => { modal.style.display = 'none'; };
+                box.querySelectorAll('.td-tag-link').forEach(el => {
+                    el.onclick = () => {
+                        modal.style.display = 'none';
+                        tierTagFilter.add(el.dataset.tag);
+                        tagPanelOpen = true;
+                        renderTierBoard();
+                        tierScene().scrollTo({ top: 0, behavior: 'smooth' });
+                    };
+                });
 
                 const editTier = box.querySelector('#td-edit-tier');
                 if (editTier) {
                     editTier.onchange = () => {
-                        deck.tier = editTier.value;
+                        cur().tier = editTier.value;
                         renderTierBoard();
                         syncTierListNow();
                     };
@@ -3509,9 +3816,35 @@ function createCardDOM(cardData, networkId, isMine) {
                 const editDiff = box.querySelector('#td-edit-diff');
                 if (editDiff) {
                     editDiff.onchange = () => {
-                        deck.difficulty = editDiff.value === '' ? null : Number(editDiff.value);
+                        cur().difficulty = editDiff.value === '' ? null : Number(editDiff.value);
                         renderTierBoard();
                         syncTierListNow();
+                    };
+                }
+                const editBtn = box.querySelector('#td-btn-edit');
+                if (editBtn) {
+                    const panel = box.querySelector('#td-edit-panel');
+                    editBtn.onclick = () => {
+                        fillCardDatalist(deck.series);
+                        panel.style.display = panel.style.display === 'none' ? 'grid' : 'none';
+                    };
+                    box.querySelector('#te-cancel').onclick = () => { panel.style.display = 'none'; };
+                    box.querySelector('#te-save').onclick = () => {
+                        const target = cur();
+                        const name = box.querySelector('#te-name').value.trim();
+                        if (!name) { showSysMsg('牌組名稱不可為空。'); return; }
+                        const ids = parseCoverInputs(box.querySelector('#te-cover1').value, box.querySelector('#te-cover2').value);
+                        target.name = name;
+                        target.coverCardIds = ids;
+                        target.coverCardId = ids[0] || '';
+                        target.summary = box.querySelector('#te-summary').value.trim();
+                        target.tags = parseTags(box.querySelector('#te-tags').value);
+                        target.pros = parseLines(box.querySelector('#te-pros').value);
+                        target.cons = parseLines(box.querySelector('#te-cons').value);
+                        target.sampleDeck = parseDeckText(box.querySelector('#te-deck').value);
+                        renderTierBoard();
+                        syncTierListNow();
+                        openTierDetail(target);
                     };
                 }
                 const delBtn = box.querySelector('#td-btn-del-deck');
@@ -3543,9 +3876,56 @@ function createCardDOM(cardData, networkId, isMine) {
                 modal.style.display = 'flex';
             }
 
+            // ===== 捲動輔助：快速跳轉、回到頂端、拖曳時自動捲動 =====
+            function tierScene() { return document.getElementById('tier-scene'); }
+
+            function jumpToTier(key) {
+                const scene = tierScene();
+                const row = document.querySelector(`#tier-board .tier-row[data-tier="${key}"]`);
+                if (!scene || !row) return;
+                const scale = window.appScale || 1;
+                const sr = scene.getBoundingClientRect();
+                const rr = row.getBoundingClientRect();
+                const stickyH = document.getElementById('tier-sticky').getBoundingClientRect().height / scale;
+                scene.scrollTo({ top: scene.scrollTop + (rr.top - sr.top) / scale - stickyH - 4, behavior: 'smooth' });
+            }
+
+            function updateBackTop() {
+                const btn = document.getElementById('tier-back-top');
+                const scene = tierScene();
+                if (!btn || !scene) return;
+                const visible = scene.style.display !== 'none' && getComputedStyle(scene).display !== 'none' && scene.scrollTop > 240;
+                btn.style.display = visible ? 'block' : 'none';
+            }
+
+            let dragY = null;
+            let dragRaf = null;
+            function dragScrollLoop() {
+                const scene = tierScene();
+                if (!scene || draggedDeckId == null || dragY == null) { dragRaf = null; return; }
+                const scale = window.appScale || 1;
+                const sceneRect = scene.getBoundingClientRect();
+                const topEdge = document.getElementById('tier-sticky').getBoundingClientRect().bottom;
+                const zone = 110 * scale;
+                let dy = 0;
+                if (dragY < topEdge + zone) {
+                    const depth = 1 - Math.min(Math.max(dragY - topEdge, 0), zone) / zone;
+                    dy = -(3 + depth * 26);
+                } else if (dragY > sceneRect.bottom - zone) {
+                    const depth = 1 - Math.min(Math.max(sceneRect.bottom - dragY, 0), zone) / zone;
+                    dy = 3 + depth * 26;
+                }
+                if (dy) scene.scrollTop += dy;
+                dragRaf = requestAnimationFrame(dragScrollLoop);
+            }
+            function startDragScroll() { if (!dragRaf) dragRaf = requestAnimationFrame(dragScrollLoop); }
+            function stopDragScroll() { draggedDeckId = null; dragY = null; }
+
             window.renderTierBoard = function () {
                 const board = document.getElementById('tier-board');
                 if (!board) return;
+                const scene = tierScene();
+                const prevScroll = scene ? scene.scrollTop : 0;   // 重繪前記住位置，避免畫面跳回最上方
                 const list = window.NCHUCGC_TIER_LIST || [];
                 const q = (document.getElementById('tier-search-input')?.value || '').trim().toLowerCase();
                 const diffFilter = document.getElementById('tier-diff-filter')?.value || 'ALL';
@@ -3556,11 +3936,14 @@ function createCardDOM(cardData, networkId, isMine) {
                 const addBtn = document.getElementById('btn-tier-add-deck');
                 if (addBtn) addBtn.style.display = admin ? 'inline-block' : 'none';
 
+                const jumpItems = [];
                 board.innerHTML = '';
                 TIER_DEFS.forEach(t => {
                     const matched = list.filter(d => {
                         if (d.tier !== t.key) return false;
                         if (tierColorFilter !== 'ALL' && d.color !== tierColorFilter) return false;
+                        if (tierSeriesFilter !== 'ALL' && d.series !== tierSeriesFilter) return false;
+                        if (tierTagFilter.size && !Array.from(tierTagFilter).every(tg => (d.tags || []).includes(tg))) return false;
                         if (diffFilter === 'UNRATED' && d.difficulty !== null && d.difficulty !== undefined) return false;
                         if (diffFilter !== 'ALL' && diffFilter !== 'UNRATED' && String(d.difficulty) !== diffFilter) return false;
                         if (q) {
@@ -3572,6 +3955,7 @@ function createCardDOM(cardData, networkId, isMine) {
 
                     // 一般玩家若「待評定」為空則不顯示該列，保持畫面簡潔
                     if (!admin && t.key === 'UNRATED' && matched.length === 0) return;
+                    jumpItems.push({ key: t.key, label: t.label, count: matched.length });
 
                     const row = document.createElement('div');
                     row.className = 'tier-row';
@@ -3586,7 +3970,7 @@ function createCardDOM(cardData, networkId, isMine) {
                             e.preventDefault();
                             row.classList.remove('drag-over');
                             const id = draggedDeckId || e.dataTransfer.getData('text/plain');
-                            draggedDeckId = null;
+                            stopDragScroll();
                             if (!id) return;
                             const targetDeck = (window.NCHUCGC_TIER_LIST || []).find(d => d.id === id);
                             if (targetDeck && targetDeck.tier !== t.key) {
@@ -3608,22 +3992,107 @@ function createCardDOM(cardData, networkId, isMine) {
                                 card.addEventListener('dragstart', (e) => {
                                     draggedDeckId = deck.id;
                                     e.dataTransfer.setData('text/plain', deck.id);
+                                    startDragScroll();
                                 });
                             }
                             card.innerHTML = `
-                                <img class="tier-deck-cover" src="${getCoverUrl(deck.coverCardId, deck.series, deck.color)}" loading="lazy" alt="${deck.name}">
+                                ${coverThumbHtml(deck)}
                                 <div class="tier-deck-info">
-                                    <div class="tier-deck-name">${deck.name}</div>
+                                    <div class="tier-deck-name">${esc(deck.name)}</div>
                                     <div class="tier-deck-sub"><span>${COLOR_ZH[deck.color] || deck.color}</span><span>難度 ${formatDiff(deck.difficulty)}</span></div>
+                                    ${(deck.tags && deck.tags.length) ? `<div class="tier-deck-tags">${deck.tags.slice(0, 3).map(tg => `<span class="tier-deck-tag ${tierTagFilter.has(tg) ? 'active' : ''}" data-tag="${esc(tg)}">${esc(tg)}</span>`).join('')}</div>` : ''}
                                 </div>
                             `;
+                            card.querySelectorAll('.tier-deck-tag').forEach(el => {
+                                el.onclick = (ev) => {
+                                    ev.stopPropagation();
+                                    toggleTagFilter(el.dataset.tag);
+                                };
+                            });
                             card.onclick = () => openTierDetail(deck);
                             cardsBox.appendChild(card);
                         });
                     }
                     board.appendChild(row);
                 });
+
+                const jump = document.getElementById('tier-jump');
+                if (jump) {
+                    jump.innerHTML = '<span class="tier-jump-label">快速跳轉</span>' + jumpItems.map(j =>
+                        `<button class="tier-jump-chip" data-jump="${j.key}">${j.label}<small>${j.count}</small></button>`).join('');
+                    jump.querySelectorAll('.tier-jump-chip').forEach(b => b.onclick = () => jumpToTier(b.dataset.jump));
+                }
+                renderFilterControls(list, jumpItems, admin);
+                if (scene) scene.scrollTop = prevScroll;
+                updateBackTop();
             };
+
+            function toggleTagFilter(tag) {
+                if (tierTagFilter.has(tag)) tierTagFilter.delete(tag); else tierTagFilter.add(tag);
+                renderTierBoard();
+            }
+
+            function clearAllTierFilters() {
+                const si = document.getElementById('tier-search-input'); if (si) si.value = '';
+                const df = document.getElementById('tier-diff-filter'); if (df) df.value = 'ALL';
+                tierColorFilter = 'ALL';
+                document.querySelectorAll('#tier-color-pills .tier-pill').forEach(b => b.classList.toggle('active', b.dataset.color === 'ALL'));
+                tierSeriesFilter = 'ALL';
+                tierTagFilter.clear();
+                renderTierBoard();
+            }
+
+            function renderFilterControls(list, jumpItems, admin) {
+                // 作品系列下拉（內容有變才重建，避免雲端同步時把已展開的選單關掉）
+                const seriesSel = document.getElementById('tier-series-filter');
+                if (seriesSel) {
+                    const counts = {};
+                    list.forEach(d => { if (d.series) counts[d.series] = (counts[d.series] || 0) + 1; });
+                    if (tierSeriesFilter !== 'ALL' && !counts[tierSeriesFilter]) tierSeriesFilter = 'ALL';
+                    const names = Object.keys(counts).sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+                    const sig = names.map(n => n + ':' + counts[n]).join('|');
+                    if (sig !== seriesOptionsSig) {
+                        seriesOptionsSig = sig;
+                        seriesSel.innerHTML = `<option value="ALL">全部作品（${list.length}）</option>` +
+                            names.map(n => `<option value="${esc(n)}">${esc(n)}（${counts[n]}）</option>`).join('');
+                    }
+                    seriesSel.value = tierSeriesFilter;
+                }
+
+                // 標籤面板
+                const tagCounts = {};
+                list.forEach(d => (d.tags || []).forEach(tg => { tagCounts[tg] = (tagCounts[tg] || 0) + 1; }));
+                Array.from(tierTagFilter).forEach(tg => { if (!tagCounts[tg]) tierTagFilter.delete(tg); });
+                const tagNames = Object.keys(tagCounts).sort((a, b) => tagCounts[b] - tagCounts[a] || a.localeCompare(b, 'zh-Hant'));
+                const panel = document.getElementById('tier-tag-panel');
+                const toggle = document.getElementById('tier-tag-toggle');
+                if (panel) {
+                    panel.style.display = (tagPanelOpen && tagNames.length) ? 'flex' : 'none';
+                    panel.innerHTML = tagNames.map(tg =>
+                        `<button class="tier-tag-chip ${tierTagFilter.has(tg) ? 'active' : ''}" data-tag="${esc(tg)}">#${esc(tg)}<small>${tagCounts[tg]}</small></button>`).join('');
+                    panel.querySelectorAll('.tier-tag-chip').forEach(b => b.onclick = () => toggleTagFilter(b.dataset.tag));
+                }
+                if (toggle) {
+                    toggle.textContent = `標籤 ${tagPanelOpen ? '▴' : '▾'}${tierTagFilter.size ? ` (${tierTagFilter.size})` : ''}`;
+                    toggle.classList.toggle('has-filter', tierTagFilter.size > 0);
+                }
+
+                // 清除篩選按鈕與無結果提示
+                const q = (document.getElementById('tier-search-input')?.value || '').trim();
+                const diff = document.getElementById('tier-diff-filter')?.value || 'ALL';
+                const anyFilter = !!q || tierColorFilter !== 'ALL' || diff !== 'ALL' || tierSeriesFilter !== 'ALL' || tierTagFilter.size > 0;
+                const clearBtn = document.getElementById('tier-clear-filters');
+                if (clearBtn) clearBtn.style.display = anyFilter ? 'inline-block' : 'none';
+                const total = jumpItems.reduce((n, j) => n + j.count, 0);
+                const board = document.getElementById('tier-board');
+                if (board && anyFilter && total === 0) {
+                    const note = document.createElement('div');
+                    note.className = 'tier-empty-note';
+                    note.textContent = '沒有符合目前篩選條件的牌組，可按上方「清除篩選」重設。';
+                    board.prepend(note);
+                }
+            }
+
 
             function populateAddDeckSeriesSelect() {
                 const sel = document.getElementById('add-deck-series');
@@ -3651,11 +4120,40 @@ function createCardDOM(cardData, networkId, isMine) {
                     });
                 });
 
+                // 篩選：作品、標籤、清除
+                document.getElementById('tier-series-filter')?.addEventListener('change', (e) => {
+                    tierSeriesFilter = e.target.value;
+                    renderTierBoard();
+                });
+                document.getElementById('tier-tag-toggle')?.addEventListener('click', () => {
+                    tagPanelOpen = !tagPanelOpen;
+                    renderTierBoard();
+                });
+                document.getElementById('tier-clear-filters')?.addEventListener('click', clearAllTierFilters);
+
+                // 捲動／拖曳輔助
+                const sceneEl = tierScene();
+                sceneEl?.addEventListener('scroll', updateBackTop, { passive: true });
+                document.getElementById('tier-back-top')?.addEventListener('click', () => {
+                    tierScene().scrollTo({ top: 0, behavior: 'smooth' });
+                });
+                document.addEventListener('dragover', (e) => { if (draggedDeckId != null) dragY = e.clientY; });
+                document.addEventListener('dragend', stopDragScroll);
+                document.addEventListener('drop', () => setTimeout(stopDragScroll, 0));
+
+                // 新增牌組視窗
+                bindCoverPreview(document.getElementById('add-deck-cover1'), document.getElementById('add-deck-prev1'));
+                bindCoverPreview(document.getElementById('add-deck-cover2'), document.getElementById('add-deck-prev2'));
+                document.getElementById('add-deck-series')?.addEventListener('change', (e) => fillCardDatalist(e.target.value));
+
                 document.getElementById('btn-tier-add-deck')?.addEventListener('click', () => {
                     if (!isAdmin()) return;
                     populateAddDeckSeriesSelect();
-                    document.getElementById('add-deck-name').value = '';
-                    document.getElementById('add-deck-cover').value = '';
+                    fillCardDatalist(document.getElementById('add-deck-series').value);
+                    ['add-deck-name', 'add-deck-cover1', 'add-deck-cover2', 'add-deck-summary', 'add-deck-tags', 'add-deck-deck'].forEach(id => {
+                        document.getElementById(id).value = '';
+                    });
+                    ['add-deck-prev1', 'add-deck-prev2'].forEach(id => { document.getElementById(id).style.display = 'none'; });
                     document.getElementById('tier-add-modal').style.display = 'flex';
                 });
 
@@ -3670,7 +4168,10 @@ function createCardDOM(cardData, networkId, isMine) {
                     const name = document.getElementById('add-deck-name').value.trim();
                     const tier = document.getElementById('add-deck-tier').value;
                     const diffRaw = document.getElementById('add-deck-diff').value;
-                    const coverCardId = document.getElementById('add-deck-cover').value.trim().toUpperCase();
+                    const coverIds = parseCoverInputs(document.getElementById('add-deck-cover1').value, document.getElementById('add-deck-cover2').value);
+                    const summary = document.getElementById('add-deck-summary').value.trim();
+                    const tags = parseTags(document.getElementById('add-deck-tags').value);
+                    const deckIds = parseDeckText(document.getElementById('add-deck-deck').value);
                     if (!name) { showSysMsg('請輸入牌組名稱。'); return; }
                     const newDeck = {
                         id: 'deck-' + Date.now(),
@@ -3678,19 +4179,22 @@ function createCardDOM(cardData, networkId, isMine) {
                         series,
                         color,
                         name,
-                        coverCardId,
+                        coverCardId: coverIds[0] || '',
+                        coverCardIds: coverIds,
                         difficulty: diffRaw === '' ? null : Number(diffRaw),
-                        tags: [],
-                        summary: '',
+                        tags,
+                        summary,
                         pros: [],
                         cons: [],
-                        sampleDeck: coverCardId ? [coverCardId] : []
+                        sampleDeck: deckIds.length ? deckIds : [...coverIds]
                     };
                     window.NCHUCGC_TIER_LIST = window.NCHUCGC_TIER_LIST || [];
                     window.NCHUCGC_TIER_LIST.push(newDeck);
                     document.getElementById('tier-add-modal').style.display = 'none';
                     renderTierBoard();
                     syncTierListNow();
+                    // 新增後自動捲到該牌組所在的階級，免得找不到
+                    setTimeout(() => jumpToTier(tier), 60);
                 });
 
                 document.getElementById('tier-detail-modal')?.addEventListener('click', (e) => {
