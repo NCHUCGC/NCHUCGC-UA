@@ -260,6 +260,11 @@
         .ds-count { position: absolute; right: 3px; bottom: 3px; background: rgba(10,11,20,0.9); color: #fff; font-size: 12px; font-weight: 900; padding: 1px 7px; border-radius: 10px; border: 1px solid #b39ddb; }
         .ds-cost { position: absolute; left: 3px; top: 3px; background: #b39ddb; color: #121424; font-size: 11px; font-weight: 900; min-width: 18px; text-align: center; padding: 1px 4px; border-radius: 9px; }
         .ds-card.is-unknown { opacity: 0.55; border-style: dashed; }
+        .deck-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; background: #0c0e1a; border: 1px dashed #353c66; border-radius: 8px; padding: 8px 10px; }
+        .deck-tools select, .deck-tools input { background: #1e223a; border: 1px solid #353c66; color: #fff; padding: 6px 8px; border-radius: 6px; font-size: 12px; outline: none; }
+        .deck-tools input { flex: 1; min-width: 160px; }
+        .deck-tools .dt-sep { width: 1px; align-self: stretch; background: #2b3052; }
+        .deck-tools .dt-count { font-size: 12px; color: #9aa0b8; margin-left: auto; font-weight: 700; }
         .tier-empty-note { padding: 18px; text-align: center; color: #8c93ad; font-size: 14px; border: 1px dashed #2e3459; border-radius: 9px; }
         .tier-form-field textarea, .td-edit-grid textarea {
             background: #111426; border: 1px solid #353c66; color: #fff; padding: 8px 10px;
@@ -686,6 +691,7 @@
         </div>
 
         <datalist id="tier-card-datalist"></datalist>
+        <datalist id="tier-quick-datalist"></datalist>
         <button id="tier-back-top" title="回到頂端">▲ 回到頂端</button>
         <div id="tier-add-modal">
             <div class="tier-detail-box" style="width:620px;">
@@ -751,6 +757,7 @@
                     </div>
                     <div class="tier-form-field" style="grid-column: 1 / -1;">
                         <label>牌表（選填：一行一種「卡號 x張數」，例如 UA40BT/REZ-1-090 x4；留空則只放代表卡）</label>
+                        <div id="add-deck-tools"></div>
                         <textarea id="add-deck-deck" rows="5" style="font-family:monospace;" placeholder="UA40BT/REZ-1-090 x4&#10;UA40BT/REZ-1-081 x3"></textarea>
                     </div>
                 </div>
@@ -1264,8 +1271,18 @@
                 main: dehydrateDeckList(myDeckData),
                 ap: dehydrateDeckList(myApData)
             };
-            localStorage.setItem('ua_all_decks', JSON.stringify(allDecks));
-            localStorage.setItem('ua_current_deck_name', currentDeckName);
+            try {
+                localStorage.setItem('ua_all_decks', JSON.stringify(allDecks));
+                localStorage.setItem('ua_current_deck_name', currentDeckName);
+                return true;
+            } catch (err) {
+                console.error('saveAllDecks failed', err);
+                if (!window._deckSaveWarned) {
+                    window._deckSaveWarned = true;
+                    alert('⚠️ 無法寫入瀏覽器儲存空間（可能已滿，常見原因是匯入了大量自訂圖片卡）。\n本次的牌組變更只會暫存到關閉頁面為止，請先匯出或清理不需要的自訂卡片。');
+                }
+                return false;
+            }
         }
 
         const deckSelector = document.getElementById('deck-selector');
@@ -1286,28 +1303,42 @@
             renderDeck();
         });
 
+        function deckNameTaken(name) { return Object.prototype.hasOwnProperty.call(allDecks, name); }
+
         document.getElementById('btn-rename-deck').addEventListener('click', () => {
-            let newName = prompt("請輸入新的牌組名稱：", currentDeckName);
-            if (newName && newName.trim() !== "" && newName !== currentDeckName) {
-                if (allDecks[newName]) {
-                    alert("❌ 這個牌組名稱已經存在了！");
-                    return;
-                }
-                allDecks[newName] = allDecks[currentDeckName];
-                delete allDecks[currentDeckName];
-                currentDeckName = newName;
-                saveAllDecks();
-                updateDeckSelector();
+            const raw = prompt("請輸入新的牌組名稱：", currentDeckName);
+            if (raw === null) return;
+            const newName = raw.trim();
+            if (!newName) { alert("❌ 牌組名稱不能是空白。"); return; }
+            if (newName === currentDeckName) return;
+            if (newName === '__proto__' || deckNameTaken(newName)) {
+                alert(`❌ 已經有名為「${newName}」的牌組了，請換一個名稱。`);
+                return;
             }
+            saveAllDecks();
+            allDecks[newName] = allDecks[currentDeckName];
+            delete allDecks[currentDeckName];
+            currentDeckName = newName;
+            saveAllDecks();
+            updateDeckSelector();
         });
 
         document.getElementById('btn-new-deck').addEventListener('click', () => {
-            let newName = prompt("請輸入新牌組的名稱：");
-            if (newName && !allDecks[newName]) {
-                saveAllDecks(); allDecks[newName] = { main: [], ap: [] }; currentDeckName = newName; 
-                myDeckData = allDecks[currentDeckName].main; myApData = allDecks[currentDeckName].ap;
-                updateDeckSelector(); renderDeck(); saveAllDecks();
+            const raw = prompt("請輸入新牌組的名稱：");
+            if (raw === null) return;
+            const newName = raw.trim();
+            if (!newName) { alert("❌ 牌組名稱不能是空白。"); return; }
+            if (newName === '__proto__' || deckNameTaken(newName)) {
+                alert(`❌ 已經有名為「${newName}」的牌組了，請換一個名稱。`);
+                return;
             }
+            saveAllDecks();
+            allDecks[newName] = { main: [], ap: [] };
+            currentDeckName = newName;
+            myDeckData = [];
+            myApData = [];
+            updateDeckSelector(); renderDeck(); saveAllDecks();
+            if (typeof showSysMsg === 'function') showSysMsg(`已建立新牌組「${newName}」。`);
         });
 
         window.updateBuilderBadges = function() {
@@ -3713,6 +3744,88 @@ function createCardDOM(cardData, networkId, isMine) {
                     </div>`;
             }
 
+            // ===== 牌表輸入工具：從「我的牌組」帶入、搜尋加入單張 =====
+            function deckToolsHtml(p) {
+                let names = [];
+                try { names = Object.keys(allDecks || {}); } catch (e) { names = []; }
+                const opts = names.map(n => {
+                    const cnt = ((allDecks[n] && allDecks[n].main) || []).length;
+                    return `<option value="${esc(n)}">${esc(n)}（${cnt} 張）</option>`;
+                }).join('');
+                return `
+                    <div class="deck-tools">
+                        <select id="${p}-mydeck" title="選擇你在牌組構築做好的牌組">${opts || '<option value="">（尚無牌組）</option>'}</select>
+                        <button type="button" class="ctrl-btn" id="${p}-btn-mydeck" style="background:#3b6ea8; padding:6px 12px; font-size:12px;">帶入我的牌組</button>
+                        <span class="dt-sep"></span>
+                        <input type="text" id="${p}-quick" list="tier-quick-datalist" placeholder="搜尋卡號或日文卡名，Enter 加入">
+                        <select id="${p}-qty">${[1, 2, 3, 4].map(n => `<option value="${n}" ${n === 4 ? 'selected' : ''}>${n} 張</option>`).join('')}</select>
+                        <button type="button" class="ctrl-btn" id="${p}-btn-quick" style="background:#6fb897; color:#0f1420; padding:6px 12px; font-size:12px;">＋加入</button>
+                        <span class="dt-count" id="${p}-count"></span>
+                    </div>`;
+            }
+
+            function bindDeckTools(p, textarea, getSeries) {
+                if (!textarea) return;
+                const $ = id => document.getElementById(`${p}-${id}`);
+                const refreshCount = () => {
+                    const n = parseDeckText(textarea.value).length;
+                    const c = $('count');
+                    if (c) c.textContent = `目前 ${n} 張${n === 50 ? ' ✔' : ''}`;
+                };
+                const setIds = ids => { textarea.value = deckToText(ids); refreshCount(); };
+
+                textarea.addEventListener('input', refreshCount);
+                refreshCount();
+
+                $('btn-mydeck').onclick = () => {
+                    const name = $('mydeck').value;
+                    if (!name || !allDecks[name]) { showSysMsg('找不到這個牌組。'); return; }
+                    try { saveAllDecks(); } catch (e) { /* 即使存檔失敗，仍可使用記憶體內的牌組 */ }
+                    const ids = ((allDecks[name].main) || [])
+                        .map(c => (typeof c === 'string') ? c : (c && c.id))
+                        .filter(id => id && !String(id).startsWith('CUSTOM_'));
+                    if (!ids.length) { showSysMsg(`「${name}」目前沒有可用的官方卡片。`); return; }
+                    if (textarea.value.trim() && !confirm(`會用「${name}」覆蓋目前的牌表內容，確定嗎？`)) return;
+                    setIds(ids);
+                    showSysMsg(`已帶入「${name}」共 ${ids.length} 張。`);
+                };
+
+                // 搜尋建議：依輸入即時從整個卡庫篩選（本作品優先），最多 40 筆
+                const quick = $('quick');
+                const dl = document.getElementById('tier-quick-datalist');
+                quick.addEventListener('input', () => {
+                    const q = quick.value.trim().toLowerCase();
+                    if (q.length < 2 || typeof masterCardCatalog === 'undefined') { dl.innerHTML = ''; return; }
+                    const series = getSeries ? getSeries() : '';
+                    const hits = [];
+                    for (const c of masterCardCatalog) {
+                        if (c.type === 'AP') continue;
+                        if (c.id.toLowerCase().includes(q) || (c.name || '').toLowerCase().includes(q)) {
+                            hits.push(c);
+                            if (hits.length > 400) break;
+                        }
+                    }
+                    hits.sort((a, b) => (b.series === series) - (a.series === series));
+                    dl.innerHTML = hits.slice(0, 40).map(c =>
+                        `<option value="${esc(c.id)}">${esc((COLOR_ZH[c.color] || '') + ' ' + c.name + '（' + cardCost(c) + '費）')}</option>`).join('');
+                });
+                const addQuick = () => {
+                    const id = quick.value.trim().toUpperCase();
+                    if (!id) return;
+                    if (typeof ensureCatalogMap === 'function') ensureCatalogMap();
+                    if (!window.cardCatalogById.get(id)) { showSysMsg('卡庫找不到這個卡號，請從建議清單選擇。'); return; }
+                    const n = Number($('qty').value) || 1;
+                    const ids = parseDeckText(textarea.value);
+                    for (let i = 0; i < n; i++) ids.push(id);
+                    setIds(ids);
+                    quick.value = '';
+                    dl.innerHTML = '';
+                    quick.focus();
+                };
+                $('btn-quick').onclick = addQuick;
+                quick.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addQuick(); } });
+            }
+
             function openTierDetail(deck) {
                 const modal = document.getElementById('tier-detail-modal');
                 const box = document.getElementById('tier-detail-content');
@@ -3755,6 +3868,7 @@ function createCardDOM(cardData, networkId, isMine) {
                         <label class="full">標籤（逗號或空白分隔）<input type="text" id="te-tags" value="${esc((deck.tags || []).join(', '))}"></label>
                         <label>優勢（一行一條）<textarea id="te-pros" rows="4">${esc((deck.pros || []).join('\n'))}</textarea></label>
                         <label>弱點與對局注意（一行一條）<textarea id="te-cons" rows="4">${esc((deck.cons || []).join('\n'))}</textarea></label>
+                        <div class="full" id="te-deck-tools"></div>
                         <label class="full">牌表（一行一種：「卡號 x張數」，也可貼上逗號分隔的卡號；滿 50 張即為完整牌表）<textarea id="te-deck" rows="7" style="font-family:monospace;">${esc(deckToText(deck.sampleDeck))}</textarea></label>
                         <div class="full" style="display:flex; justify-content:flex-end; gap:10px;">
                             <button class="ctrl-btn" id="te-cancel" style="background:#313456; padding:7px 14px;">取消</button>
@@ -3826,6 +3940,11 @@ function createCardDOM(cardData, networkId, isMine) {
                     const panel = box.querySelector('#td-edit-panel');
                     editBtn.onclick = () => {
                         fillCardDatalist(deck.series);
+                        const holder = box.querySelector('#te-deck-tools');
+                        if (!holder.innerHTML) {
+                            holder.innerHTML = deckToolsHtml('te');
+                            bindDeckTools('te', box.querySelector('#te-deck'), () => deck.series);
+                        }
                         panel.style.display = panel.style.display === 'none' ? 'grid' : 'none';
                     };
                     box.querySelector('#te-cancel').onclick = () => { panel.style.display = 'none'; };
@@ -4154,6 +4273,8 @@ function createCardDOM(cardData, networkId, isMine) {
                         document.getElementById(id).value = '';
                     });
                     ['add-deck-prev1', 'add-deck-prev2'].forEach(id => { document.getElementById(id).style.display = 'none'; });
+                    document.getElementById('add-deck-tools').innerHTML = deckToolsHtml('ad');
+                    bindDeckTools('ad', document.getElementById('add-deck-deck'), () => document.getElementById('add-deck-series').value);
                     document.getElementById('tier-add-modal').style.display = 'flex';
                 });
 
