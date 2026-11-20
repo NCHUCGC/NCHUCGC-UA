@@ -8,5 +8,4 @@ window.NCHUCGC_FIREBASE_CONFIG = {
     appId: "1:24176797118:web:731ed36e24d9c3ea5fc5ef"
 };
 
-// 登入後點擊右上角你的名字複製 UID，再貼進下方陣列即可啟用幹部權限
-window.NCHUCGC_ADMIN_UIDS = [];
+window.NCHUCGC_ADMIN_UIDS = ["xv0SxnDZZbeT9NHQgnRiTQv8xHu2"];
