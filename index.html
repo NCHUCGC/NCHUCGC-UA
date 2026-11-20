@@ -186,6 +186,7 @@
         .tier-label.T3 { background: #fff176; }
         .tier-label.T4 { background: #81c784; }
         .tier-label.T5 { background: #64b5f6; }
+        .tier-label.T6 { background: #9575cd; color: #fff; }
         .tier-label.UNRATED { background: #394063; color: #d5d9ea; font-size: 15px; }
         .tier-row.drag-over { border-color: #6fb897; box-shadow: 0 0 0 2px rgba(111, 184, 151, 0.35) inset; }
         .tier-sandbox-bar {
@@ -675,7 +676,7 @@
                     <div class="entry-cards">
                         <div class="entry-card" onclick="switchMainView('tier')">
                             <div class="entry-card-title">環境排表 (Tier List)</div>
-                            <div class="entry-card-desc">檢視社團 T0–T5 環境強度排表與操作難度，管理員可即時拖曳調整。</div>
+                            <div class="entry-card-desc">檢視社團 T0–T6 環境強度排表與操作難度，管理員可即時拖曳調整。</div>
                         </div>
                         <div class="entry-card" onclick="switchMainView('builder')">
                             <div class="entry-card-title">牌組構築與連線</div>
@@ -728,7 +729,7 @@
             <div class="tier-tag-panel" id="tier-tag-panel"></div>
             </div>
             <div class="tier-sandbox-bar" id="tier-admin-bar">
-                <span>管理員即時編輯模式：可直接拖曳牌組跨階級調整（T0–T5）或在同一階級內左右排序，點擊牌組可修改難度與資訊，變更將即時同步給所有玩家。</span>
+                <span>管理員即時編輯模式：可直接拖曳牌組跨階級調整（T0–T6）或在同一階級內左右排序，點擊牌組可修改難度與資訊，變更將即時同步給所有玩家。</span>
             </div>
             <div class="tier-board" id="tier-board"></div>
         </section>
@@ -771,6 +772,7 @@
                             <option value="T3">T3</option>
                             <option value="T4">T4</option>
                             <option value="T5">T5</option>
+                            <option value="T6">T6</option>
                             <option value="UNRATED" selected>待評定</option>
                         </select>
                     </div>
@@ -3601,6 +3603,7 @@ function createCardDOM(cardData, networkId, isMine) {
                 { key: 'T3', label: 'T3' },
                 { key: 'T4', label: 'T4' },
                 { key: 'T5', label: 'T5' },
+                { key: 'T6', label: 'T6' },
                 { key: 'UNRATED', label: '待評定' }
             ];
 

@@ -1,17 +1,17 @@
 /**
  * NCHUCGC 國立中興大學卡牌研究社 - Union Arena 環境排表資料檔 (tier-data.js)
  * 編輯說明：
- * - tier 可填：'T0'、'T1'、'T2'、'T3'、'T4'、'T5'、'UNRATED'（待評定）
+ * - tier 可填：'T0'、'T1'、'T2'、'T3'、'T4'、'T5'、'T6'、'UNRATED'（待評定）
  * - color 可填：'RED'、'BLUE'、'GREEN'、'YELLOW'、'PURPLE'
  * - difficulty 可填：1 ~ 5，或 null（待評）
  * - coverCardId 請填寫 cards.js 內的標準卡號，網頁會自動載入對應卡圖
  */
 window.NCHUCGC_TIER_META = {
-    envLabel: '社團排表（T0–T5）',
+    envLabel: '社團排表（T0–T6）',
     updatedAt: '2026-11-21',
     clubName: '國立中興大學卡牌研究社 NCHUCGC',
     announcements: [
-        { date: '2026-11-21', title: 'NCHUCGC UA 模擬器與環境排表上線', body: '已開放 T0–T5 環境排表與「自排／提案模式」，歡迎社員自行調整排表與操作難度後匯出提案至社團群組討論。' },
+        { date: '2026-11-21', title: 'NCHUCGC UA 模擬器與環境排表上線', body: '已開放 T0–T6 環境排表與「自排／提案模式」，歡迎社員自行調整排表與操作難度後匯出提案至社團群組討論。' },
         { date: '2026-11-21', title: '牌組收錄持續擴充中', body: '若排表中尚未收錄你想評價的牌組，可在自排模式點擊「新增牌組提案」自行加入。' }
     ]
 };

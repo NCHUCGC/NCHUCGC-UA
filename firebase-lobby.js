@@ -1,12 +1,16 @@
 /**
- * NCHUCGC 第三階段：Firebase 帳號登入、即時多房間大廳、好友與邀請系統、雲端 Tier List 與難度投票 (firebase-lobby.js)
+ * NCHUCGC 第三階段：Firebase 帳號登入、匿名暱稱系統、即時多房間大廳、好友與邀請系統、雲端 Tier List (firebase-lobby.js)
  */
 (function () {
+    const NICK_STORAGE_KEY = 'nchucgc_nickname';
+    const GUEST_NICK_KEY = 'nchucgc_guest_nickname';
+
     const state = {
         ready: false,
         auth: null,
         db: null,
         user: null,
+        myNickname: '',
         myFriendCode: null,
         myHostedRoomRef: null,
         myHostedRoomId: null,
@@ -37,32 +41,99 @@
         return code;
     }
 
+    function getOrCreateGuestNickname() {
+        let saved = (localStorage.getItem(NICK_STORAGE_KEY) || localStorage.getItem(GUEST_NICK_KEY) || '').trim();
+        if (!saved) {
+            const num = String(1000 + Math.floor(Math.random() * 9000));
+            saved = `匿名玩家_${num}`;
+            localStorage.setItem(GUEST_NICK_KEY, saved);
+        }
+        return saved;
+    }
+
+    function getMyDisplayName() {
+        if (state.myNickname && state.myNickname.trim()) return state.myNickname.trim();
+        return getOrCreateGuestNickname();
+    }
+
+    function changeMyNickname() {
+        const current = getMyDisplayName();
+        const raw = prompt('請輸入你的對戰暱稱（最多 16 字，不會顯示 Google 帳號名稱）：', current);
+        if (raw === null) return;
+        const nextNick = raw.trim().slice(0, 16);
+        if (!nextNick) {
+            showSysMsg('暱稱不可為空白。');
+            return;
+        }
+        state.myNickname = nextNick;
+        localStorage.setItem(NICK_STORAGE_KEY, nextNick);
+
+        if (state.ready && state.user && state.db) {
+            const uid = state.user.uid;
+            state.db.ref(`users/${uid}/profile`).update({
+                nickname: nextNick,
+                name: nextNick
+            }).catch(() => {});
+            if (state.myFriendCode) {
+                state.db.ref(`friendCodes/${state.myFriendCode}`).update({
+                    name: nextNick
+                }).catch(() => {});
+            }
+            setMyPresence('online');
+            if (state.myHostedRoomRef) {
+                state.myHostedRoomRef.update({ hostName: nextNick }).catch(() => {});
+            }
+        }
+        updateAuthUI();
+        renderRoomList();
+        showSysMsg(`已將暱稱更新為「${nextNick}」。`);
+    }
+
+    function applyGameMode(mode) {
+        const sel = document.getElementById('game-mode-selector');
+        if (sel) sel.value = mode;
+        if (window.uaEngine) {
+            window.uaEngine.enabled = (mode === 'auto');
+            if (typeof window.uaEngine.updateEnergyHUD === 'function') window.uaEngine.updateEnergyHUD();
+        }
+    }
+
     function updateAuthUI() {
         const authBox = document.getElementById('nav-auth-box');
         if (!authBox) return;
+        const displayName = escapeHtml(getMyDisplayName());
+
         if (!state.ready) {
-            authBox.innerHTML = `<span style="font-size:12px; color:#8c93ad;">離線大廳模式</span>`;
+            authBox.innerHTML = `
+                <button class="ctrl-btn" id="btn-edit-nick" title="點擊修改對戰暱稱" style="background:#232845; border:1px solid #3c4370; padding:5px 10px; font-size:12px; color:#d1c4e9;">${displayName}</button>
+                <span style="font-size:12px; color:#8c93ad;">離線大廳</span>
+            `;
+            document.getElementById('btn-edit-nick').onclick = changeMyNickname;
             return;
         }
         if (state.user) {
-            const name = escapeHtml(state.user.displayName || '社員');
             const adminTag = isAdminUser() ? `<span style="font-size:11px; background:#6fb897; color:#111; padding:2px 6px; border-radius:4px; font-weight:900;">管理員</span>` : '';
             authBox.innerHTML = `
                 ${adminTag}
-                <span id="nav-user-name" title="點擊複製你的 UID（用於設定管理員權限）" style="font-size:13px; color:#d1c4e9; font-weight:700; cursor:pointer;">${name}</span>
+                <button class="ctrl-btn" id="btn-edit-nick" title="點擊修改匿名暱稱（不顯示帳號名稱）" style="background:#232845; border:1px solid #3c4370; padding:5px 10px; font-size:12px; color:#d1c4e9;">${displayName}</button>
+                <button class="ctrl-btn" id="btn-copy-uid" title="點擊複製你的 UID（用於設定管理員權限）" style="background:#232845; border:1px solid #3c4370; padding:5px 8px; font-size:11px; color:#9aa0b8;">UID</button>
                 <button class="ctrl-btn" id="btn-fb-logout" style="background:#313456; padding:5px 10px; font-size:12px;">登出</button>
             `;
-            document.getElementById('nav-user-name').onclick = () => {
+            document.getElementById('btn-edit-nick').onclick = changeMyNickname;
+            document.getElementById('btn-copy-uid').onclick = () => {
                 navigator.clipboard.writeText(state.user.uid).then(() => showSysMsg(`已複製你的 UID：${state.user.uid}`));
             };
             document.getElementById('btn-fb-logout').onclick = () => {
                 setMyPresence('offline');
+                state.myNickname = '';
                 state.auth.signOut();
             };
         } else {
             authBox.innerHTML = `
+                <button class="ctrl-btn" id="btn-edit-nick" title="點擊修改匿名暱稱" style="background:#232845; border:1px solid #3c4370; padding:5px 10px; font-size:12px; color:#d1c4e9;">${displayName}</button>
                 <button class="ctrl-btn" id="btn-fb-login" style="background:#4f739e; padding:6px 12px; font-size:12px;">Google 登入</button>
             `;
+            document.getElementById('btn-edit-nick').onclick = changeMyNickname;
             document.getElementById('btn-fb-login').onclick = () => {
                 const provider = new firebase.auth.GoogleAuthProvider();
                 state.auth.signInWithPopup(provider).catch(err => {
@@ -81,7 +152,7 @@
         const ref = state.db.ref(`status/${state.user.uid}`);
         ref.set({
             state: statusStr,
-            name: state.user.displayName || '社員',
+            name: getMyDisplayName(),
             peerId: window.myRoomId || '',
             updatedAt: Date.now()
         }).catch(() => {});
@@ -94,7 +165,7 @@
             if (snap.val() === true) {
                 ref.onDisconnect().set({
                     state: 'offline',
-                    name: user.displayName || '社員',
+                    name: getMyDisplayName(),
                     peerId: '',
                     updatedAt: Date.now()
                 });
@@ -109,42 +180,55 @@
         const profileRef = state.db.ref(`users/${user.uid}/profile`);
         profileRef.once('value').then(snap => {
             const val = snap.val();
+            const code = (val && val.friendCode) ? val.friendCode : generateFriendCode();
+            state.myFriendCode = code;
+
+            // 優先採用已設定的匿名暱稱；絕不自動使用 Google 帳號名稱 (user.displayName)
+            let nick = (val && typeof val.nickname === 'string' && val.nickname.trim())
+                ? val.nickname.trim()
+                : (localStorage.getItem(NICK_STORAGE_KEY) || '').trim();
+
+            if (!nick) {
+                nick = `匿名玩家_${code.slice(0, 4)}`;
+            }
+            state.myNickname = nick;
+            localStorage.setItem(NICK_STORAGE_KEY, nick);
+
             if (val && val.friendCode) {
-                state.myFriendCode = val.friendCode;
-                // 同步更新顯示名稱
-                profileRef.update({ name: user.displayName || '社員' }).catch(() => {});
-                renderFriendsPanel();
+                if (!val.nickname || val.name !== nick) {
+                    profileRef.update({ nickname: nick, name: nick }).catch(() => {});
+                    state.db.ref(`friendCodes/${code}`).update({ uid: user.uid, name: nick }).catch(() => {});
+                }
             } else {
-                const newCode = generateFriendCode();
-                state.myFriendCode = newCode;
                 profileRef.set({
-                    name: user.displayName || '社員',
-                    friendCode: newCode,
+                    nickname: nick,
+                    name: nick,
+                    friendCode: code,
                     createdAt: Date.now()
                 }).catch(() => {});
-                state.db.ref(`friendCodes/${newCode}`).set({
+                state.db.ref(`friendCodes/${code}`).set({
                     uid: user.uid,
-                    name: user.displayName || '社員'
+                    name: nick
                 }).catch(() => {});
-                renderFriendsPanel();
             }
+
+            updateAuthUI();
+            setMyPresence('online');
+            renderFriendsPanel();
         }).catch(() => {});
     }
 
     function listenFriendsAndInvites(uid) {
-        // 監聽好友名單
         state.db.ref(`users/${uid}/friends`).on('value', snap => {
             state.friendsMap = snap.val() || {};
             renderFriendsPanel();
         });
 
-        // 監聽全體在線狀態（社團規模輕量直接監聽）
         state.db.ref('status').on('value', snap => {
             state.statusesMap = snap.val() || {};
             renderFriendsPanel();
         });
 
-        // 監聽收到的對戰邀請
         state.db.ref(`invites/${uid}`).on('value', snap => {
             const invMap = snap.val() || {};
             const list = Object.entries(invMap)
@@ -163,7 +247,7 @@
         }
         box.innerHTML = `
             <div style="font-size:12px; color:#6fb897; font-weight:700; margin-bottom:4px;">收到好友對戰邀請</div>
-            <div style="font-size:15px; font-weight:900; color:#fff; margin-bottom:10px;">${escapeHtml(invite.fromName || '好友')} 邀請你進行對戰</div>
+            <div style="font-size:15px; font-weight:900; color:#fff; margin-bottom:10px;">${escapeHtml(invite.fromName || '匿名玩家')} 邀請你進行對戰</div>
             <div style="display:flex; gap:8px; justify-content:flex-end;">
                 <button class="ctrl-btn" id="btn-inv-decline" style="background:#313456; padding:6px 12px;">婉拒</button>
                 <button class="start-btn" id="btn-inv-accept" style="padding:6px 14px;">接受並加入</button>
@@ -178,13 +262,10 @@
         box.querySelector('#btn-inv-accept').onclick = () => {
             if (state.db && state.user) state.db.ref(`invites/${state.user.uid}/${invite.fromUid}`).remove().catch(() => {});
             box.style.display = 'none';
-            const targetInput = document.getElementById('target-id');
-            const connectBtn = document.getElementById('btn-connect');
-            if (targetInput && connectBtn) {
-                if (typeof window.switchMainView === 'function') window.switchMainView('builder');
-                targetInput.value = invite.peerId;
-                connectBtn.click();
-                showSysMsg(`已接受 ${invite.fromName} 的邀請，正在建立連線...`);
+            if (typeof window.switchMainView === 'function') window.switchMainView('rooms');
+            if (typeof window.connectToPeer === 'function') {
+                window.connectToPeer(invite.peerId);
+                showSysMsg(`已接受 ${invite.fromName || '好友'} 的邀請，正在建立連線...`);
             }
         };
     }
@@ -211,12 +292,11 @@
                 return;
             }
             const myUid = state.user.uid;
-            const myName = state.user.displayName || '社員';
-            // 雙向加入好友
-            state.db.ref(`users/${myUid}/friends/${target.uid}`).set({ name: target.name || '社員', addedAt: Date.now() }).catch(() => {});
+            const myName = getMyDisplayName();
+            state.db.ref(`users/${myUid}/friends/${target.uid}`).set({ name: target.name || '匿名玩家', addedAt: Date.now() }).catch(() => {});
             state.db.ref(`users/${target.uid}/friends/${myUid}`).set({ name: myName, addedAt: Date.now() }).catch(() => {});
             if (input) input.value = '';
-            showSysMsg(`已成功與「${target.name || '社員'}」成為好友。`);
+            showSysMsg(`已成功與「${target.name || '匿名玩家'}」成為好友。`);
         }).catch(err => {
             console.error('加好友失敗:', err);
             showSysMsg('加好友失敗，請確認已更新 Firebase 安全規則。');
@@ -225,14 +305,14 @@
 
     function sendInviteToFriend(friendUid, friendName) {
         if (!state.ready || !state.user) return;
-        const myPeerId = document.getElementById('my-peer-id')?.textContent?.trim();
-        if (!myPeerId || myPeerId === '產生中...') {
-            showSysMsg('正在取得連線代碼，請稍候再試。');
+        const myPeerId = window.myRoomId;
+        if (!myPeerId || !window.peerReady) {
+            showSysMsg('正在取得連線房號，請稍候再試。');
             return;
         }
         state.db.ref(`invites/${friendUid}/${state.user.uid}`).set({
             fromUid: state.user.uid,
-            fromName: state.user.displayName || '社員',
+            fromName: getMyDisplayName(),
             peerId: myPeerId,
             createdAt: Date.now()
         }).then(() => {
@@ -263,7 +343,7 @@
 
         const friends = Object.entries(state.friendsMap || {}).map(([uid, info]) => {
             const st = state.statusesMap[uid] || { state: 'offline' };
-            return { uid, name: st.name || info.name || '社員', status: st.state || 'offline' };
+            return { uid, name: st.name || info.name || '匿名玩家', status: st.state || 'offline' };
         }).sort((a, b) => {
             const order = { online: 0, playing: 1, offline: 2 };
             return (order[a.status] ?? 2) - (order[b.status] ?? 2);
@@ -311,7 +391,7 @@
         if (!state.ready) {
             if (statusBanner) {
                 statusBanner.style.display = 'block';
-                statusBanner.textContent = '尚未設定 firebase-config.js，目前為單機／手動代碼連線模式。';
+                statusBanner.textContent = '尚未設定 firebase-config.js，目前為單機／手動房號連線模式。';
             }
             listBox.innerHTML = `<div class="lobby-empty">填入 Firebase 設定後，此處將即時顯示所有線上對戰房間。</div>`;
             return;
@@ -342,6 +422,7 @@
                 <div class="room-main">
                     <div class="room-title">${escapeHtml(room.roomName || '未命名房間')}</div>
                     <div class="room-meta">
+                        <span>房號：${escapeHtml(room.peerId)}</span>
                         <span>房主：${escapeHtml(room.hostName || '匿名玩家')}</span>
                         <span>模式：${modeLabel}</span>
                         <span>狀態：${isPlaying ? '對戰中 (2/2)' : '等待中 (1/2)'}</span>
@@ -367,11 +448,9 @@
                         if (pin === null) return;
                         if (pin.trim() !== String(room.pin || '')) { showSysMsg('房間密碼錯誤。'); return; }
                     }
-                    const targetInput = document.getElementById('target-id');
-                    const connectBtn = document.getElementById('btn-connect');
-                    if (targetInput && connectBtn) {
-                        targetInput.value = room.peerId;
-                        connectBtn.click();
+                    applyGameMode(room.mode || 'auto');
+                    if (typeof window.connectToPeer === 'function') {
+                        window.connectToPeer(room.peerId);
                         if (state.db) state.db.ref(`rooms/${room.id}/status`).set('playing').catch(() => {});
                         showSysMsg(`正在連線至「${room.roomName}」...`);
                     }
@@ -383,15 +462,19 @@
 
     function createHostedRoom() {
         if (!state.ready) { showSysMsg('請先於 firebase-config.js 填入 Firebase 設定。'); return; }
-        const myPeerId = document.getElementById('my-peer-id')?.textContent?.trim();
-        if (!myPeerId || myPeerId === '產生中...') { showSysMsg('正在取得 PeerJS 連線代碼，請稍候 1 秒再試。'); return; }
+        const myPeerId = window.myRoomId;
+        if (!myPeerId || !window.peerReady) { showSysMsg('正在取得連線房號，請稍候 1 秒再試。'); return; }
+
         const nameInput = document.getElementById('lobby-new-room-name');
         const modeSelect = document.getElementById('lobby-new-room-mode');
         const pinInput = document.getElementById('lobby-new-room-pin');
 
-        const roomName = (nameInput?.value || '').trim() || `${state.user?.displayName || '興大社員'} 的對戰房`;
+        const hostNick = getMyDisplayName();
+        const roomName = (nameInput?.value || '').trim() || `${hostNick} 的對戰房`;
         const mode = modeSelect?.value || 'auto';
         const pin = (pinInput?.value || '').trim();
+
+        applyGameMode(mode);
 
         if (state.myHostedRoomRef) state.myHostedRoomRef.remove().catch(() => {});
 
@@ -399,7 +482,7 @@
         roomRef.set({
             roomName,
             hostUid: state.user ? state.user.uid : 'guest',
-            hostName: state.user ? (state.user.displayName || '社員') : '訪客',
+            hostName: hostNick,
             peerId: myPeerId,
             mode,
             hasPassword: pin.length > 0,
@@ -412,7 +495,7 @@
             state.myHostedRoomId = myPeerId;
             if (nameInput) nameInput.value = '';
             if (pinInput) pinInput.value = '';
-            showSysMsg(`已建立房間「${roomName}」，等待對手加入...`);
+            showSysMsg(`已建立房間「${roomName}」（房號 ${myPeerId}），等待對手加入...`);
         }).catch(err => {
             console.error('建立房間失敗:', err);
             showSysMsg('建立房間失敗，請檢查 Firebase 安全規則。');
@@ -480,14 +563,12 @@
 
     // ==================== 雲端牌組同步 ====================
 
-    // Firebase 的鍵名不可含 . $ # [ ] /，牌組名稱（例如「[排表] …」）可能含有這些字元，寫入前先編碼、讀回後解碼
     function encodeDeckKey(name) {
         return String(name).replace(/[%.$#\[\]\/]/g, ch => '%' + ch.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0'));
     }
     function decodeDeckKey(key) {
         try { return decodeURIComponent(key); } catch (e) { return key; }
     }
-    // 轉成可寫入 Firebase 的格式：編碼鍵名，並用 JSON 轉換去掉 undefined
     function toCloudDecks(decks) {
         const clean = JSON.parse(JSON.stringify(decks || {}));
         const out = {};
@@ -523,7 +604,6 @@
         const origSave = window.saveAllDecks;
         window.saveAllDecks = function () {
             const result = origSave.apply(this, arguments);
-            // 雲端同步失敗不可中斷本機操作（否則新增牌組等流程會整段中止）
             try {
                 if (state.ready && state.user && state.db && window.allDecks) {
                     state.db.ref(`users/${state.user.uid}/decks`).set(toCloudDecks(window.allDecks)).catch(() => {});
@@ -541,10 +621,8 @@
         document.getElementById('btn-lobby-add-friend')?.addEventListener('click', addFriendByCode);
         document.getElementById('btn-lobby-quick-connect')?.addEventListener('click', () => {
             const code = (document.getElementById('lobby-manual-code')?.value || '').trim();
-            if (!code) { showSysMsg('請輸入對手房號。'); return; }
-            const targetInput = document.getElementById('target-id');
-            const connectBtn = document.getElementById('btn-connect');
-            if (targetInput && connectBtn) { targetInput.value = code; connectBtn.click(); }
+            if (!code) { showSysMsg('請輸入對手 6 碼數字房號。'); return; }
+            if (typeof window.connectToPeer === 'function') window.connectToPeer(code);
         });
 
         if (typeof firebase === 'undefined' || !isConfigFilled(cfg)) {
@@ -596,6 +674,8 @@
         closeMyHostedRoom,
         renderRoomList,
         setMyPresence,
+        getMyDisplayName,
+        changeMyNickname,
         isAdminUser,
         isLoggedIn: () => !!(state.ready && state.user),
         publishOfficialTierList,
