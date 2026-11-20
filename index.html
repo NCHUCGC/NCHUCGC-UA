@@ -7,9 +7,12 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#0a0b14">
-    <title> UA 遠端對戰平台</title>
+    <title>NCHUCGC | 興大卡研 Union Arena 模擬器</title>
     <link rel="manifest" href="manifest.json">
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700;900&display=swap');
         
@@ -46,7 +49,207 @@
         select option { background: #262a42; color: white; }
         #sys-msg { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); background: #9575cd; padding: 10px 20px; border-radius: 5px; font-weight: bold; display: none; z-index: 100000; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
         
-        #builder-scene { width: 100%; height: 100%; display: flex; flex-direction: column; gap: 10px; }
+        #builder-scene { width: 100%; flex: 1; min-height: 0; display: none; flex-direction: column; gap: 10px; }
+
+        /* ===== NCHUCGC 第一階段：導覽列、首頁與環境排表 ===== */
+        #nchucgc-nav {
+            width: 100%; height: 50px; flex-shrink: 0;
+            display: flex; align-items: center; justify-content: space-between;
+            background: #141729; border: 1px solid #2b3052; border-radius: 10px;
+            padding: 0 18px; margin-bottom: 10px; box-sizing: border-box;
+        }
+        .nav-brand { display: flex; align-items: baseline; gap: 10px; }
+        .nav-brand-code { font-size: 18px; font-weight: 900; letter-spacing: 1.5px; color: #b39ddb; }
+        .nav-brand-sub { font-size: 13px; color: #9aa0b8; font-weight: 700; }
+        .nav-tabs { display: flex; gap: 8px; }
+        .nav-tab {
+            background: transparent; color: #b8bed4; border: 1px solid transparent;
+            padding: 7px 16px; border-radius: 7px; cursor: pointer;
+            font-size: 14px; font-weight: 700; transition: 0.18s;
+        }
+        .nav-tab:hover { background: rgba(179, 157, 219, 0.12); color: #fff; }
+        .nav-tab.active { background: #b39ddb; color: #121424; border-color: #b39ddb; }
+        .nav-meta { font-size: 12px; color: #8c93ad; }
+
+        #home-scene, #tier-scene {
+            width: 100%; flex: 1; min-height: 0; overflow-y: auto;
+            display: none; flex-direction: column; gap: 16px; padding: 6px 4px; box-sizing: border-box;
+        }
+        #home-scene { display: flex; }
+        #builder-scene { display: none; flex: 1; min-height: 0; }
+
+        .home-hero {
+            background: linear-gradient(135deg, #171b33 0%, #231934 100%);
+            border: 1px solid #353b66; border-radius: 14px; padding: 34px 38px;
+            display: flex; justify-content: space-between; align-items: center; gap: 24px;
+        }
+        .home-hero-tag {
+            display: inline-block; font-size: 12px; font-weight: 700; letter-spacing: 1px;
+            color: #6fb897; background: rgba(111, 184, 151, 0.14); border: 1px solid rgba(111, 184, 151, 0.4);
+            padding: 4px 10px; border-radius: 6px; margin-bottom: 12px;
+        }
+        .home-hero h1 { margin: 0 0 10px 0; font-size: 32px; font-weight: 900; color: #fff; letter-spacing: 0.5px; }
+        .home-hero p { margin: 0; font-size: 15px; color: #b8bed4; line-height: 1.65; max-width: 720px; }
+        .home-hero-actions { display: flex; flex-direction: column; gap: 10px; min-width: 220px; }
+        .home-cta-primary {
+            background: #6fb897; color: #0f1420; border: none; border-radius: 9px;
+            padding: 13px 20px; font-size: 15px; font-weight: 900; cursor: pointer; transition: 0.18s;
+        }
+        .home-cta-primary:hover { background: #82cca9; }
+        .home-cta-secondary {
+            background: #232845; color: #e6e8f2; border: 1px solid #3c4370; border-radius: 9px;
+            padding: 11px 20px; font-size: 14px; font-weight: 700; cursor: pointer; transition: 0.18s;
+        }
+        .home-cta-secondary:hover { border-color: #b39ddb; color: #fff; }
+
+        .home-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; flex: 1; min-height: 0; }
+        .home-panel {
+            background: #141729; border: 1px solid #2b3052; border-radius: 12px; padding: 20px 22px;
+            display: flex; flex-direction: column; gap: 12px;
+        }
+        .home-panel-title {
+            font-size: 15px; font-weight: 900; color: #d1c4e9;
+            border-bottom: 1px solid #2b3052; padding-bottom: 8px;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .entry-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+        .entry-card {
+            background: #1a1e36; border: 1px solid #2f355c; border-radius: 10px; padding: 16px;
+            cursor: pointer; transition: 0.18s; display: flex; flex-direction: column; gap: 6px;
+        }
+        .entry-card:hover { border-color: #b39ddb; transform: translateY(-2px); }
+        .entry-card-title { font-size: 15px; font-weight: 900; color: #fff; }
+        .entry-card-desc { font-size: 13px; color: #9aa0b8; line-height: 1.5; }
+        .announce-item { padding: 10px 12px; background: #1a1e36; border-radius: 8px; border-left: 3px solid #6c93c7; }
+        .announce-head { display: flex; justify-content: space-between; font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 4px; }
+        .announce-date { font-size: 12px; color: #8c93ad; font-weight: 400; }
+        .announce-body { font-size: 13px; color: #b8bed4; line-height: 1.5; }
+
+        /* Tier List */
+        .tier-toolbar {
+            display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+            background: #141729; border: 1px solid #2b3052; border-radius: 10px; padding: 12px 14px;
+        }
+        .tier-search {
+            flex: 1; min-width: 220px; background: #1e223a; border: 1px solid #353c66;
+            color: #fff; padding: 8px 12px; border-radius: 7px; font-size: 14px; outline: none;
+        }
+        .tier-select {
+            background: #1e223a; border: 1px solid #353c66; color: #fff;
+            padding: 8px 10px; border-radius: 7px; font-size: 13px; font-weight: 700; outline: none;
+        }
+        .tier-color-pills { display: flex; gap: 6px; }
+        .tier-pill {
+            padding: 6px 12px; border-radius: 7px; border: 1px solid #353c66;
+            background: #1e223a; color: #cfd4e6; font-size: 13px; font-weight: 700; cursor: pointer;
+        }
+        .tier-pill.active { background: #b39ddb; color: #121424; border-color: #b39ddb; }
+        .tier-board { display: flex; flex-direction: column; gap: 12px; padding-bottom: 20px; }
+        .tier-row {
+            display: flex; background: #141729; border: 1px solid #2b3052; border-radius: 10px; overflow: hidden;
+            min-height: 120px;
+        }
+        .tier-label {
+            width: 96px; flex-shrink: 0; display: flex; flex-direction: column; justify-content: center; align-items: center;
+            font-weight: 900; font-size: 22px; color: #111; letter-spacing: 1px;
+        }
+        .tier-label.T0 { background: #cf6679; color: #fff; }
+        .tier-label.T1 { background: #e57373; }
+        .tier-label.T2 { background: #ffb74d; }
+        .tier-label.T3 { background: #fff176; }
+        .tier-label.T4 { background: #81c784; }
+        .tier-label.T5 { background: #64b5f6; }
+        .tier-label.UNRATED { background: #394063; color: #d5d9ea; font-size: 15px; }
+        .tier-row.drag-over { border-color: #6fb897; box-shadow: 0 0 0 2px rgba(111, 184, 151, 0.35) inset; }
+        .tier-sandbox-bar {
+            display: none; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between;
+            background: rgba(111, 184, 151, 0.1); border: 1px solid rgba(111, 184, 151, 0.45);
+            border-radius: 10px; padding: 10px 14px; font-size: 13px; color: #d5f0e3;
+        }
+        .tier-sandbox-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+        .tier-deck-card.is-draggable { cursor: grab; }
+        .tier-deck-card.is-draggable:active { cursor: grabbing; opacity: 0.7; }
+        .tier-deck-card.is-custom { box-shadow: 0 0 0 1px rgba(111, 184, 151, 0.55) inset; }
+        #tier-add-modal {
+            display: none; position: fixed; inset: 0; z-index: 100560;
+            background: rgba(8, 10, 20, 0.84); justify-content: center; align-items: center;
+        }
+        .tier-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .tier-form-field { display: flex; flex-direction: column; gap: 6px; }
+        .tier-form-field label { font-size: 12px; color: #9aa0b8; font-weight: 700; }
+        .tier-form-field input, .tier-form-field select {
+            background: #111426; border: 1px solid #353c66; color: #fff;
+            padding: 8px 10px; border-radius: 7px; font-size: 13px; outline: none;
+        }
+        .tier-cards { flex: 1; display: flex; flex-wrap: wrap; gap: 12px; padding: 12px; align-content: flex-start; }
+        .tier-deck-card {
+            width: 190px; background: #1b1f38; border: 1px solid #2f365c; border-radius: 9px;
+            overflow: hidden; cursor: pointer; transition: 0.16s; display: flex; flex-direction: column;
+            border-left: 4px solid #888;
+        }
+        .tier-deck-card:hover { border-color: #b39ddb; transform: translateY(-2px); }
+        .tier-deck-card.RED { border-left-color: #e74c3c; }
+        .tier-deck-card.BLUE { border-left-color: #3498db; }
+        .tier-deck-card.GREEN { border-left-color: #2ecc71; }
+        .tier-deck-card.YELLOW { border-left-color: #f1c40f; }
+        .tier-deck-card.PURPLE { border-left-color: #9b59b6; }
+        .tier-deck-cover { width: 100%; height: 96px; object-fit: cover; object-position: center 22%; background: #101322; }
+        .tier-deck-info { padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
+        .tier-deck-name { font-size: 14px; font-weight: 900; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .tier-deck-sub { font-size: 11px; color: #9aa0b8; display: flex; justify-content: space-between; }
+
+        /* Tier Detail Modal */
+        #tier-detail-modal {
+            display: none; position: fixed; inset: 0; z-index: 100550;
+            background: rgba(8, 10, 20, 0.84); justify-content: center; align-items: center;
+        }
+        .tier-detail-box {
+            width: 760px; max-width: 92%; max-height: 82%; overflow-y: auto;
+            background: #171b30; border: 2px solid #b39ddb; border-radius: 14px;
+            padding: 24px 28px; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px;
+        }
+        .td-header { display: flex; gap: 18px; align-items: flex-start; }
+        .td-cover { width: 112px; height: 156px; border-radius: 8px; object-fit: cover; border: 1px solid #3c4370; flex-shrink: 0; }
+        .td-meta-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+        .td-badge { font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 6px; background: #252b4a; color: #d1c4e9; }
+        .td-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+        .td-list-box { background: #111426; border: 1px solid #2b3052; border-radius: 8px; padding: 12px 14px; }
+        .td-list-box h4 { margin: 0 0 8px 0; font-size: 13px; color: #9aa0b8; }
+        .td-list-box ul { margin: 0; padding-left: 18px; font-size: 13px; color: #e6e8f2; line-height: 1.6; }
+        .td-actions { display: flex; justify-content: flex-end; gap: 10px; border-top: 1px solid #2b3052; padding-top: 14px; }
+
+
+        /* ===== NCHUCGC 第二階段：多房間對戰大廳 ===== */
+        #lobby-scene {
+            width: 100%; flex: 1; min-height: 0; overflow-y: auto;
+            display: none; flex-direction: column; gap: 14px; padding: 6px 4px; box-sizing: border-box;
+        }
+        .lobby-banner {
+            display: none; padding: 10px 14px; border-radius: 9px; font-size: 13px;
+            background: rgba(241, 196, 15, 0.12); border: 1px solid rgba(241, 196, 15, 0.45); color: #f6e08b;
+        }
+        .lobby-layout { display: grid; grid-template-columns: 1.6fr 1fr; gap: 16px; flex: 1; min-height: 0; }
+        .lobby-panel {
+            background: #141729; border: 1px solid #2b3052; border-radius: 12px; padding: 18px 20px;
+            display: flex; flex-direction: column; gap: 12px; min-height: 0;
+        }
+        .lobby-room-list { display: flex; flex-direction: column; gap: 10px; overflow-y: auto; flex: 1; }
+        .lobby-empty { color: #7f85a3; font-size: 14px; padding: 28px 12px; text-align: center; border: 1px dashed #2e3459; border-radius: 9px; }
+        .lobby-room-card {
+            display: flex; justify-content: space-between; align-items: center; gap: 12px;
+            background: #1b1f38; border: 1px solid #30375e; border-radius: 10px; padding: 14px 16px;
+        }
+        .lobby-room-card.is-playing { opacity: 0.65; }
+        .room-title { font-size: 15px; font-weight: 900; color: #fff; margin-bottom: 4px; }
+        .room-meta { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: #9aa0b8; }
+        .lobby-form { display: flex; flex-direction: column; gap: 10px; }
+        .lobby-form input, .lobby-form select {
+            background: #111426; border: 1px solid #353c66; color: #fff;
+            padding: 9px 11px; border-radius: 7px; font-size: 13px; outline: none;
+        }
+        .nav-right { display: flex; align-items: center; gap: 12px; }
+        #nav-auth-box { display: flex; align-items: center; gap: 8px; }
+
         #game-scene { display: none; width: 100%; height: 100%; flex-direction: column; align-items: center; gap: 10px; }
 
         .top-sys-bar { display: flex; width: 100%; justify-content: space-between; align-items: flex-start; gap: 15px; flex-shrink: 0; }
@@ -288,6 +491,200 @@
         </div>
 
         <div id="sys-msg">系統訊息</div>
+
+
+        <nav id="nchucgc-nav">
+            <div class="nav-brand">
+                <span class="nav-brand-code">NCHUCGC</span>
+                <span class="nav-brand-sub">國立中興大學卡牌研究社 Union Arena 模擬器</span>
+            </div>
+            <div class="nav-tabs">
+                <button class="nav-tab active" data-view="home" onclick="switchMainView('home')">首頁</button>
+                <button class="nav-tab" data-view="tier" onclick="switchMainView('tier')">環境排表</button>
+                <button class="nav-tab" data-view="builder" onclick="switchMainView('builder')">牌組構築</button>
+                <button class="nav-tab" data-view="rooms" onclick="switchMainView('rooms')">對戰大廳</button>
+            </div>
+            <div class="nav-right">
+                <div class="nav-meta" id="nav-env-label">日版環境</div>
+                <div id="nav-auth-box"></div>
+            </div>
+        </nav>
+
+        <section id="home-scene">
+            <div class="home-hero">
+                <div>
+                    <div class="home-hero-tag">NCHUCGC UNION ARENA PLATFORM</div>
+                    <h1>興大卡研 Union Arena 模擬器</h1>
+                    <p>整合社團環境強度排表、牌組構築與遠端連線對戰。可從環境排表直接檢視主流軸心與優缺點，並一鍵匯入構築進行實戰測試。</p>
+                </div>
+                <div class="home-hero-actions">
+                    <button class="home-cta-primary" onclick="switchMainView('rooms')">進入對戰大廳</button>
+                    <button class="home-cta-secondary" onclick="switchMainView('tier')">檢視社團環境 Tier List</button>
+                </div>
+            </div>
+
+            <div class="home-grid">
+                <div class="home-panel">
+                    <div class="home-panel-title">
+                        <span>功能入口</span>
+                        <span style="font-size:12px; color:#8c93ad; font-weight:400;">Phase 1</span>
+                    </div>
+                    <div class="entry-cards">
+                        <div class="entry-card" onclick="switchMainView('tier')">
+                            <div class="entry-card-title">環境排表 (Tier List)</div>
+                            <div class="entry-card-desc">依 T0–T5 整理社團環境與操作難度，支援社員開啟自排／提案模式。</div>
+                        </div>
+                        <div class="entry-card" onclick="switchMainView('builder')">
+                            <div class="entry-card-title">牌組構築與連線</div>
+                            <div class="entry-card-desc">管理多套牌組、批次匯入與列印代牌，透過房號連線進行對戰。</div>
+                        </div>
+                        <div class="entry-card" onclick="document.getElementById('readme-modal').style.display='flex'">
+                            <div class="entry-card-title">平台操作說明</div>
+                            <div class="entry-card-desc">查看快捷鍵、觸控操作、檢索視窗與對戰規則引擎使用方式。</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="home-panel">
+                    <div class="home-panel-title">
+                        <span>社團公告與更新</span>
+                        <span id="home-updated-at" style="font-size:12px; color:#8c93ad; font-weight:400;"></span>
+                    </div>
+                    <div id="home-announcements" style="display:flex; flex-direction:column; gap:10px;"></div>
+                </div>
+            </div>
+        </section>
+
+        <section id="tier-scene">
+            <div class="tier-toolbar">
+                <input type="text" id="tier-search-input" class="tier-search" placeholder="搜尋作品名稱、牌組軸或標籤...">
+                <div class="tier-color-pills" id="tier-color-pills">
+                    <button class="tier-pill active" data-color="ALL">全部顏色</button>
+                    <button class="tier-pill" data-color="RED">紅</button>
+                    <button class="tier-pill" data-color="BLUE">藍</button>
+                    <button class="tier-pill" data-color="GREEN">綠</button>
+                    <button class="tier-pill" data-color="YELLOW">黃</button>
+                    <button class="tier-pill" data-color="PURPLE">紫</button>
+                </div>
+                <select id="tier-diff-filter" class="tier-select">
+                    <option value="ALL">全部難度</option>
+                    <option value="UNRATED">難度：待評</option>
+                    <option value="1">難度：1</option>
+                    <option value="2">難度：2</option>
+                    <option value="3">難度：3</option>
+                    <option value="4">難度：4</option>
+                    <option value="5">難度：5</option>
+                </select>
+                <button id="btn-tier-sandbox" class="ctrl-btn" style="background:#262c4a; border:1px solid #485080; padding:8px 14px;">開啟自排／提案模式</button>
+            </div>
+            <div class="tier-sandbox-bar" id="tier-sandbox-bar">
+                <span>自排／提案模式已開啟：可直接拖曳牌組調整 T0–T5，或點擊牌組修改操作難度（僅儲存於本機，不會更動社團正式版）。</span>
+                <div class="tier-sandbox-actions">
+                    <button class="ctrl-btn" id="btn-tier-add-deck" style="background:#4f9678;">新增牌組提案</button>
+                    <button class="ctrl-btn" id="btn-tier-copy-text" style="background:#4f739e;">複製提案文字</button>
+                    <button class="ctrl-btn" id="btn-tier-copy-json" style="background:#6f5a9e;">複製提案 JSON</button>
+                    <button class="ctrl-btn danger" id="btn-tier-reset-local">還原社團正式版</button>
+                </div>
+            </div>
+            <div class="tier-board" id="tier-board"></div>
+        </section>
+
+        <div id="tier-detail-modal">
+            <div class="tier-detail-box" id="tier-detail-content"></div>
+        </div>
+
+        <div id="tier-add-modal">
+            <div class="tier-detail-box" style="width:560px;">
+                <h3 style="margin:0; font-size:18px; color:#fff;">新增牌組提案</h3>
+                <div class="tier-form-grid">
+                    <div class="tier-form-field">
+                        <label>作品系列</label>
+                        <select id="add-deck-series"></select>
+                    </div>
+                    <div class="tier-form-field">
+                        <label>顏色</label>
+                        <select id="add-deck-color">
+                            <option value="RED">紅</option>
+                            <option value="BLUE">藍</option>
+                            <option value="GREEN">綠</option>
+                            <option value="YELLOW">黃</option>
+                            <option value="PURPLE">紫</option>
+                        </select>
+                    </div>
+                    <div class="tier-form-field" style="grid-column: 1 / -1;">
+                        <label>牌組軸名稱（例如：紅 五條悟、紫 宿儺）</label>
+                        <input type="text" id="add-deck-name" placeholder="請輸入牌組名稱">
+                    </div>
+                    <div class="tier-form-field">
+                        <label>提案階級</label>
+                        <select id="add-deck-tier">
+                            <option value="T0">T0</option>
+                            <option value="T1">T1</option>
+                            <option value="T2">T2</option>
+                            <option value="T3">T3</option>
+                            <option value="T4">T4</option>
+                            <option value="T5">T5</option>
+                            <option value="UNRATED" selected>待評定</option>
+                        </select>
+                    </div>
+                    <div class="tier-form-field">
+                        <label>操作難度</label>
+                        <select id="add-deck-diff">
+                            <option value="">待評</option>
+                            <option value="1">1 / 5</option>
+                            <option value="2">2 / 5</option>
+                            <option value="3">3 / 5</option>
+                            <option value="4">4 / 5</option>
+                            <option value="5">5 / 5</option>
+                        </select>
+                    </div>
+                    <div class="tier-form-field" style="grid-column: 1 / -1;">
+                        <label>代表卡號（選填，留空則自動帶入該作品同色卡片）</label>
+                        <input type="text" id="add-deck-cover" placeholder="例如：UA40BT/REZ-1-090">
+                    </div>
+                </div>
+                <div class="td-actions">
+                    <button class="ctrl-btn" id="btn-add-deck-cancel" style="background:#313456; padding:8px 16px;">取消</button>
+                    <button class="start-btn" id="btn-add-deck-confirm" style="padding:8px 18px;">加入自排清單</button>
+                </div>
+            </div>
+        </div>
+
+
+        <section id="lobby-scene">
+            <div class="lobby-banner" id="lobby-fb-status"></div>
+            <div class="lobby-layout">
+                <div class="lobby-panel">
+                    <div class="home-panel-title">
+                        <span>即時對戰房間列表</span>
+                        <span style="font-size:12px; color:#8c93ad; font-weight:400;">點擊房間即可透過 P2P 加入</span>
+                    </div>
+                    <div class="lobby-room-list" id="lobby-room-list"></div>
+                </div>
+
+                <div class="lobby-panel">
+                    <div class="home-panel-title"><span>建立對戰房間</span></div>
+                    <div class="lobby-form">
+                        <input type="text" id="lobby-new-room-name" placeholder="房間名稱（例如：興大社課練習房）">
+                        <select id="lobby-new-room-mode">
+                            <option value="auto">模式：全自動規則引擎</option>
+                            <option value="sandbox">模式：沙盒手動模式</option>
+                        </select>
+                        <input type="text" id="lobby-new-room-pin" placeholder="房間密碼（選填，留空為公開房）">
+                        <button class="start-btn" id="btn-lobby-create-room" style="padding:10px;">建立對戰房間</button>
+                    </div>
+
+                    <div class="home-panel-title" style="margin-top:10px;"><span>手動房號連線</span></div>
+                    <div class="lobby-form">
+                        <div style="display:flex; gap:8px;">
+                            <input type="text" id="lobby-manual-code" placeholder="輸入對手 8 碼房號" style="flex:1;">
+                            <button class="ctrl-btn" id="btn-lobby-quick-connect" style="background:#9575cd; padding:8px 14px;">連線</button>
+                        </div>
+                        <button class="ctrl-btn" onclick="switchMainView('builder')" style="background:#232845; border:1px solid #3c4370; padding:9px;">前往牌組構築 / 檢查已選牌組</button>
+                    </div>
+                </div>
+            </div>
+        </section>
 
         <div id="builder-scene">
             
@@ -592,6 +989,9 @@
     <div id="print-area" style="display: none;"></div>
 
     <script src="cards.js"></script>
+    <script src="tier-data.js"></script>
+    <script src="firebase-config.js"></script>
+    <script src="firebase-lobby.js"></script>
 
     <script>
         window.appScale = 1;
@@ -1416,7 +1816,7 @@
             crypto.getRandomValues(arr);
             return Array.from(arr, x => chars[x % chars.length]).join('');
         }
-        let myRoomId = generateRoomId();
+        let myRoomId = generateRoomId(); window.myRoomId = myRoomId;
         
 // ⚡ 啟用專屬的 TURN 中繼伺服器，突破嚴格的防火牆
         let peer = new Peer(myRoomId, { 
@@ -1569,6 +1969,10 @@
                     myCardsElements = [];
                     document.querySelectorAll('#my-board .card, #my-hand-area .card, #my-look-area .card').forEach(c => c.remove());
                     
+                    document.getElementById('nchucgc-nav').style.display = 'none';
+                    document.getElementById('home-scene').style.display = 'none';
+                    document.getElementById('tier-scene').style.display = 'none';
+                    document.getElementById('lobby-scene').style.display = 'none';
                     document.getElementById('builder-scene').style.display = 'none'; 
                     document.getElementById('game-scene').style.display = 'flex';
                     setTimeout(resetCam, 100); 
@@ -1687,7 +2091,8 @@
             document.querySelectorAll('.phase-step').forEach(btn => btn.classList.remove('active'));
             document.querySelector('.phase-step:first-child').classList.add('active');
             document.getElementById('game-scene').style.display = 'none'; 
-            document.getElementById('builder-scene').style.display = 'flex';
+            document.getElementById('nchucgc-nav').style.display = 'flex';
+            switchMainView('builder');
             myCardsElements = []; oppCardsElements = [];
 
             // 【新增】新的一局開始前，把上一局殘留的復原歷史、連線快取與規則引擎狀態清空
@@ -2906,7 +3311,10 @@ function createCardDOM(cardData, networkId, isMine) {
                 'dlc-rez-yellow.js', 'dlc-rez-blue.js', 'dlc-rez-purple.js', 'dlc-rez-green.js', 'dlc-rez-red.js',
                 'dlc-skm-yellow.js', 'dlc-skm-purple.js', 'dlc-skm-red.js', 'dlc-skm-blue.js', 'dlc-skm-green.js',
                 'dlc-stg-blue.js', 'dlc-stg-green.js',
-                'dlc-hxh-blue.js', 'dlc-hxh-green.js', 'dlc-hxh-purple.js', 'dlc-hxh-yellow.js'
+                'dlc-hxh-blue.js', 'dlc-hxh-green.js', 'dlc-hxh-purple.js', 'dlc-hxh-yellow.js',
+                'dlc-bcv-red.js', 'dlc-bcv-green.js', 'dlc-bcv-purple.js',
+                'dlc-mmm-red.js', 'dlc-mmm-green.js', 'dlc-mmm-yellow.js', 'dlc-mmm-purple.js',
+                'dlc-csm-red.js', 'dlc-csm-purple.js'
             ];
             dlcFiles.forEach(file => {
                 const s = document.createElement('script');
@@ -2918,5 +3326,402 @@ function createCardDOM(cardData, networkId, isMine) {
         })();
     </script>
     <script src="ua-rule-engine.js"></script>
+
+    <script>
+        (function initNCHUCGC() {
+            const COLOR_ZH = { RED: '紅', BLUE: '藍', GREEN: '綠', YELLOW: '黃', PURPLE: '紫' };
+            const TIER_DEFS = [
+                { key: 'T0', label: 'T0' },
+                { key: 'T1', label: 'T1' },
+                { key: 'T2', label: 'T2' },
+                { key: 'T3', label: 'T3' },
+                { key: 'T4', label: 'T4' },
+                { key: 'T5', label: 'T5' },
+                { key: 'UNRATED', label: '待評定' }
+            ];
+            const SANDBOX_STORAGE_KEY = 'nchucgc_tier_sandbox_v1';
+
+            let tierColorFilter = 'ALL';
+            let sandboxMode = false;
+            let draggedDeckId = null;
+
+            function loadSandboxState() {
+                try {
+                    const parsed = JSON.parse(localStorage.getItem(SANDBOX_STORAGE_KEY) || 'null');
+                    if (parsed && typeof parsed === 'object') {
+                        return { overrides: parsed.overrides || {}, customDecks: Array.isArray(parsed.customDecks) ? parsed.customDecks : [] };
+                    }
+                } catch (e) {}
+                return { overrides: {}, customDecks: [] };
+            }
+
+            let sandboxState = loadSandboxState();
+
+            function saveSandboxState() {
+                localStorage.setItem(SANDBOX_STORAGE_KEY, JSON.stringify(sandboxState));
+            }
+
+            function getMergedTierList() {
+                const base = (window.NCHUCGC_TIER_LIST || []).map(d => {
+                    const ov = sandboxMode ? sandboxState.overrides[d.id] : null;
+                    return ov ? { ...d, tier: ov.tier ?? d.tier, difficulty: ov.difficulty !== undefined ? ov.difficulty : d.difficulty } : { ...d };
+                });
+                if (sandboxMode && sandboxState.customDecks.length > 0) {
+                    sandboxState.customDecks.forEach(cd => {
+                        const ov = sandboxState.overrides[cd.id];
+                        base.push(ov ? { ...cd, tier: ov.tier ?? cd.tier, difficulty: ov.difficulty !== undefined ? ov.difficulty : cd.difficulty, _isCustom: true } : { ...cd, _isCustom: true });
+                    });
+                }
+                return base;
+            }
+
+            window.switchMainView = function (viewName) {
+                const map = {
+                    home: document.getElementById('home-scene'),
+                    tier: document.getElementById('tier-scene'),
+                    builder: document.getElementById('builder-scene'),
+                    rooms: document.getElementById('lobby-scene')
+                };
+                Object.entries(map).forEach(([k, el]) => {
+                    if (el) el.style.display = (k === viewName) ? 'flex' : 'none';
+                });
+                document.querySelectorAll('#nchucgc-nav .nav-tab').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.view === viewName);
+                });
+                if (viewName === 'tier') renderTierBoard();
+            };
+
+            function getCoverUrl(cardId, series, color) {
+                if (typeof ensureCatalogMap === 'function') ensureCatalogMap();
+                if (cardId) {
+                    const found = window.cardCatalogById && window.cardCatalogById.get(cardId);
+                    if (found && found.imageUrl) return found.imageUrl;
+                    return `https://rugiacreation.com/ua/cardlist/small/${cardId.replace(/\//g, '_')}.jpg`;
+                }
+                if (typeof masterCardCatalog !== 'undefined' && series) {
+                    const fallback = masterCardCatalog.find(c => c.series === series && c.color === color && c.type === 'CHARACTER' && c.imageUrl);
+                    if (fallback) return fallback.imageUrl;
+                }
+                return '';
+            }
+
+            function formatDiff(d) {
+                return (d === null || d === undefined || d === '') ? '待評' : `${d} / 5`;
+            }
+
+            function renderHome() {
+                const meta = window.NCHUCGC_TIER_META || {};
+                const envEl = document.getElementById('nav-env-label');
+                if (envEl && meta.envLabel) envEl.textContent = meta.envLabel;
+                const updEl = document.getElementById('home-updated-at');
+                if (updEl && meta.updatedAt) updEl.textContent = `更新於 ${meta.updatedAt}`;
+                const box = document.getElementById('home-announcements');
+                if (box && Array.isArray(meta.announcements)) {
+                    box.innerHTML = meta.announcements.map(a => `
+                        <div class="announce-item">
+                            <div class="announce-head"><span>${a.title}</span><span class="announce-date">${a.date}</span></div>
+                            <div class="announce-body">${a.body}</div>
+                        </div>
+                    `).join('');
+                }
+            }
+
+            function updateSandboxOverride(deckId, patch) {
+                const prev = sandboxState.overrides[deckId] || {};
+                sandboxState.overrides[deckId] = { ...prev, ...patch };
+                saveSandboxState();
+                renderTierBoard();
+            }
+
+            function openTierDetail(deck) {
+                const modal = document.getElementById('tier-detail-modal');
+                const box = document.getElementById('tier-detail-content');
+                const imgUrl = getCoverUrl(deck.coverCardId, deck.series, deck.color);
+                const tagsHtml = (deck.tags || []).map(t => `<span class="td-badge">${t}</span>`).join('');
+                const prosHtml = (deck.pros && deck.pros.length) ? deck.pros.map(p => `<li>${p}</li>`).join('') : '<li style="color:#7f85a3;">尚待社團補充</li>';
+                const consHtml = (deck.cons && deck.cons.length) ? deck.cons.map(c => `<li>${c}</li>`).join('') : '<li style="color:#7f85a3;">尚待社團補充</li>';
+                const sampleCount = (deck.sampleDeck || []).length;
+                const tierLabel = TIER_DEFS.find(t => t.key === deck.tier)?.label || deck.tier;
+
+                const sandboxControlsHtml = sandboxMode ? `
+                    <div style="background:rgba(111,184,151,0.1); border:1px solid rgba(111,184,151,0.4); border-radius:8px; padding:12px 14px; display:flex; flex-wrap:wrap; gap:14px; align-items:center;">
+                        <strong style="font-size:13px; color:#82cca9;">自排提案設定</strong>
+                        <label style="font-size:13px; display:flex; align-items:center; gap:6px;">
+                            階級
+                            <select id="td-edit-tier" class="tier-select">
+                                ${TIER_DEFS.map(t => `<option value="${t.key}" ${deck.tier === t.key ? 'selected' : ''}>${t.label}</option>`).join('')}
+                            </select>
+                        </label>
+                        <label style="font-size:13px; display:flex; align-items:center; gap:6px;">
+                            操作難度
+                            <select id="td-edit-diff" class="tier-select">
+                                <option value="" ${deck.difficulty == null ? 'selected' : ''}>待評</option>
+                                ${[1, 2, 3, 4, 5].map(n => `<option value="${n}" ${Number(deck.difficulty) === n ? 'selected' : ''}>${n} / 5</option>`).join('')}
+                            </select>
+                        </label>
+                        ${deck._isCustom ? `<button class="ctrl-btn danger" id="td-btn-del-custom" style="margin-left:auto;">刪除此自訂提案</button>` : ''}
+                    </div>
+                ` : '';
+
+                box.innerHTML = `
+                    <div class="td-header">
+                        <img class="td-cover" src="${imgUrl}" alt="${deck.name}">
+                        <div style="flex:1;">
+                            <div style="font-size:12px; color:#9aa0b8; margin-bottom:4px;">${deck.series} / ${COLOR_ZH[deck.color] || deck.color} / ${tierLabel}</div>
+                            <h2 style="margin:0 0 8px 0; font-size:22px; color:#fff;">${deck.name}</h2>
+                            <div class="td-meta-row">
+                                <span class="td-badge">操作難度：${formatDiff(deck.difficulty)}</span>
+                                ${tagsHtml}
+                            </div>
+                            <p style="margin:8px 0 0 0; font-size:14px; color:#d5d9ea; line-height:1.6;">${deck.summary || '尚無簡介。'}</p>
+                        </div>
+                    </div>
+                    ${sandboxControlsHtml}
+                    <div class="td-cols">
+                        <div class="td-list-box">
+                            <h4>優勢</h4>
+                            <ul>${prosHtml}</ul>
+                        </div>
+                        <div class="td-list-box">
+                            <h4>弱點與對局注意</h4>
+                            <ul>${consHtml}</ul>
+                        </div>
+                    </div>
+                    <div class="td-actions">
+                        <button class="ctrl-btn" id="td-btn-close" style="background:#313456; padding:9px 16px;">關閉</button>
+                        ${sampleCount > 0 ? `<button class="start-btn" id="td-btn-import" style="padding:9px 18px;">匯入核心組件至牌組（${sampleCount} 張）</button>` : ''}
+                    </div>
+                `;
+
+                box.querySelector('#td-btn-close').onclick = () => { modal.style.display = 'none'; };
+                const editTier = box.querySelector('#td-edit-tier');
+                if (editTier) {
+                    editTier.onchange = () => {
+                        updateSandboxOverride(deck.id, { tier: editTier.value });
+                        showSysMsg(`已將「${deck.name}」調整至 ${editTier.options[editTier.selectedIndex].text}。`);
+                    };
+                }
+                const editDiff = box.querySelector('#td-edit-diff');
+                if (editDiff) {
+                    editDiff.onchange = () => {
+                        const val = editDiff.value === '' ? null : Number(editDiff.value);
+                        updateSandboxOverride(deck.id, { difficulty: val });
+                        showSysMsg(`已將「${deck.name}」操作難度設為 ${formatDiff(val)}。`);
+                    };
+                }
+                const delBtn = box.querySelector('#td-btn-del-custom');
+                if (delBtn) {
+                    delBtn.onclick = () => {
+                        sandboxState.customDecks = sandboxState.customDecks.filter(c => c.id !== deck.id);
+                        delete sandboxState.overrides[deck.id];
+                        saveSandboxState();
+                        modal.style.display = 'none';
+                        renderTierBoard();
+                    };
+                }
+                const importBtn = box.querySelector('#td-btn-import');
+                if (importBtn) {
+                    importBtn.onclick = () => {
+                        const deckName = `[排表] ${deck.name}`;
+                        allDecks[deckName] = { main: [...deck.sampleDeck], ap: [] };
+                        currentDeckName = deckName;
+                        myDeckData = hydrateDeckList(allDecks[deckName].main);
+                        myApData = [];
+                        saveAllDecks();
+                        updateDeckSelector();
+                        renderDeck();
+                        modal.style.display = 'none';
+                        switchMainView('builder');
+                        showSysMsg(`已建立牌組「${deckName}」（共 ${myDeckData.length} 張）。`);
+                    };
+                }
+                modal.style.display = 'flex';
+            }
+
+            window.renderTierBoard = function () {
+                const board = document.getElementById('tier-board');
+                if (!board) return;
+                const list = getMergedTierList();
+                const q = (document.getElementById('tier-search-input')?.value || '').trim().toLowerCase();
+                const diffFilter = document.getElementById('tier-diff-filter')?.value || 'ALL';
+
+                const sandboxBar = document.getElementById('tier-sandbox-bar');
+                if (sandboxBar) sandboxBar.style.display = sandboxMode ? 'flex' : 'none';
+                const toggleBtn = document.getElementById('btn-tier-sandbox');
+                if (toggleBtn) {
+                    toggleBtn.textContent = sandboxMode ? '退出自排／提案模式' : '開啟自排／提案模式';
+                    toggleBtn.style.background = sandboxMode ? '#4f9678' : '#262c4a';
+                }
+
+                board.innerHTML = '';
+                TIER_DEFS.forEach(t => {
+                    const matched = list.filter(d => {
+                        if (d.tier !== t.key) return false;
+                        if (tierColorFilter !== 'ALL' && d.color !== tierColorFilter) return false;
+                        if (diffFilter === 'UNRATED' && d.difficulty !== null && d.difficulty !== undefined) return false;
+                        if (diffFilter !== 'ALL' && diffFilter !== 'UNRATED' && String(d.difficulty) !== diffFilter) return false;
+                        if (q) {
+                            const hay = `${d.name} ${d.series} ${(d.tags || []).join(' ')}`.toLowerCase();
+                            if (!hay.includes(q)) return false;
+                        }
+                        return true;
+                    });
+
+                    const row = document.createElement('div');
+                    row.className = 'tier-row';
+                    row.dataset.tier = t.key;
+                    row.innerHTML = `<div class="tier-label ${t.key}">${t.label}</div><div class="tier-cards"></div>`;
+                    const cardsBox = row.querySelector('.tier-cards');
+
+                    if (sandboxMode) {
+                        row.addEventListener('dragover', (e) => { e.preventDefault(); row.classList.add('drag-over'); });
+                        row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
+                        row.addEventListener('drop', (e) => {
+                            e.preventDefault();
+                            row.classList.remove('drag-over');
+                            const id = draggedDeckId || e.dataTransfer.getData('text/plain');
+                            if (id) {
+                                updateSandboxOverride(id, { tier: t.key });
+                                draggedDeckId = null;
+                            }
+                        });
+                    }
+
+                    if (matched.length === 0) {
+                        cardsBox.innerHTML = `<div style="color:#6c7290; font-size:13px; padding:12px;">${sandboxMode ? '可將牌組拖曳至此階級' : '尚無牌組'}</div>`;
+                    } else {
+                        matched.forEach(deck => {
+                            const card = document.createElement('div');
+                            card.className = `tier-deck-card ${deck.color}` + (sandboxMode ? ' is-draggable' : '') + (deck._isCustom ? ' is-custom' : '');
+                            if (sandboxMode) {
+                                card.draggable = true;
+                                card.addEventListener('dragstart', (e) => {
+                                    draggedDeckId = deck.id;
+                                    e.dataTransfer.setData('text/plain', deck.id);
+                                });
+                            }
+                            card.innerHTML = `
+                                <img class="tier-deck-cover" src="${getCoverUrl(deck.coverCardId, deck.series, deck.color)}" loading="lazy" alt="${deck.name}">
+                                <div class="tier-deck-info">
+                                    <div class="tier-deck-name">${deck.name}</div>
+                                    <div class="tier-deck-sub"><span>${COLOR_ZH[deck.color] || deck.color}</span><span>難度 ${formatDiff(deck.difficulty)}</span></div>
+                                </div>
+                            `;
+                            card.onclick = () => openTierDetail(deck);
+                            cardsBox.appendChild(card);
+                        });
+                    }
+                    board.appendChild(row);
+                });
+            };
+
+            function populateAddDeckSeriesSelect() {
+                const sel = document.getElementById('add-deck-series');
+                if (!sel || typeof masterCardCatalog === 'undefined') return;
+                const set = new Set();
+                masterCardCatalog.forEach(c => {
+                    if (c.series && !c.series.includes('AP') && !c.series.includes('紀念卡')) set.add(c.series);
+                });
+                sel.innerHTML = Array.from(set).sort().map(s => `<option value="${s}">${s}</option>`).join('');
+            }
+
+            window.addEventListener('load', () => {
+                renderHome();
+                const urlParams = new URLSearchParams(window.location.search);
+                if (urlParams.get('join')) switchMainView('builder');
+
+                document.getElementById('tier-search-input')?.addEventListener('input', renderTierBoard);
+                document.getElementById('tier-diff-filter')?.addEventListener('change', renderTierBoard);
+                document.querySelectorAll('#tier-color-pills .tier-pill').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        document.querySelectorAll('#tier-color-pills .tier-pill').forEach(b => b.classList.remove('active'));
+                        btn.classList.add('active');
+                        tierColorFilter = btn.dataset.color;
+                        renderTierBoard();
+                    });
+                });
+
+                document.getElementById('btn-tier-sandbox')?.addEventListener('click', () => {
+                    sandboxMode = !sandboxMode;
+                    renderTierBoard();
+                });
+
+                document.getElementById('btn-tier-add-deck')?.addEventListener('click', () => {
+                    populateAddDeckSeriesSelect();
+                    document.getElementById('add-deck-name').value = '';
+                    document.getElementById('add-deck-cover').value = '';
+                    document.getElementById('tier-add-modal').style.display = 'flex';
+                });
+
+                document.getElementById('btn-add-deck-cancel')?.addEventListener('click', () => {
+                    document.getElementById('tier-add-modal').style.display = 'none';
+                });
+
+                document.getElementById('btn-add-deck-confirm')?.addEventListener('click', () => {
+                    const series = document.getElementById('add-deck-series').value;
+                    const color = document.getElementById('add-deck-color').value;
+                    const name = document.getElementById('add-deck-name').value.trim();
+                    const tier = document.getElementById('add-deck-tier').value;
+                    const diffRaw = document.getElementById('add-deck-diff').value;
+                    const coverCardId = document.getElementById('add-deck-cover').value.trim().toUpperCase();
+                    if (!name) { showSysMsg('請輸入牌組名稱。'); return; }
+                    const newDeck = {
+                        id: 'custom-' + Date.now(),
+                        tier,
+                        series,
+                        color,
+                        name,
+                        coverCardId,
+                        difficulty: diffRaw === '' ? null : Number(diffRaw),
+                        tags: ['社員提案'],
+                        summary: '',
+                        pros: [],
+                        cons: [],
+                        sampleDeck: coverCardId ? [coverCardId] : []
+                    };
+                    sandboxState.customDecks.push(newDeck);
+                    saveSandboxState();
+                    document.getElementById('tier-add-modal').style.display = 'none';
+                    renderTierBoard();
+                    showSysMsg(`已新增牌組提案「${name}」。`);
+                });
+
+                document.getElementById('btn-tier-copy-text')?.addEventListener('click', () => {
+                    const list = getMergedTierList();
+                    const lines = ['【NCHUCGC Union Arena 排表提案】'];
+                    TIER_DEFS.forEach(t => {
+                        const items = list.filter(d => d.tier === t.key);
+                        if (items.length > 0) {
+                            const names = items.map(d => `${d.name}(難度:${d.difficulty ?? '待評'})`).join('、');
+                            lines.push(`${t.label}：${names}`);
+                        }
+                    });
+                    navigator.clipboard.writeText(lines.join('\n')).then(() => showSysMsg('已複製排表提案文字，可直接貼至社團群組。'));
+                });
+
+                document.getElementById('btn-tier-copy-json')?.addEventListener('click', () => {
+                    const exported = getMergedTierList().map(({ _isCustom, ...rest }) => rest);
+                    navigator.clipboard.writeText(JSON.stringify(exported, null, 4)).then(() => showSysMsg('已複製排表 JSON，幹部可直接覆蓋 tier-data.js。'));
+                });
+
+                document.getElementById('btn-tier-reset-local')?.addEventListener('click', () => {
+                    if (confirm('確定要清除本機自排修改與自訂提案，還原為社團正式版嗎？')) {
+                        sandboxState = { overrides: {}, customDecks: [] };
+                        saveSandboxState();
+                        renderTierBoard();
+                        showSysMsg('已還原為社團正式版排表。');
+                    }
+                });
+
+                document.getElementById('tier-detail-modal')?.addEventListener('click', (e) => {
+                    if (e.target.id === 'tier-detail-modal') e.target.style.display = 'none';
+                });
+                document.getElementById('tier-add-modal')?.addEventListener('click', (e) => {
+                    if (e.target.id === 'tier-add-modal') e.target.style.display = 'none';
+                });
+            });
+        })();
+    </script>
+
 </body>
 </html>
