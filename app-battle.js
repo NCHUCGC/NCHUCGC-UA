@@ -2408,43 +2408,15 @@ function createCardDOM(cardData, networkId, isMine) {
             }, 500);
         };
 
-// ===== UA 卡片腳本 DLC 自動載入器 =====
+// ===== UA 卡片腳本合併檔載入器 =====
         window.UACardScripts = window.UACardScripts || {};
         window.registerCardScripts = function (map) {
             if (map && typeof map === 'object') Object.assign(window.UACardScripts, map);
         };
-        // 未來只要把對應檔名的新 DLC 檔案放進同一資料夾就會自動載入，不需再改 index.html
-        (function loadDLCs() {
-            const dlcFiles = [
-                'card-scripts.js',
-                'dlc-syn-yellow.js', 'dlc-syn-red.js', 'dlc-syn-purple.js',
-                'dlc-rez-yellow.js', 'dlc-rez-blue.js', 'dlc-rez-purple.js', 'dlc-rez-green.js', 'dlc-rez-red.js',
-                'dlc-skm-yellow.js', 'dlc-skm-purple.js', 'dlc-skm-red.js', 'dlc-skm-blue.js', 'dlc-skm-green.js',
-                'dlc-stg-blue.js', 'dlc-stg-green.js',
-                'dlc-hxh-blue.js', 'dlc-hxh-green.js', 'dlc-hxh-purple.js', 'dlc-hxh-yellow.js',
-                'dlc-bcv-red.js', 'dlc-bcv-green.js', 'dlc-bcv-purple.js',
-                'dlc-mmm-red.js', 'dlc-mmm-green.js', 'dlc-mmm-yellow.js', 'dlc-mmm-purple.js',
-                'dlc-csm-red.js', 'dlc-csm-purple.js',
-                'dlc-ngr.js', 'dlc-cgh.js', 'dlc-cgd.js',
-                'dlc-shy.js', 'dlc-tlr.js', 'dlc-opm.js',
-                'dlc-and.js', 'dlc-kmr.js', 'dlc-imc.js',
-                'dlc-ims.js', 'dlc-sao.js', 'dlc-nik.js',
-                'dlc-gmr.js', 'dlc-jjk.js', 'dlc-ttg.js',
-                'dlc-gim.js', 'dlc-yyh.js',
-                'dlc-kj8.js', 'dlc-kjn.js', 'dlc-slg.js', 'dlc-eva.js',
-                'dlc-mha.js', 'dlc-btr.js', 'dlc-hiq.js', 'dlc-dst.js',
-                'dlc-ark.js', 'dlc-tkg.js', 'dlc-blc.js', 'dlc-rnk.js',
-                'dlc-mst.js', 'dlc-mgs.js', 'dlc-iys.js', 'dlc-kgd.js',
-                'dlc-toa.js', 'dlc-kgr.js', 'dlc-kin.js', 'dlc-trk.js',
-                'dlc-blk.js', 'dlc-mcr.js', 'dlc-rly.js', 'dlc-aot.js',
-                'dlc-gnt.js', 'dlc-fma.js', 'dlc-tkn.js', 'dlc-tsk.js',
-                'dlc-wbk.js', 'dlc-snf.js', 'dlc-kmy.js', 'dlc-mss.js'
-            ];
-            dlcFiles.forEach(file => {
-                const s = document.createElement('script');
-                s.src = 'dlc/' + file;
-                s.async = false;
-                s.onerror = () => {}; // 尚未放入的 DLC 靜默略過
-                document.body.appendChild(s);
-            });
+        (function loadCardScriptsBundle() {
+            const s = document.createElement('script');
+            s.src = encodeURI('腳本.js');
+            s.async = false;
+            s.onerror = () => console.warn('載入 腳本.js 失敗，請確認檔案位於專案根目錄');
+            document.body.appendChild(s);
         })();
