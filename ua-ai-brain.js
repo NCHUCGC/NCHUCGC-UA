@@ -1,30 +1,107 @@
 /**
- * NCHUCGC Union Arena 人機對戰 — 純函式決策層 (ua-ai-brain.js)
- * 職責：無狀態、不碰 DOM、不修改 state，僅依難度 ('normal' | 'random') 回傳最佳行動。
+ * NCHUCGC Union Arena 人機對戰 — 戰術評分與決策層 (ua-ai-brain.js)
+ * 職責：評估卡片效果價值、能源曲線規劃、突襲優先級、攻擊排序與理性防禦。
  */
 (function () {
+    const FRONT_SLOTS = ['my-fl-1', 'my-fl-2', 'my-fl-3', 'my-fl-4'];
+    const ENERGY_SLOTS = ['my-en-1', 'my-en-2', 'my-en-3', 'my-en-4'];
+
     function pickRandom(arr) {
         if (!arr || arr.length === 0) return null;
         return arr[Math.floor(Math.random() * arr.length)];
     }
 
     function getEnergyOccupiedCount(state) {
-        return ['my-en-1', 'my-en-2', 'my-en-3', 'my-en-4'].filter(s => state.energy[s].length > 0).length;
+        return ENERGY_SLOTS.filter(s => state.energy[s].length > 0).length;
     }
 
     function getFrontOccupiedCount(state) {
-        return ['my-fl-1', 'my-fl-2', 'my-fl-3', 'my-fl-4'].filter(s => state.front[s].length > 0).length;
+        return FRONT_SLOTS.filter(s => state.front[s].length > 0).length;
     }
 
-    function getMaxPlayerFrontBp(state) {
-        let maxBp = 0;
-        const f = state.playerMirror?.front || {};
-        Object.values(f).forEach(p => { if (p && p.effectiveBp > maxBp) maxBp = p.effectiveBp; });
-        return maxBp;
+    function getPlayerFrontList(state) {
+        return FRONT_SLOTS.map(s => state.playerMirror?.front?.[s]).filter(Boolean);
+    }
+
+    function getTargetEnergyNeeded(state) {
+        let maxReq = 3;
+        state.hand.forEach(c => {
+            const req = c.def?.requiredEnergy?.count || 0;
+            if (req > maxReq && req <= 6) maxReq = req;
+        });
+        return maxReq;
+    }
+
+    function isRaidBaseForHand(state, cardDef) {
+        if (!cardDef || cardDef.type !== 'CHARACTER') return false;
+        return state.hand.some(hc => {
+            const rc = hc.def?.compiledRules?.raidCondition;
+            if (!rc) return false;
+            if (rc.type === 'NAME') return (cardDef.name || '').includes(rc.target);
+            if (rc.type === 'TRAIT') return Array.isArray(cardDef.traits) && cardDef.traits.includes(rc.target);
+            return false;
+        });
     }
 
     const UAAIBrain = {
-        // 起手沒有任何 0 費或 1 費角色時執行調度
+        estimateActionsValue(state, actions) {
+            if (!actions || actions.length === 0) return 0;
+            const oppFront = getPlayerFrontList(state);
+            let score = 0;
+            let lastSelectOwner = null;
+            let lastSelectMaxBp = null;
+
+            for (const act of actions) {
+                if (act.type === 'SELECT_TARGET') {
+                    lastSelectOwner = act.owner;
+                    lastSelectMaxBp = act.maxBp;
+                } else if (act.type === 'DRAW') {
+                    score += (act.amount || 1) * (state.hand.length <= 4 ? 1300 : 700);
+                } else if (act.type === 'DISCARD_HAND') {
+                    score -= (act.count || 1) * 500;
+                } else if (act.type === 'ACTIVATE_AP') {
+                    const restedAp = state.ap.filter(a => a.unlocked && a.isRest).length;
+                    score += restedAp > 0 && state.hand.length >= 2 ? 2200 : -1500;
+                } else if (act.type === 'RETIRE_TARGET' || act.type === 'BOUNCE_TO_HAND' || act.type === 'SEND_TARGET_TO_BOTTOM' || act.type === 'SEND_TARGET_TO_REMOVE') {
+                    if (lastSelectOwner === 'OPP') {
+                        const hit = oppFront.find(p => lastSelectMaxBp == null || p.effectiveBp <= lastSelectMaxBp);
+                        score += hit ? (2600 + hit.effectiveBp * 0.6) : -2000;
+                    }
+                } else if (act.type === 'MODIFY_BP') {
+                    if (act.amount < 0 && lastSelectOwner === 'OPP') {
+                        score += oppFront.length > 0 ? Math.abs(act.amount) * 0.9 : -1500;
+                    } else if (act.amount > 0) {
+                        score += act.amount * 0.6;
+                    }
+                } else if (act.type === 'SET_REST' || act.type === 'FREEZE_TARGET') {
+                    if (lastSelectOwner === 'OPP') {
+                        const activeOpp = oppFront.some(p => !p.isRest);
+                        score += activeOpp ? 1400 : -800;
+                    }
+                } else if (act.type === 'GRANT_KEYWORD') {
+                    score += 1100;
+                } else if (act.type === 'LOOK_TOP_DECK' || act.type === 'RECOVER_FROM_OUTSIDE') {
+                    score += 900;
+                } else if (act.type === 'OPTIONAL_COST_BRANCH') {
+                    const subVal = this.estimateActionsValue(state, act.thenActions);
+                    if (subVal > 500) score += subVal * 0.5;
+                }
+            }
+            return score;
+        },
+
+        estimateOnPlayValue(state, def, isRaided) {
+            if (!def) return 0;
+            const abilities = state.parseAbilities(def).filter(ab =>
+                ab.timings.includes('ON_PLAY') && (!ab.requireRaided || isRaided)
+            );
+            let total = 0;
+            abilities.forEach(ab => {
+                total += this.estimateActionsValue(state, state.compileActions(ab.rawText));
+            });
+            return total;
+        },
+
         decideMulligan(handCards, difficulty = 'normal') {
             if (difficulty === 'random') return false;
             const hasLowCost = handCards.some(c =>
@@ -33,25 +110,25 @@
             return !hasLowCost;
         },
 
-        // 移動階段：回傳單一移動動作，或 null 結束移動
         decideMove(state, legalMoves, difficulty = 'normal') {
             if (!legalMoves || legalMoves.length === 0) return null;
             const enOccupied = getEnergyOccupiedCount(state);
-
             if (difficulty === 'random') {
-                if (enOccupied <= 1 || Math.random() >= 0.5) return null;
-                return pickRandom(legalMoves);
+                return (enOccupied > 1 && Math.random() < 0.5) ? pickRandom(legalMoves) : null;
             }
 
-            // 一般 AI：至少保留 2 格能源線（T1~T2 優先穩住產能），優先把高 BP 且非雙球產能角移上前線
-            const minKeepEnergy = state.turnNumber <= 2 ? 3 : 2;
-            if (enOccupied <= minKeepEnergy) return null;
+            const curEnergy = state.calculateEnergy().ALL;
+            const targetEnergy = getTargetEnergyNeeded(state);
 
             const scored = legalMoves.map(m => {
                 const bp = m.card.def?.bp || 0;
                 const gen = m.card.def?.generatedEnergy?.count ?? 1;
-                // 高 BP 加分，雙球產能角大幅扣分（盡量留在能源線）
-                const score = bp - (gen >= 2 ? 2500 : 0);
+                const afterEnergy = curEnergy - gen;
+                let score = bp;
+                if (afterEnergy < Math.min(targetEnergy, 3)) score -= 3500;
+                if (gen >= 2) score -= 2800;
+                if (state.turnNumber <= 2 && enOccupied <= 3) score -= 1800;
+                if (isRaidBaseForHand(state, m.card.def)) score -= 1000;
                 return { move: m, score };
             }).filter(x => x.score >= 1500);
 
@@ -60,20 +137,14 @@
             return scored[0].move;
         },
 
-        // 主要階段：回傳單一出牌/突襲/簡單事件動作，或 null 結束主要階段
         decidePlay(state, legalPlays, difficulty = 'normal') {
             if (!legalPlays || legalPlays.length === 0) return null;
-            if (difficulty === 'random') {
-                const act = pickRandom(legalPlays);
-                if (act && act.type === 'EVENT' && act.targets && act.targets.length > 0) {
-                    act.chosenTargetSlotId = pickRandom(act.targets).slotId;
-                }
-                return act;
-            }
+            if (difficulty === 'random') return pickRandom(legalPlays);
 
-            const enOccupied = getEnergyOccupiedCount(state);
+            const curEnergy = state.calculateEnergy().ALL;
+            const targetEnergy = getTargetEnergyNeeded(state);
+            const needEnergy = curEnergy < targetEnergy;
             const flOccupied = getFrontOccupiedCount(state);
-            const needEnergy = enOccupied < 3;
 
             let bestAction = null;
             let bestScore = -Infinity;
@@ -85,35 +156,29 @@
                 const req = d.requiredEnergy?.count || 0;
                 const gen = d.generatedEnergy?.count ?? 1;
 
-                if (act.type === 'EVENT') {
-                    if (act.eventEffect.kind === 'ACTIVATE_AP') {
-                        // 有多餘手牌且 AP 不足時才開 Final
-                        score = state.hand.length >= 3 ? 6500 : -1000;
-                    } else if (act.eventEffect.kind === 'RETIRE_OPP_FRONT') {
-                        // 優先炸掉玩家前線最高 BP 目標
-                        const sortedTargets = [...act.targets].sort((a, b) => b.effectiveBp - a.effectiveBp);
-                        const bestTarget = sortedTargets[0];
-                        act.chosenTargetSlotId = bestTarget.slotId;
-                        score = 5000 + bestTarget.effectiveBp;
-                    } else if (act.eventEffect.kind === 'DRAW') {
-                        score = state.hand.length <= 4 ? 4200 : 1500;
-                    }
+                if (act.type === 'ACTIVATE_MAIN') {
+                    score = this.estimateActionsValue(state, act.compiledActions) - (act.apCost || 0) * 600;
+                } else if (act.type === 'EVENT') {
+                    score = this.estimateActionsValue(state, act.compiledActions);
                 } else if (act.type === 'RAID') {
-                    // 突襲通常能立刻活動攻擊，優先度極高
-                    score = 7000 + bp + (act.moveToFront ? 800 : 0);
+                    const effVal = this.estimateOnPlayValue(state, d, true);
+                    const kw = state.getCardKeywords(act.card);
+                    score = 5500 + bp + effVal + (act.moveToFront ? 900 : 0) + (kw.impact * 1200) + ((kw.damage - 1) * 1200);
                 } else if (act.type === 'NORMAL') {
+                    const effVal = this.estimateOnPlayValue(state, d, false);
+                    const raidBaseBonus = isRaidBaseForHand(state, d) ? 900 : 0;
+
                     if (act.line === 'ENERGY') {
                         if (needEnergy) {
-                            score = 6000 + (gen >= 2 ? 1500 : 0) - req * 200;
+                            score = 5200 + gen * 1200 + effVal + raidBaseBonus - req * 250;
                         } else {
-                            // 能源線已有 3 格以上，僅在雙球或場域時優先放能源線
-                            score = 1800 + (gen >= 2 ? 2000 : 0) + (d.type === 'FIELD' ? 1200 : 0);
+                            score = 1600 + (gen >= 2 ? 1800 : 0) + (d.type === 'FIELD' ? 1200 : 0) + effVal + raidBaseBonus;
                         }
                     } else if (act.line === 'FRONT') {
                         if (needEnergy && state.turnNumber === 1) {
-                            score = 1000 + bp;
+                            score = 900 + bp + effVal;
                         } else {
-                            score = 3500 + bp + (flOccupied < 2 ? 800 : 0);
+                            score = 3200 + bp + effVal + (flOccupied < 2 ? 900 : 0) - (gen >= 2 ? 1500 : 0);
                         }
                     }
                 }
@@ -124,84 +189,70 @@
                 }
             });
 
-            return bestScore > 0 ? bestAction : null;
+            return bestScore > 200 ? bestAction : null;
         },
 
-        // 戰鬥階段：決定下一個攻擊者（低 BP 先攻消耗防禦者，高 BP / 帶衝擊或傷害者後攻收頭）
         decideAttack(state, legalAttackers, difficulty = 'normal') {
             if (!legalAttackers || legalAttackers.length === 0) return null;
             if (difficulty === 'random') return pickRandom(legalAttackers);
 
+            const activeOppBlockers = getPlayerFrontList(state).filter(p => !p.isRest);
             const sorted = [...legalAttackers].sort((a, b) => {
                 const finA = (a.impact > 0 ? 1 : 0) + (a.damage > 1 ? 1 : 0);
                 const finB = (b.impact > 0 ? 1 : 0) + (b.damage > 1 ? 1 : 0);
+                if (activeOppBlockers.length === 0) {
+                    if (b.damage !== a.damage) return b.damage - a.damage;
+                    return b.effectiveBp - a.effectiveBp;
+                }
                 if (finA !== finB) return finA - finB;
                 return a.effectiveBp - b.effectiveBp;
             });
             return sorted[0];
         },
 
-        // 防禦階段：決定是否防禦及用哪一隻防禦
         decideBlock(state, attackInfo, legalBlockers, difficulty = 'normal') {
             if (!legalBlockers || legalBlockers.length === 0) return { blocked: false };
-
             if (difficulty === 'random') {
-                if (Math.random() < 0.5) return { blocked: true, slotId: pickRandom(legalBlockers).slotId };
-                return { blocked: false };
+                return Math.random() < 0.5 ? { blocked: true, slotId: pickRandom(legalBlockers).slotId } : { blocked: false };
             }
 
             const atkBp = attackInfo.attackerBp || 0;
-            // 1. 優先用 BP 嚴格大於攻擊者的「最小 BP」角色無傷擋下
             const winners = legalBlockers
                 .filter(b => b.effectiveBp > atkBp)
-                .sort((a, b) => a.effectiveBp - b.effectiveBp);
-            if (winners.length > 0) {
-                return { blocked: true, slotId: winners[0].slotId };
-            }
+                .sort((a, b) => (b.doubleBlock ? 1 : 0) - (a.doubleBlock ? 1 : 0) || a.effectiveBp - b.effectiveBp);
+            if (winners.length > 0) return { blocked: true, slotId: winners[0].slotId };
 
-            // 2. 生命危機（<= 2 滴血）時，用最低 BP 角色擋刀保命
             if (state.life.length <= 2) {
                 const cheapest = [...legalBlockers].sort((a, b) => a.effectiveBp - b.effectiveBp)[0];
                 return { blocked: true, slotId: cheapest.slotId };
             }
-
-            // 3. 否則不白白送掉前線角色
             return { blocked: false };
         },
 
-        // 棄牌選擇：優先棄掉高費卡手牌或重複低 BP 牌
         decideDiscard(state, handCards, count, difficulty = 'normal') {
             const indices = handCards.map((_, i) => i);
             if (difficulty === 'random') {
                 const res = [];
                 while (res.length < count && indices.length > 0) {
-                    const pick = Math.floor(Math.random() * indices.length);
-                    res.push(indices.splice(pick, 1)[0]);
+                    res.push(indices.splice(Math.floor(Math.random() * indices.length), 1)[0]);
                 }
                 return res;
             }
-
             const enAll = state.calculateEnergy().ALL;
             const scored = handCards.map((c, idx) => {
                 const req = c.def?.requiredEnergy?.count ?? 0;
                 const bp = c.def?.bp || 0;
-                // 遠超目前產能的高費卡優先棄掉
                 const unplayablePenalty = req > enAll + 2 ? 5000 : 0;
-                const score = unplayablePenalty + req * 300 - bp * 0.2;
-                return { idx, score };
+                return { idx, score: unplayablePenalty + req * 300 - bp * 0.2 };
             });
             scored.sort((a, b) => b.score - a.score);
             return scored.slice(0, count).map(x => x.idx);
         },
 
-        // 生命區 ACTIVE Trigger 目標選擇：優先選前線休息角色，其次選前線任意角色
         decideActiveTriggerTarget(state) {
-            const frontRested = ['my-fl-1', 'my-fl-2', 'my-fl-3', 'my-fl-4'].filter(s => {
-                const top = state.getSlotTop(s);
-                return top && top.isRest;
-            });
+            const frontRested = FRONT_SLOTS.filter(s => { const top = state.getSlotTop(s); return top && top.isRest; });
             if (frontRested.length > 0) return frontRested[0];
-            const frontAny = ['my-fl-1', 'my-fl-2', 'my-fl-3', 'my-fl-4'].filter(s => state.getSlotTop(s));
+            const frontAny = FRONT_SLOTS.filter(s => state.getSlotTop(s));
             return frontAny.length > 0 ? frontAny[0] : null;
         }
     };

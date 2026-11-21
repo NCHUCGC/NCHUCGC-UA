@@ -1,9 +1,6 @@
 /**
  * NCHUCGC Union Arena 人機對戰 — 通訊與流程控制層 (ua-ai-opponent.js)
- * 職責：
- * 1. 提供相容 PeerJS 的 VirtualConnection，將訊息收發導向本機 AI。
- * 2. 驅動 AI 回合階段排程、防卡死看門狗，並將狀態操作委派給 UAAIState、決策委派給 UAAIBrain。
- * 3. 負責對戰大廳「人機對戰」牌組選單、難度切換與開局啟動。
+ * 職責：連接 VirtualConnection、驅動 AI 回合、派發無頭效果事件 (outgoingEvents) 與大廳 UI 整合。
  */
 (function () {
     const DEFAULT_AP_ID = 'UA44BT/EVA-1-AP03';
@@ -14,39 +11,27 @@
 
     function getCardDefById(cardId) {
         if (!cardId) return null;
-        if (window.UAUtils) {
-            return window.UAUtils.getCardById(cardId) || window.UAUtils.getBaseCardById(cardId);
-        }
-        if (window.cardCatalogById) return window.cardCatalogById.get(cardId) || null;
-        return null;
+        if (window.UAUtils) return window.UAUtils.getCardById(cardId) || window.UAUtils.getBaseCardById(cardId);
+        return window.cardCatalogById ? (window.cardCatalogById.get(cardId) || null) : null;
     }
 
-    // 從玩家牌組或 tier-data.js 組出合法 50 張主牌 + 3 張 AP
     function buildAiDeckFromSelection(value) {
         if (window.UAUtils) window.UAUtils.ensureCatalogIndex();
         const catalog = typeof masterCardCatalog !== 'undefined' ? masterCardCatalog : [];
-        let mainIds = [];
-        let apIds = [];
-        let fallbackSeries = null;
-        let fallbackColor = null;
+        let mainIds = [], apIds = [], fallbackSeries = null, fallbackColor = null;
 
         if (value && value.startsWith('player:')) {
-            const deckName = value.slice('player:'.length);
-            const deckObj = window.allDecks && window.allDecks[deckName];
+            const deckObj = window.allDecks && window.allDecks[value.slice('player:'.length)];
             if (deckObj) {
                 const rawMain = Array.isArray(deckObj) ? deckObj : (deckObj.main || []);
                 const rawAp = Array.isArray(deckObj) ? [] : (deckObj.ap || []);
                 mainIds = rawMain.map(c => (typeof c === 'string' ? c : c?.id)).filter(Boolean);
                 apIds = rawAp.map(c => (typeof c === 'string' ? c : c?.id)).filter(Boolean);
                 const firstDef = getCardDefById(mainIds[0]);
-                if (firstDef) {
-                    fallbackSeries = firstDef.series;
-                    fallbackColor = firstDef.color;
-                }
+                if (firstDef) { fallbackSeries = firstDef.series; fallbackColor = firstDef.color; }
             }
         } else if (value && value.startsWith('tier:')) {
-            const tierId = value.slice('tier:'.length);
-            const tierDeck = (window.NCHUCGC_TIER_LIST || []).find(d => d.id === tierId);
+            const tierDeck = (window.NCHUCGC_TIER_LIST || []).find(d => d.id === value.slice('tier:'.length));
             if (tierDeck) {
                 mainIds = [...(tierDeck.sampleDeck || [])].filter(Boolean);
                 fallbackSeries = tierDeck.series;
@@ -57,24 +42,17 @@
         if (mainIds.length < 50 && catalog.length > 0) {
             const counts = {};
             mainIds.forEach(id => { counts[id] = (counts[id] || 0) + 1; });
-
             let pool = catalog.filter(c =>
                 c && c.id && c.type !== 'AP' && !c.id.includes('-AP') &&
                 (!fallbackSeries || c.series === fallbackSeries) &&
                 (!fallbackColor || c.color === fallbackColor)
             );
-            if (pool.length < 15) {
-                pool = catalog.filter(c => c && c.id && c.type === 'CHARACTER' && (!fallbackColor || c.color === fallbackColor));
-            }
-            if (pool.length === 0) {
-                pool = catalog.filter(c => c && c.id && c.type === 'CHARACTER');
-            }
-
+            if (pool.length < 15) pool = catalog.filter(c => c && c.id && c.type === 'CHARACTER' && (!fallbackColor || c.color === fallbackColor));
+            if (pool.length === 0) pool = catalog.filter(c => c && c.id && c.type === 'CHARACTER');
             pool.sort((a, b) => {
                 const ca = a.requiredEnergy?.count ?? 99;
                 const cb = b.requiredEnergy?.count ?? 99;
-                if (ca !== cb) return ca - cb;
-                return (a.type === 'CHARACTER' ? 0 : 1) - (b.type === 'CHARACTER' ? 0 : 1);
+                return ca !== cb ? ca - cb : ((a.type === 'CHARACTER' ? 0 : 1) - (b.type === 'CHARACTER' ? 0 : 1));
             });
 
             for (const c of pool) {
@@ -88,11 +66,9 @@
 
         mainIds = mainIds.slice(0, 50);
         while (apIds.length < 3) apIds.push(DEFAULT_AP_ID);
-        apIds = apIds.slice(0, 3);
-        return { mainIds, apIds };
+        return { mainIds, apIds: apIds.slice(0, 3) };
     }
 
-    // ==================== 虛擬連線（相容 PeerJS DataConnection） ====================
     class VirtualConnection {
         constructor(aiOpponent) {
             this.ai = aiOpponent;
@@ -100,25 +76,17 @@
             this.open = true;
             this.handlers = { open: [], data: [], close: [] };
         }
-
-        on(event, cb) {
-            if (this.handlers[event]) this.handlers[event].push(cb);
-        }
-
+        on(event, cb) { if (this.handlers[event]) this.handlers[event].push(cb); }
         emitToPlayer(event, payload) {
             if (!this.open && event === 'data') return;
             (this.handlers[event] || []).forEach(cb => {
-                try { cb(payload); } catch (e) { console.error('[AI VirtualConnection] handler error:', e); }
+                try { cb(payload); } catch (e) { console.error('[AI VirtualConnection] error:', e); }
             });
         }
-
         send(data) {
             if (!this.open || !this.ai) return;
-            setTimeout(() => {
-                if (this.open && this.ai) this.ai.onReceiveFromPlayer(data);
-            }, 0);
+            setTimeout(() => { if (this.open && this.ai) this.ai.onReceiveFromPlayer(data); }, 0);
         }
-
         close() {
             if (!this.open) return;
             this.open = false;
@@ -127,7 +95,6 @@
         }
     }
 
-    // ==================== AI 流程控制器 ====================
     class UAAIOpponent {
         constructor(deckIds, apIds, difficulty = 'normal') {
             this.difficulty = difficulty;
@@ -135,7 +102,6 @@
             this.brain = window.UAAIBrain;
             this.vconn = new VirtualConnection(this);
 
-            // AI 起手調度判斷與生命區配置
             if (this.brain.decideMulligan(this.st.hand, this.difficulty)) {
                 this.st.performMulligan();
             }
@@ -145,9 +111,8 @@
             this.timers = new Set();
             this.turnWatchdog = null;
             this.waitWatchdog = null;
-
             this.coinFlipped = false;
-            this.flowState = 'IDLE'; // IDLE | MY_TURN | WAITING_BLOCK | WAITING_TRIGGER
+            this.flowState = 'IDLE';
             this.pendingAttack = null;
         }
 
@@ -156,10 +121,8 @@
             const id = setTimeout(() => {
                 this.timers.delete(id);
                 if (this.destroyed) return;
-                try {
-                    fn();
-                } catch (err) {
-                    console.error('[UAAIOpponent] step error:', err);
+                try { fn(); } catch (err) {
+                    console.error('[UAAIOpponent] error:', err);
                     if (this.flowState !== 'IDLE') this.endAiTurn();
                 }
             }, delay);
@@ -167,50 +130,41 @@
             return id;
         }
 
-        clearAllTimers() {
+        destroy() {
+            this.destroyed = true;
             this.timers.forEach(id => clearTimeout(id));
             this.timers.clear();
             if (this.turnWatchdog) { clearTimeout(this.turnWatchdog); this.turnWatchdog = null; }
             if (this.waitWatchdog) { clearTimeout(this.waitWatchdog); this.waitWatchdog = null; }
         }
 
-        destroy() {
-            this.destroyed = true;
-            this.clearAllTimers();
-        }
-
         sendToPlayer(payload) {
-            if (this.destroyed || !this.vconn.open) return;
-            this.vconn.emitToPlayer('data', payload);
+            if (!this.destroyed && this.vconn.open) this.vconn.emitToPlayer('data', payload);
         }
 
-        syncBoard() {
-            this.sendToPlayer(this.st.exportSyncBoardPayload());
+        dispatchEffectOutputs(res) {
+            if (!res) return;
+            (res.logs || []).forEach(text => this.sendToPlayer({ type: 'CHAT_MSG', isSystem: true, text }));
+            (res.outgoingEvents || []).forEach(evt => this.sendToPlayer(evt));
         }
+
+        syncBoard() { this.sendToPlayer(this.st.exportSyncBoardPayload()); }
 
         sendStartGame() {
-            this.sendToPlayer({
-                type: 'START_GAME',
-                deck: this.st.initialDeckIds,
-                ap: this.st.initialApIds
-            });
+            this.sendToPlayer({ type: 'START_GAME', deck: this.st.initialDeckIds, ap: this.st.initialApIds });
             this.syncBoard();
         }
 
-        // ==================== 接收玩家端訊息 ====================
         onReceiveFromPlayer(data) {
             if (!data || typeof data !== 'object' || this.destroyed) return;
-
             switch (data.type) {
                 case 'START_GAME':
                     this.st.registerPlayerDeck(data.deck);
                     this.sendStartGame();
                     break;
-
                 case 'REQUEST_START_GAME':
                     this.sendStartGame();
                     break;
-
                 case 'SYNC_BOARD':
                     this.st.updatePlayerMirror(data);
                     if (!this.coinFlipped && this.st.playerMirror.lifeCount >= 7) {
@@ -218,27 +172,20 @@
                         this.schedule(() => this.runAutoCoinFlip(), 400);
                     }
                     break;
-
                 case 'UPDATE_OPP_BP':
                     if (data.slotId && this.st.bpMods.hasOwnProperty(data.slotId)) {
                         this.st.bpMods[data.slotId] = parseInt(data.bp, 10) || 0;
                         this.syncBoard();
                     }
                     break;
-
                 case 'FLIP_CARD': {
-                    const card = this.st.life.find(c => c.networkId === data.id);
-                    if (card) {
-                        card.isFlipped = !card.isFlipped;
-                        this.syncBoard();
-                    }
+                    const c = this.st.life.find(x => x.networkId === data.id);
+                    if (c) { c.isFlipped = !c.isFlipped; this.syncBoard(); }
                     break;
                 }
-
                 case 'SURRENDER':
                     this.destroy();
                     break;
-
                 case 'ENGINE_EVENT':
                     this.handleEngineEvent(data);
                     break;
@@ -246,18 +193,13 @@
         }
 
         runAutoCoinFlip() {
-            if (this.destroyed) return;
-            if (window.uaEngine && window.uaEngine.isFirstPlayer !== null) return;
-
-            const playerFirst = Math.random() < 0.5;
-            if (playerFirst) {
+            if (this.destroyed || (window.uaEngine && window.uaEngine.isFirstPlayer !== null)) return;
+            if (Math.random() < 0.5) {
                 this.st.isFirstPlayer = false;
                 this.st.turnNumber = 1;
                 this.st.hasTakenFirstTurn = false;
                 this.sendToPlayer({ type: 'CHAT_MSG', isSystem: true, text: '[人機對戰] 擲硬幣結果：由【玩家先攻】！' });
-                if (window.uaEngine && typeof window.uaEngine.startMatchAsFirstPlayer === 'function') {
-                    window.uaEngine.startMatchAsFirstPlayer();
-                }
+                if (window.uaEngine?.startMatchAsFirstPlayer) window.uaEngine.startMatchAsFirstPlayer();
             } else {
                 this.st.isFirstPlayer = true;
                 this.st.turnNumber = 1;
@@ -277,29 +219,20 @@
                     this.st.hasTakenFirstTurn = false;
                     this.flowState = 'IDLE';
                     break;
-
                 case 'YOUR_TURN_START':
-                    if (!this.st.hasTakenFirstTurn) {
-                        this.st.turnNumber = 1;
-                        this.st.hasTakenFirstTurn = true;
-                    } else {
-                        this.st.turnNumber++;
-                    }
+                    if (!this.st.hasTakenFirstTurn) { this.st.turnNumber = 1; this.st.hasTakenFirstTurn = true; }
+                    else { this.st.turnNumber++; }
                     this.schedule(() => this.startAiTurn(), getStepDelay());
                     break;
-
                 case 'ATTACK_DECLARED':
                     this.handlePlayerAttack(data);
                     break;
-
                 case 'BLOCK_RESPONSE':
                     this.handlePlayerBlockResponse(data);
                     break;
-
                 case 'TAKE_LIFE_DAMAGE':
                     this.handleTakeLifeDamage(data.count || 1);
                     break;
-
                 case 'TRIGGER_RESOLUTION_DONE':
                     if (this.flowState === 'WAITING_TRIGGER') {
                         if (this.waitWatchdog) { clearTimeout(this.waitWatchdog); this.waitWatchdog = null; }
@@ -307,23 +240,15 @@
                         this.schedule(() => this.runNextAttack(), getStepDelay());
                     }
                     break;
-
-                case 'FORCE_RETIRE_SLOT':
-                    this.st.forceMoveSlotCard(data.slotId, 'OUTSIDE');
+                case 'FORCE_RETIRE_SLOT': {
+                    const res = this.st.forceMoveSlotCard(data.slotId, 'OUTSIDE', this.brain, this.difficulty);
+                    this.dispatchEffectOutputs(res);
                     this.syncBoard();
                     break;
-                case 'FORCE_BOUNCE_SLOT':
-                    this.st.forceMoveSlotCard(data.slotId, 'HAND');
-                    this.syncBoard();
-                    break;
-                case 'FORCE_BOTTOM_SLOT':
-                    this.st.forceMoveSlotCard(data.slotId, 'DECK_BOTTOM');
-                    this.syncBoard();
-                    break;
-                case 'FORCE_REMOVE_SLOT':
-                    this.st.forceMoveSlotCard(data.slotId, 'REMOVE');
-                    this.syncBoard();
-                    break;
+                }
+                case 'FORCE_BOUNCE_SLOT': this.st.forceMoveSlotCard(data.slotId, 'HAND'); this.syncBoard(); break;
+                case 'FORCE_BOTTOM_SLOT': this.st.forceMoveSlotCard(data.slotId, 'DECK_BOTTOM'); this.syncBoard(); break;
+                case 'FORCE_REMOVE_SLOT': this.st.forceMoveSlotCard(data.slotId, 'REMOVE'); this.syncBoard(); break;
                 case 'FORCE_REST_SLOT': {
                     const top = this.st.getSlotTop(data.slotId);
                     if (top) { top.isRest = true; this.syncBoard(); }
@@ -336,8 +261,7 @@
                 }
                 case 'FORCE_DISCARD_HAND': {
                     const cnt = Math.min(Math.max(1, parseInt(data.count, 10) || 1), this.st.hand.length);
-                    const idxs = this.brain.decideDiscard(this.st, this.st.hand, cnt, this.difficulty);
-                    this.st.discardHandByIndices(idxs, 'OUTSIDE');
+                    this.st.discardHandByIndices(this.brain.decideDiscard(this.st, this.st.hand, cnt, this.difficulty), 'OUTSIDE');
                     this.syncBoard();
                     break;
                 }
@@ -348,26 +272,20 @@
         startAiTurn() {
             if (this.destroyed) return;
             this.flowState = 'MY_TURN';
-
             if (this.turnWatchdog) clearTimeout(this.turnWatchdog);
             this.turnWatchdog = setTimeout(() => {
-                if (!this.destroyed && this.flowState !== 'IDLE') {
-                    console.warn('[UAAIOpponent] Turn watchdog triggered, forcing end turn.');
-                    this.endAiTurn();
-                }
+                if (!this.destroyed && this.flowState !== 'IDLE') this.endAiTurn();
             }, 60000);
 
             this.st.phase = '起始階段';
             this.sendToPlayer({ type: 'PHASE_BROADCAST', phase: '起始' });
-
             const res = this.st.beginTurn();
             this.syncBoard();
             if (res.deckOut) {
-                this.sendToPlayer({ type: 'CHAT_MSG', isSystem: true, text: '[人機對戰] 電腦牌庫已空無法抽牌，玩家獲勝！' });
+                this.sendToPlayer({ type: 'CHAT_MSG', isSystem: true, text: '[人機對戰] 電腦牌庫已空，玩家獲勝！' });
                 this.flowState = 'IDLE';
                 return;
             }
-
             this.schedule(() => this.runMovePhase(), getStepDelay());
         }
 
@@ -378,12 +296,8 @@
         }
 
         tryOneMove() {
-            const legalMoves = this.st.getLegalMoves();
-            const action = this.brain.decideMove(this.st, legalMoves, this.difficulty);
-            if (!action) {
-                this.schedule(() => this.runMainPhase(), getStepDelay());
-                return;
-            }
+            const action = this.brain.decideMove(this.st, this.st.getLegalMoves(), this.difficulty);
+            if (!action) { this.schedule(() => this.runMainPhase(), getStepDelay()); return; }
             this.st.applyMove(action);
             this.syncBoard();
             this.schedule(() => this.tryOneMove(), getStepDelay());
@@ -396,31 +310,22 @@
         }
 
         tryOnePlay() {
-            const legalPlays = this.st.getLegalPlays();
-            const action = this.brain.decidePlay(this.st, legalPlays, this.difficulty);
-            if (!action) {
-                this.schedule(() => this.runBattlePhase(), getStepDelay());
-                return;
-            }
+            const action = this.brain.decidePlay(this.st, this.st.getLegalPlays(), this.difficulty);
+            if (!action) { this.schedule(() => this.runBattlePhase(), getStepDelay()); return; }
 
-            const result = this.st.applyPlay(action);
+            const res = this.st.applyPlay(action, this.brain, this.difficulty);
             const cname = action.card.def?.name || action.card.cardId;
-
-            if (result && result.eventKind === 'RETIRE_OPP_FRONT' && result.targetSlotId) {
-                this.sendToPlayer({ type: 'CHAT_MSG', isSystem: true, text: `[電腦] 使用事件卡【${cname}】，指定退場我方前線角色！` });
-                this.sendToPlayer({ type: 'ENGINE_EVENT', subType: 'FORCE_RETIRE_SLOT', slotId: result.targetSlotId });
-                // 同步更新鏡像避免同回合重複選同一目標
-                this.st.playerMirror.front[result.targetSlotId] = null;
-            } else if (result && result.eventKind === 'DRAW') {
-                this.sendToPlayer({ type: 'CHAT_MSG', isSystem: true, text: `[電腦] 使用事件卡【${cname}】，抽取 ${result.amount} 張牌。` });
-            } else if (result && result.eventKind === 'ACTIVATE_AP') {
-                this.sendToPlayer({ type: 'CHAT_MSG', isSystem: true, text: `[電腦] 使用事件卡【${cname}】，將 1 張 AP 轉為活動！` });
-            } else if (result && result.playedType === 'RAID') {
+            if (res.playedType === 'RAID') {
                 this.sendToPlayer({ type: 'CHAT_MSG', isSystem: true, text: `[電腦] 發動突襲（レイド）【${cname}】！` });
+            } else if (res.playedType === 'EVENT') {
+                this.sendToPlayer({ type: 'CHAT_MSG', isSystem: true, text: `[電腦] 使用事件卡【${cname}】！` });
+            } else if (res.playedType === 'ACTIVATE_MAIN') {
+                this.sendToPlayer({ type: 'CHAT_MSG', isSystem: true, text: `[電腦] 發動【${cname}】的 [起動メイン]！` });
             } else {
                 this.sendToPlayer({ type: 'CHAT_MSG', isSystem: true, text: `[電腦] 登場了【${cname}】。` });
             }
 
+            this.dispatchEffectOutputs(res);
             this.syncBoard();
             this.schedule(() => this.tryOnePlay(), getStepDelay());
         }
@@ -433,18 +338,11 @@
 
         runNextAttack() {
             if (this.destroyed) return;
-            const attackers = this.st.getLegalAttackers();
-            const choice = this.brain.decideAttack(this.st, attackers, this.difficulty);
-            if (!choice) {
-                this.schedule(() => this.endAiTurn(), getStepDelay());
-                return;
-            }
+            const choice = this.brain.decideAttack(this.st, this.st.getLegalAttackers(), this.difficulty);
+            if (!choice) { this.schedule(() => this.endAiTurn(), getStepDelay()); return; }
 
-            const atkInfo = this.st.applyAttackDeclare(choice.slotId);
-            if (!atkInfo) {
-                this.schedule(() => this.endAiTurn(), getStepDelay());
-                return;
-            }
+            const atkInfo = this.st.applyAttackDeclare(choice.slotId, this.brain, this.difficulty);
+            this.dispatchEffectOutputs(atkInfo);
 
             const attackId = 'ai_atk_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
             this.pendingAttack = { attackId, ...atkInfo };
@@ -457,13 +355,12 @@
                 attackId,
                 attackerName: atkInfo.attacker.def?.name || '電腦角色',
                 attackerBp: atkInfo.atkBp,
-                unblockableMaxBp: 0
+                unblockableMaxBp: atkInfo.unblockableMaxBp || 0
             });
 
             if (this.waitWatchdog) clearTimeout(this.waitWatchdog);
             this.waitWatchdog = setTimeout(() => {
                 if (!this.destroyed && this.flowState === 'WAITING_BLOCK') {
-                    console.warn('[UAAIOpponent] Waiting block timeout.');
                     this.flowState = 'MY_TURN';
                     this.pendingAttack = null;
                     this.endAiTurn();
@@ -486,18 +383,10 @@
                 const blockerNullifiesImpact = this.st.getCardKeywords({ def: blockerDef }).impactNullify;
 
                 if (atkBp >= defBp) {
-                    this.sendToPlayer({
-                        type: 'ENGINE_EVENT',
-                        subType: 'FORCE_RETIRE_SLOT',
-                        slotId: playerSlotId
-                    });
+                    this.sendToPlayer({ type: 'ENGINE_EVENT', subType: 'FORCE_RETIRE_SLOT', slotId: playerSlotId });
                     if (impact > 0 && !blockerNullifiesImpact) {
                         this.flowState = 'WAITING_TRIGGER';
-                        this.sendToPlayer({
-                            type: 'ENGINE_EVENT',
-                            subType: 'TAKE_LIFE_DAMAGE',
-                            count: impact
-                        });
+                        this.sendToPlayer({ type: 'ENGINE_EVENT', subType: 'TAKE_LIFE_DAMAGE', count: impact });
                         this.armTriggerWatchdog();
                         return;
                     }
@@ -506,11 +395,7 @@
                 this.schedule(() => this.runNextAttack(), getStepDelay());
             } else {
                 this.flowState = 'WAITING_TRIGGER';
-                this.sendToPlayer({
-                    type: 'ENGINE_EVENT',
-                    subType: 'TAKE_LIFE_DAMAGE',
-                    count: damage || 1
-                });
+                this.sendToPlayer({ type: 'ENGINE_EVENT', subType: 'TAKE_LIFE_DAMAGE', count: damage || 1 });
                 this.armTriggerWatchdog();
             }
         }
@@ -519,7 +404,6 @@
             if (this.waitWatchdog) clearTimeout(this.waitWatchdog);
             this.waitWatchdog = setTimeout(() => {
                 if (!this.destroyed && this.flowState === 'WAITING_TRIGGER') {
-                    console.warn('[UAAIOpponent] Waiting trigger timeout.');
                     this.flowState = 'MY_TURN';
                     this.endAiTurn();
                 }
@@ -532,11 +416,9 @@
             if (this.waitWatchdog) { clearTimeout(this.waitWatchdog); this.waitWatchdog = null; }
 
             if (this.st.hand.length > 8) {
-                const excess = this.st.hand.length - 8;
-                const idxs = this.brain.decideDiscard(this.st, this.st.hand, excess, this.difficulty);
+                const idxs = this.brain.decideDiscard(this.st, this.st.hand, this.st.hand.length - 8, this.difficulty);
                 this.st.discardHandByIndices(idxs, 'REMOVE');
             }
-
             this.st.finalizeEndTurnState();
             this.flowState = 'IDLE';
             this.syncBoard();
@@ -544,7 +426,6 @@
             this.sendToPlayer({ type: 'ENGINE_EVENT', subType: 'YOUR_TURN_START' });
         }
 
-        // ==================== 玩家回合中：防禦與生命傷害 ====================
         handlePlayerAttack(data) {
             const blockers = this.st.getLegalBlockers(data.unblockableMaxBp || 0);
             const decision = this.brain.decideBlock(this.st, data, blockers, this.difficulty);
@@ -562,20 +443,13 @@
                         blockerBp: blk ? blk.blockerBp : 0
                     });
                 } else {
-                    this.sendToPlayer({
-                        type: 'ENGINE_EVENT',
-                        subType: 'BLOCK_RESPONSE',
-                        attackId: data.attackId,
-                        blocked: false
-                    });
+                    this.sendToPlayer({ type: 'ENGINE_EVENT', subType: 'BLOCK_RESPONSE', attackId: data.attackId, blocked: false });
                 }
             }, Math.min(400, getStepDelay()));
         }
 
         handleTakeLifeDamage(count) {
-            const dmg = Math.max(1, Math.min(7, parseInt(count, 10) || 1));
-            const flipCount = Math.min(dmg, this.st.life.length);
-
+            const flipCount = Math.min(Math.max(1, parseInt(count, 10) || 1), this.st.life.length);
             for (let i = 0; i < flipCount; i++) {
                 const c = this.st.life.pop();
                 const trigTxt = c.def?.triggerText || '';
@@ -634,15 +508,11 @@
                 this.sendToPlayer({ type: 'ENGINE_EVENT', subType: 'TRIGGER_RESOLUTION_DONE' });
                 if (this.st.life.length === 0) {
                     this.sendToPlayer({ type: 'CHAT_MSG', isSystem: true, text: '[人機對戰] 電腦生命區歸零，恭喜你獲得勝利！' });
-                    if (typeof window.showCenterAlert === 'function') {
-                        window.showCenterAlert('🏆', '對戰勝利！', '擊敗電腦對手', '#6fb897');
-                    }
                 }
             }, Math.min(450, getStepDelay()));
         }
     }
 
-    // ==================== 大廳 UI 整合 ====================
     function populateAiDeckSelector() {
         const sel = document.getElementById('ai-deck-selector');
         if (!sel) return;
@@ -674,50 +544,29 @@
             sel.appendChild(grpTier);
         }
 
-        if (prev && Array.from(sel.options).some(o => o.value === prev)) {
-            sel.value = prev;
-        } else if (tierList.length > 0) {
-            sel.value = `tier:${tierList[0].id}`;
-        }
+        if (prev && Array.from(sel.options).some(o => o.value === prev)) sel.value = prev;
+        else if (tierList.length > 0) sel.value = `tier:${tierList[0].id}`;
     }
 
     function startAiMatch(deckOptionValue, difficultyOverride) {
-        if (typeof window.connectVirtualOpponent !== 'function') {
-            alert('系統尚未就緒，請重新整理網頁。');
-            return;
-        }
+        if (typeof window.connectVirtualOpponent !== 'function') return alert('系統尚未就緒，請重新整理網頁。');
         const sel = document.getElementById('ai-deck-selector');
         const diffSel = document.getElementById('ai-difficulty-selector');
-        const chosen = deckOptionValue || (sel ? sel.value : '');
-        const difficulty = difficultyOverride || (diffSel ? diffSel.value : 'normal');
-        const { mainIds, apIds } = buildAiDeckFromSelection(chosen);
+        const { mainIds, apIds } = buildAiDeckFromSelection(deckOptionValue || sel?.value || '');
+        if (mainIds.length === 0) return alert('無法建立電腦牌組，請確認卡庫已載入。');
 
-        if (mainIds.length === 0) {
-            alert('無法建立電腦牌組，請確認卡庫已載入。');
-            return;
-        }
-
-        const ai = new UAAIOpponent(mainIds, apIds, difficulty);
+        const ai = new UAAIOpponent(mainIds, apIds, difficultyOverride || diffSel?.value || 'normal');
         window.uaAiOpponent = ai;
         window.connectVirtualOpponent(ai.vconn);
-
         ai.vconn.emitToPlayer('open');
         const startBtn = document.getElementById('start-game-btn');
-        if (startBtn && !startBtn.disabled) {
-            startBtn.click();
-        }
+        if (startBtn && !startBtn.disabled) startBtn.click();
     }
 
-    window.uaAiManager = {
-        populateDeckSelector: populateAiDeckSelector,
-        startMatch: startAiMatch
-    };
-
+    window.uaAiManager = { populateDeckSelector: populateAiDeckSelector, startMatch: startAiMatch };
     window.addEventListener('load', () => {
         populateAiDeckSelector();
-        const btn = document.getElementById('btn-start-ai-match');
-        if (btn) btn.addEventListener('click', () => startAiMatch());
-        const sel = document.getElementById('ai-deck-selector');
-        if (sel) sel.addEventListener('focus', populateAiDeckSelector);
+        document.getElementById('btn-start-ai-match')?.addEventListener('click', () => startAiMatch());
+        document.getElementById('ai-deck-selector')?.addEventListener('focus', populateAiDeckSelector);
     });
 })();
