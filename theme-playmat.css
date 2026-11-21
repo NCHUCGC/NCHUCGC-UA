@@ -27,7 +27,7 @@
     --c-yellow: #efb92c;
     --c-purple: #9060c4;
 
-    --t0: #efe9dd; --t1: #d6cfc1; --t2: #bbb4a6; --t3: #9f988b;
+    --t0: #efe9dd; --t1: #d6cfc1; --t15: #c9c2b4; --t2: #bbb4a6; --t3: #9f988b;
     --t4: #857e72; --t5: #6d675d; --t6: #58534b;
 
     --font-display: 'Noto Serif TC', 'Noto Serif CJK TC', 'Source Han Serif TC', 'Songti TC', serif;
@@ -207,6 +207,8 @@ select option { background: var(--ink-3); color: var(--paper); }
 .home-meta-tier { position: absolute; top: 6px; left: 6px; z-index: 2; }
 .rank-badge.T0, .home-meta-tier.T0, .tier-label.T0 { background: var(--t0); color: var(--ink); }
 .rank-badge.T1, .home-meta-tier.T1, .tier-label.T1 { background: var(--t1); color: var(--ink); }
+.rank-badge.T1\.5, .home-meta-tier.T1\.5, .tier-label.T1\.5 { background: var(--t15); color: var(--ink); }
+.tier-label.T1\.5 { font-size: 25px !important; }
 .rank-badge.T2, .home-meta-tier.T2, .tier-label.T2 { background: var(--t2); color: var(--ink); }
 .rank-badge.T3, .home-meta-tier.T3, .tier-label.T3 { background: var(--t3); color: var(--ink); }
 .rank-badge.T4, .home-meta-tier.T4, .tier-label.T4 { background: var(--t4); color: #fff; }

@@ -6,6 +6,7 @@
             const TIER_DEFS = [
                 { key: 'T0', label: 'T0' },
                 { key: 'T1', label: 'T1' },
+                { key: 'T1.5', label: 'T1.5' },
                 { key: 'T2', label: 'T2' },
                 { key: 'T3', label: 'T3' },
                 { key: 'T4', label: 'T4' },
@@ -93,9 +94,9 @@
                 // 3. 環境焦點牌組（優先 T0 -> T1 -> T2 -> 其餘，最多顯示 8 副）
                 const metaGrid = document.getElementById('home-meta-grid');
                 if (metaGrid) {
-                    const rankOrder = { T0: 0, T1: 1, T2: 2, T3: 3, T4: 4, T5: 5, T6: 6, UNRATED: 7 };
+                    const rankOrder = { T0: 0, T1: 1, 'T1.5': 2, T2: 3, T3: 4, T4: 5, T5: 6, T6: 7, UNRATED: 8 };
                     // 首頁主視覺的牌桌已經放了排名前四的牌組，這裡接著列出後面的牌組；總數不超過四副時才全部列出
-                    const sortedDecks = [...list].sort((a, b) => (rankOrder[a.tier] ?? 9) - (rankOrder[b.tier] ?? 9));
+                    const sortedDecks = [...list].sort((a, b) => (rankOrder[a.tier] ?? 99) - (rankOrder[b.tier] ?? 99));
                     const topDecks = sortedDecks.length > 4 ? sortedDecks.slice(4, 12) : sortedDecks;
                     metaGrid.innerHTML = '';
                     if (topDecks.length === 0) {
@@ -146,8 +147,8 @@
                 }
             }
             function rankSortedDecks(list) {
-                const rankOrder = { T0: 0, T1: 1, T2: 2, T3: 3, T4: 4, T5: 5, T6: 6, UNRATED: 7 };
-                return [...list].sort((a, b) => (rankOrder[a.tier] ?? 9) - (rankOrder[b.tier] ?? 9));
+                const rankOrder = { T0: 0, T1: 1, 'T1.5': 2, T2: 3, T3: 4, T4: 5, T5: 6, T6: 7, UNRATED: 8 };
+                return [...list].sort((a, b) => (rankOrder[a.tier] ?? 99) - (rankOrder[b.tier] ?? 99));
             }
 
             function renderHeroMat(list) {

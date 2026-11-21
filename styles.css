@@ -186,6 +186,7 @@
         }
         .home-meta-tier.T0 { background: #cf6679; color: #fff; }
         .home-meta-tier.T1 { background: #e57373; color: #111; }
+        .home-meta-tier.T1\.5 { background: #f29560; color: #111; }
         .home-meta-tier.T2 { background: #ffb74d; color: #111; }
         .home-meta-tier.T3 { background: #fff176; color: #111; }
         .home-meta-tier.T4 { background: #81c784; color: #111; }
@@ -272,6 +273,7 @@
         }
         .tier-label.T0 { background: #cf6679; color: #fff; }
         .tier-label.T1 { background: #e57373; }
+        .tier-label.T1\.5 { background: #f29560; font-size: 19px; }
         .tier-label.T2 { background: #ffb74d; }
         .tier-label.T3 { background: #fff176; }
         .tier-label.T4 { background: #81c784; }
