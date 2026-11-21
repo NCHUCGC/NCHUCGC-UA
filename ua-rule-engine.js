@@ -304,6 +304,35 @@ copyBugReportToClipboard(overrideCardEl = null) {
             return id.replace(/([\/_](p\d+|s|sp\d*)|★)+$/i, '');
         }
 
+        getZhEntry(defOrId) {
+            const map = window.UA_ZH_MAP;
+            if (!map || !defOrId) return null;
+            const rawId = typeof defOrId === 'string' ? defOrId : defOrId.id;
+            if (!rawId) return null;
+            const base = this.getBaseCardId(rawId);
+            if (map[base]) return map[base];
+            if (map[rawId]) return map[rawId];
+            return null;
+        }
+
+        getDisplayName(def) {
+            if (!def) return '';
+            const zh = this.getZhEntry(def);
+            return (zh && zh.name) ? zh.name : (def.name || def.id || '');
+        }
+
+        getDisplayEffectText(def) {
+            if (!def) return '';
+            const zh = this.getZhEntry(def);
+            return (zh && zh.effectText) ? zh.effectText : (def.effectText || '');
+        }
+
+        getDisplayTriggerText(def) {
+            if (!def) return '';
+            const zh = this.getZhEntry(def);
+            return (zh && zh.triggerText) ? zh.triggerText : (def.triggerText || '');
+        }
+
 // 極速索引初始化：只建 Map 參照，不修改原物件、不做深拷貝
         initCatalog() {
             if (typeof masterCardCatalog === 'undefined') return;
@@ -2433,8 +2462,8 @@ injectEngineUI() {
                     case 'OPTIONAL_COST_BRANCH': {
                         const cost = act.cost;
                         this.promptModal({
-                            title: `選發效果確認：【${sourceDef?.name || '卡片效果'}】`,
-                            desc: `${sourceDef?.effectText || ''}\n\n請問是否要支付代價【${cost.desc}】來發動後續效果？`,
+                            title: `選發效果確認：【${this.getDisplayName(sourceDef) || '卡片效果'}】`,
+                            desc: `${this.getDisplayEffectText(sourceDef)}\n\n請問是否要支付代價【${cost.desc}】來發動後續效果？`,
                             cards: [sourceCardEl],
                             customButtons: [
                                 {
@@ -3066,8 +3095,8 @@ injectEngineUI() {
         }
         openInteractiveFallbackModal(sourceCardEl, act, taskContext, onDone) {
             const sourceDef = this.getCardDef(sourceCardEl);
-            const cardName = sourceDef?.name || '卡片';
-            const fullEffect = sourceDef?.effectText || act.rawSentence || '';
+            const cardName = this.getDisplayName(sourceDef) || '卡片';
+            const fullEffect = this.getDisplayEffectText(sourceDef) || act.rawSentence || '';
 
             const reopenSelf = () => this.openInteractiveFallbackModal(sourceCardEl, act, taskContext, onDone);
 
@@ -3394,6 +3423,40 @@ injectEngineUI() {
                         unblockableMaxBp: rt.tempKeywords.UNBLOCKABLE_MAX_BP || 0
                     });
                     showSysMsg('等待對手選擇是否進行防禦 (Block)...');
+                } else if (this.isSoloTestMode) {
+                    const unblockMax = rt.tempKeywords.UNBLOCKABLE_MAX_BP || 0;
+                    const oppBlockers = this.getSlotTopCards('#opp-front-line .slot').filter(c => {
+                        if (c.classList.contains('rest')) return false;
+                        if (unblockMax && this.getEffectiveCardBp(c) <= unblockMax) return false;
+                        return true;
+                    });
+                    if (oppBlockers.length === 0) {
+                        if (unblockMax > 0) showSysMsg(`[測試] 對手沒有 BP 超過 ${unblockMax} 的可防禦角色，直接命中生命！`);
+                        this.inflictPlayerDamage(attackerCard);
+                    } else {
+                        this.promptModal({
+                            title: `【測試】模擬對手防禦：${this.getDisplayName(def)} (BP ${atkBp})`,
+                            desc: `請選擇對手前線 1 張角色進行防禦（測試比 BP 與衝擊），或點擊「不防禦（直擊生命）」：` + (unblockMax ? `
+（已自動過濾 BP ${unblockMax} 以下不可防禦的角色）` : ''),
+                            cards: oppBlockers,
+                            selectCount: 1,
+                            upTo: true,
+                            customButtons: [{
+                                label: '不防禦（直擊生命）',
+                                color: '#c1596f',
+                                onClick: () => this.inflictPlayerDamage(attackerCard)
+                            }],
+                            onConfirm: (selected) => {
+                                if (selected.length === 0) {
+                                    this.inflictPlayerDamage(attackerCard);
+                                    return;
+                                }
+                                const defCard = selected[0];
+                                defCard.classList.add('rest');
+                                this.resolveCharacterBattle(attackerSlot, attackerCard, defCard.parentElement, defCard);
+                            }
+                        });
+                    }
                 } else {
                     this.inflictPlayerDamage(attackerCard);
                 }
@@ -3422,13 +3485,21 @@ injectEngineUI() {
                         label: '不防禦（承受傷害）',
                         color: '#c1596f',
                         onClick: () => {
-                            conn.send({ type: 'ENGINE_EVENT', subType: 'BLOCK_RESPONSE', attackId: data.attackId, blocked: false });
+                            if (conn && isConnected) {
+                                conn.send({ type: 'ENGINE_EVENT', subType: 'BLOCK_RESPONSE', attackId: data.attackId, blocked: false });
+                            } else if (this.isSoloTestMode) {
+                                this.processMyLifeDamage(data.damage || 1);
+                            }
                         }
                     }
                 ],
                 onConfirm: (selected) => {
                     if (selected.length === 0) {
-                        conn.send({ type: 'ENGINE_EVENT', subType: 'BLOCK_RESPONSE', attackId: data.attackId, blocked: false });
+                        if (conn && isConnected) {
+                            conn.send({ type: 'ENGINE_EVENT', subType: 'BLOCK_RESPONSE', attackId: data.attackId, blocked: false });
+                        } else if (this.isSoloTestMode) {
+                            this.processMyLifeDamage(data.damage || 1);
+                        }
                         return;
                     }
                     const blockerCard = selected[0];
@@ -3442,20 +3513,35 @@ injectEngineUI() {
                     const innateBlkKw = this.getInnateStaticKeywords(bDef);
                     if ((innateBlkKw.doubleBlock || bRt.tempKeywords?.DOUBLE_BLOCK) && bRt.blockCountThisTurn === 1) {
                         blockerCard.classList.remove('rest');
-                        showSysMsg(`️ 發動 [2回ブロック]：【${bDef.name}】防禦後重新轉為活動狀態！`);
+                        showSysMsg(`發動 [2回ブロック]：【${this.getDisplayName(bDef)}】防禦後重新轉為活動狀態！`);
                     }
 
                     this.triggerCardAbilities(blockerCard, 'ON_BLOCK', () => {
                         broadcastMyState();
                         const finalBlockerBp = this.getEffectiveCardBp(blockerCard);
-                        conn.send({
-                            type: 'ENGINE_EVENT',
-                            subType: 'BLOCK_RESPONSE',
-                            attackId: data.attackId,
-                            blocked: true,
-                            blockerSlotId: blockerSlot.id.replace('my-', 'opp-'),
-                            blockerBp: finalBlockerBp
-                        });
+                        if (conn && isConnected) {
+                            conn.send({
+                                type: 'ENGINE_EVENT',
+                                subType: 'BLOCK_RESPONSE',
+                                attackId: data.attackId,
+                                blocked: true,
+                                blockerSlotId: blockerSlot.id.replace('my-', 'opp-'),
+                                blockerBp: finalBlockerBp
+                            });
+                        } else if (this.isSoloTestMode) {
+                            if (finalBlockerBp > data.attackerBp) {
+                                showCenterAlert('🛡️', '防禦成功！', `${finalBlockerBp} vs ${data.attackerBp}`, '#6fb897');
+                                showSysMsg(`[測試] 【${this.getDisplayName(bDef)} (BP ${finalBlockerBp})】成功擋下攻擊！`);
+                            } else {
+                                showCenterAlert('⚔️', '防禦角色退場', `${data.attackerBp} vs ${finalBlockerBp}`, '#c1596f');
+                                this.retireCardFromSlot(blockerSlot);
+                                if (data.impact > 0 && !innateBlkKw.impactNullify) {
+                                    showSysMsg(`[測試] 對手發動衝擊(${data.impact})，承受 ${data.impact} 點生命傷害！`);
+                                    this.processMyLifeDamage(data.impact);
+                                }
+                            }
+                            this.updateEnergyHUD();
+                        }
                     });
                 }
             });
@@ -3610,8 +3696,8 @@ injectEngineUI() {
                 conn.send({ type: 'ENGINE_EVENT', subType: 'OPP_TRIGGER_REVEAL', cardName: def.name, imageUrl: cardImgUrl, triggerText: def.triggerText || trigType, activated: null });
             }
             this.promptModal({
-                title: `觸發確認：${def.name}`, 
-                desc: `翻開了帶有觸發效果的卡片：\n${def.triggerText}\n\n請問是否要發動此 Trigger 效果？`,
+                title: `觸發確認：${this.getDisplayName(def)}`, 
+                desc: `翻開了帶有觸發效果的卡片：\n${this.getDisplayTriggerText(def)}\n\n請問是否要發動此 Trigger 效果？`,
                 cards: [cardEl],
                 customButtons: [
                     {

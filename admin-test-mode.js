@@ -157,6 +157,26 @@
         return !!(window.UACardScripts[base] || window.UACardScripts[cardDef.id]);
     }
 
+    function getZh(cardDef) {
+        if (!cardDef || !window.UA_ZH_MAP) return null;
+        return window.UA_ZH_MAP[getBaseId(cardDef.id)] || window.UA_ZH_MAP[cardDef.id] || null;
+    }
+
+    function displayName(cardDef) {
+        const zh = getZh(cardDef);
+        return (zh && zh.name) ? zh.name : (cardDef?.name || cardDef?.id || '');
+    }
+
+    function displayEffect(cardDef) {
+        const zh = getZh(cardDef);
+        return (zh && zh.effectText) ? zh.effectText : (cardDef?.effectText || '');
+    }
+
+    function displayTrigger(cardDef) {
+        const zh = getZh(cardDef);
+        return (zh && zh.triggerText) ? zh.triggerText : (cardDef?.triggerText || '');
+    }
+
     // ==================== 單人測試盤面工具 ====================
 
     function spawnCard(cardDef, destId, isMine = true, options = {}) {
@@ -224,7 +244,15 @@
         if (oppLife && oppLife.querySelectorAll('.card').length === 0) {
             getSampleCardsForDummy(7).forEach(c => spawnCard(c, 'opp-life-area', false, { faceDown: true }));
         }
-        showSysMsg('已於對手場上配置測試用標靶（前線 BP 2000 / 3000 / 4000 / 5000）');
+        const oppHand = document.getElementById('opp-hand-area');
+        if (oppHand && oppHand.querySelectorAll('.card').length === 0) {
+            getSampleCardsForDummy(5).forEach(c => spawnCard(c, 'opp-hand-area', false, { faceDown: true }));
+        }
+        const oppDeck = document.getElementById('opp-deck-area');
+        if (oppDeck && oppDeck.querySelectorAll('.card').length === 0) {
+            getSampleCardsForDummy(15).forEach(c => spawnCard(c, 'opp-deck-area', false, { faceDown: true }));
+        }
+        showSysMsg('已補齊假敵人（前線 BP 2000~5000、手牌 5、牌組 15、生命 7）');
     }
 
     function setupSoloBoard() {
@@ -343,6 +371,7 @@
                 display: flex; flex-direction: column; gap: 6px;
             }
             .uatm-btn-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+            .uatm-btn-row-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
             .uatm-btn {
                 background: #232845; color: #e6e8f2; border: 1px solid #3c4370; border-radius: 6px;
                 padding: 5px 6px; font-size: 12px; font-weight: 700; cursor: pointer; transition: 0.15s;
@@ -417,6 +446,12 @@
                     <button class="uatm-btn" id="uatm-btn-reset">重置盤面</button>
                     <button class="uatm-btn primary" id="uatm-btn-export">匯出問題</button>
                 </div>
+                <div class="uatm-btn-row-4">
+                    <button class="uatm-btn" id="uatm-btn-turn" title="切換我方回合／對手回合，可測對手回合常駐、持續 BP 與凍結">切換回合</button>
+                    <button class="uatm-btn" id="uatm-btn-dmg" title="翻開我方 1 張生命卡測試 Trigger">吃 1 傷</button>
+                    <button class="uatm-btn" id="uatm-btn-opp-atk" title="模擬對手發動攻擊，測試防禦與 [ブロック時]">模擬敵攻</button>
+                    <button class="uatm-btn" id="uatm-btn-retire" title="將我方場上點選中的角色退場，觸發 [退場時]">退場選中</button>
+                </div>
             </div>
             <div class="uatm-filters">
                 <select id="uatm-series" class="uatm-select"></select>
@@ -457,9 +492,73 @@
         drawer.querySelector('#uatm-btn-enemies').onclick = spawnDummyEnemies;
         drawer.querySelector('#uatm-btn-reset').onclick = () => {
             setupSoloBoard();
+            refreshTurnBtn();
             showSysMsg('測試盤面已重置');
         };
         drawer.querySelector('#uatm-btn-export').onclick = exportBugReport;
+
+        const turnBtn = drawer.querySelector('#uatm-btn-turn');
+        const refreshTurnBtn = () => {
+            if (!turnBtn || !window.uaEngine) return;
+            if (window.uaEngine.isMyTurn) {
+                turnBtn.textContent = '換敵回合';
+                turnBtn.style.background = '#232845';
+                turnBtn.style.borderColor = '#3c4370';
+            } else {
+                turnBtn.textContent = '回我回合';
+                turnBtn.style.background = '#8d7cc4';
+                turnBtn.style.borderColor = '#b39ddb';
+            }
+        };
+        turnBtn.onclick = () => {
+            if (!window.uaEngine) return;
+            if (window.uaEngine.isMyTurn) {
+                window.uaEngine.finalizeEndTurn();
+                showSysMsg('已進入【對手回合】（可測「對手回合中」效果或點擊「模擬敵攻」，再按一次回到我方下回合）');
+            } else {
+                window.uaEngine.turnNumber++;
+                window.uaEngine.beginMyTurn();
+                // 方便測試者直接出牌，切換到主要階段（起始抽牌與凍結判定已在 beginMyTurn 完成）
+                showSysMsg(`已進入我方第 ${window.uaEngine.turnNumber} 回合（起始階段已抽牌並結算凍結狀態）`);
+            }
+            refreshTurnBtn();
+        };
+
+        drawer.querySelector('#uatm-btn-dmg').onclick = () => {
+            if (!window.uaEngine) return;
+            const lifeArea = document.getElementById('my-life-area');
+            if (!lifeArea || lifeArea.querySelectorAll('.card').length === 0) {
+                showSysMsg('我方生命區已空！可點「放到生命頂」或「重置盤面」補卡。');
+                return;
+            }
+            window.uaEngine.processMyLifeDamage(1);
+        };
+
+        drawer.querySelector('#uatm-btn-opp-atk').onclick = () => {
+            if (!window.uaEngine) return;
+            window.uaEngine.promptModal({
+                title: '【測試】模擬對手攻擊',
+                desc: '選擇假敵人的攻擊 BP（將彈出我方防禦視窗，可測 [ブロック時]、[2回ブロック] 與敗戰退場）：',
+                cards: [],
+                customButtons: [
+                    { label: 'BP 3000 攻擊', color: '#4f739e', onClick: () => window.uaEngine.onOpponentAttackDeclared({ attackId: 'solo_' + Date.now(), attackerName: '假敵人 (3000)', attackerBp: 3000, unblockableMaxBp: 0, damage: 1, impact: 0 }) },
+                    { label: 'BP 4000 攻擊', color: '#8d7cc4', onClick: () => window.uaEngine.onOpponentAttackDeclared({ attackId: 'solo_' + Date.now(), attackerName: '假敵人 (4000)', attackerBp: 4000, unblockableMaxBp: 0, damage: 1, impact: 0 }) },
+                    { label: 'BP 5000 衝擊(1)', color: '#c1596f', onClick: () => window.uaEngine.onOpponentAttackDeclared({ attackId: 'solo_' + Date.now(), attackerName: '假敵人 (5000 衝擊)', attackerBp: 5000, unblockableMaxBp: 0, damage: 1, impact: 1 }) }
+                ]
+            });
+        };
+
+        drawer.querySelector('#uatm-btn-retire').onclick = () => {
+            if (!window.uaEngine) return;
+            const active = window.activeCard;
+            const slot = active && active.parentElement;
+            if (!slot || (!slot.closest('#my-front-line') && !slot.closest('#my-energy-line'))) {
+                showSysMsg('請先點選我方前線或能源線上的角色卡，再按「退場選中」。');
+                return;
+            }
+            window.uaEngine.retireCardFromSlot(slot);
+            window.activeCard = null;
+        };
 
         drawer.querySelector('#uatm-bypass-chk').onchange = (e) => {
             if (window.uaEngine) {
@@ -506,7 +605,8 @@
             if (state.selectedSeries !== 'ALL' && c.series !== state.selectedSeries) return false;
             if (state.selectedColor !== 'ALL' && c.color !== state.selectedColor) return false;
             if (state.searchQuery) {
-                const hay = `${c.id} ${c.name || ''} ${c.effectText || ''}`.toLowerCase();
+                const zh = getZh(c);
+                const hay = `${c.id} ${c.name || ''} ${zh?.name || ''} ${c.effectText || ''} ${zh?.effectText || ''}`.toLowerCase();
                 if (!hay.includes(state.searchQuery)) return false;
             }
             const rec = getStatusRecord(c);
@@ -564,7 +664,7 @@
             row.innerHTML = `
                 <img class="uatm-thumb" src="${escapeHtml(card.imageUrl || '')}" loading="lazy" alt="">
                 <div class="uatm-info">
-                    <div class="uatm-name">${escapeHtml(card.name || card.id)}</div>
+                    <div class="uatm-name">${escapeHtml(displayName(card))}</div>
                     <div class="uatm-meta">
                         <span>${escapeHtml(card.id)}</span>
                         <span>En:${card.requiredEnergy?.count ?? 0}</span>
@@ -604,19 +704,22 @@
             return;
         }
         const rec = getStatusRecord(card);
-        const effText = (card.effectText && card.effectText !== '-') ? card.effectText : '（無主要效果）';
-        const trigText = (card.triggerText && card.triggerText !== '-') ? `\n[Trigger] ${card.triggerText}` : '';
+        const rawEff = displayEffect(card);
+        const rawTrig = displayTrigger(card);
+        const effText = (rawEff && rawEff !== '-') ? rawEff : '（無主要效果）';
+        const trigText = (rawTrig && rawTrig !== '-') ? `\n[Trigger] ${rawTrig}` : '';
 
         box.innerHTML = `
             <div style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
-                <span style="font-size:13px; font-weight:900; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(card.name)}</span>
+                <span style="font-size:13px; font-weight:900; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(displayName(card))}</span>
                 <span style="font-size:11px; color:#b39ddb; flex-shrink:0;">${escapeHtml(card.id)}</span>
             </div>
             <div class="uatm-eff-box">${escapeHtml(effText + trigText)}</div>
-            <div class="uatm-btn-row">
-                <button class="uatm-btn primary" id="uatm-spawn-hand">加入手牌</button>
-                <button class="uatm-btn" id="uatm-spawn-out">放到場外</button>
-                <button class="uatm-btn" id="uatm-spawn-top">放到牌頂</button>
+            <div class="uatm-btn-row-4">
+                <button class="uatm-btn primary" id="uatm-spawn-hand">手牌</button>
+                <button class="uatm-btn" id="uatm-spawn-out">場外</button>
+                <button class="uatm-btn" id="uatm-spawn-top">牌頂</button>
+                <button class="uatm-btn" id="uatm-spawn-life" title="放至生命區頂端，搭配「吃 1 傷」測 Trigger">生命頂</button>
             </div>
             <input type="text" id="uatm-note-input" class="uatm-input" placeholder="問題備註（例如：選目標沒濾卡名）" value="${escapeHtml(rec?.note || '')}">
             <div class="uatm-btn-row">
@@ -636,7 +739,11 @@
         };
         box.querySelector('#uatm-spawn-top').onclick = () => {
             spawnCard(card, 'my-deck-area', true, { faceDown: true });
-            showSysMsg(`已將【${card.name}】置於牌頂`);
+            showSysMsg(`已將【${displayName(card)}】置於牌頂`);
+        };
+        box.querySelector('#uatm-spawn-life').onclick = () => {
+            spawnCard(card, 'my-life-area', true, { faceDown: true });
+            showSysMsg(`已將【${displayName(card)}】置於生命區頂端（點「吃 1 傷」即可測試觸發）`);
         };
 
         const noteInput = box.querySelector('#uatm-note-input');
