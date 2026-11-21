@@ -10,6 +10,7 @@
     <title>NCHUCGC | 興大卡研 Union Arena 模擬器</title>
     <link rel="manifest" href="manifest.json">
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="theme-playmat.css">
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -35,8 +36,8 @@
 
         <nav id="nchucgc-nav">
             <div class="nav-brand">
-                <span class="nav-brand-code">NCHUCGC</span>
-                <span class="nav-brand-sub">國立中興大學卡牌研究社 Union Arena 模擬器</span>
+                <span class="nav-brand-code">興大卡研</span>
+                <span class="nav-brand-sub">NCHUCGC</span>
             </div>
             <div class="nav-tabs">
                 <button class="nav-tab active" data-view="home" onclick="switchMainView('home')">首頁</button>
@@ -68,49 +69,39 @@
 
         <section id="home-scene">
             <div class="home-hero">
-                <div>
-                    <div class="home-hero-kicker">NCHUCGC // UNION ARENA SIMULATOR</div>
-                    <h1>興大卡研 Union Arena 模擬器</h1>
-                    <p class="home-hero-sub">全自動規則引擎・社團即時環境排表・遠端 P2P 連線對戰</p>
-                    <div class="home-kpi-strip">
-                        <div class="home-kpi">
-                            <span class="home-kpi-label">線上對戰房</span>
-                            <span class="home-kpi-val live" id="home-stat-rooms">0<small>等待中</small></span>
-                        </div>
-                        <div class="home-kpi">
-                            <span class="home-kpi-label">排表收錄</span>
-                            <span class="home-kpi-val" id="home-stat-decks">0<small>副牌組</small></span>
-                        </div>
-                        <div class="home-kpi">
-                            <span class="home-kpi-label">卡池資料庫</span>
-                            <span class="home-kpi-val" id="home-stat-cards">0<small>張卡片</small></span>
-                        </div>
-                    </div>
-                </div>
-                <div class="home-launch-box">
-                    <div class="home-launch-head">
-                        <span>目前出戰牌組</span>
-                        <span id="home-ready-badge" class="home-ready-badge warn">構築中</span>
-                    </div>
-                    <div class="home-launch-deck">
-                        <span id="home-active-deck-name" class="home-launch-deck-name">預設牌組</span>
-                        <span id="home-active-deck-cnt" class="home-launch-deck-cnt">主牌 0/50 ｜ AP 0/3</span>
-                    </div>
-                    <div class="home-launch-actions">
+                <div class="hero-copy">
+                    <h1><span class="hero-title">興大卡研</span><span class="hero-title-sub">Union Arena 模擬器</span></h1>
+                    <p class="home-hero-sub">全自動規則引擎、社團即時環境排表、遠端連線對戰。</p>
+                    <div class="hero-actions">
                         <button class="home-cta-primary" onclick="switchMainView('rooms')">進入對戰大廳</button>
                         <button class="home-cta-secondary" onclick="switchMainView('builder')">編輯出戰牌組</button>
                     </div>
+                    <div class="hero-deck">
+                        <span class="hero-deck-label">出戰牌組</span>
+                        <span id="home-active-deck-name" class="home-launch-deck-name">預設牌組</span>
+                        <span id="home-active-deck-cnt" class="home-launch-deck-cnt">主牌 0/50 ｜ AP 0/3</span>
+                        <span id="home-ready-badge" class="home-ready-badge warn">構築中</span>
+                    </div>
+                    <div class="hero-stats">
+                        <span class="home-kpi"><span class="home-kpi-label">線上對戰房</span><span class="home-kpi-val live" id="home-stat-rooms">0<small>等待中</small></span></span>
+                        <span class="home-kpi"><span class="home-kpi-label">排表收錄</span><span class="home-kpi-val" id="home-stat-decks">0<small>副牌組</small></span></span>
+                        <span class="home-kpi"><span class="home-kpi-label">卡池</span><span class="home-kpi-val" id="home-stat-cards">0<small>張卡片</small></span></span>
+                    </div>
+                    <div class="hero-colorbar-wrap">
+                        <span class="hero-colorbar-label">排表牌組的顏色分佈</span>
+                        <div id="home-color-bar" class="color-bar"></div>
+                    </div>
                 </div>
+                <div class="hero-mat" id="home-mat" aria-label="目前環境排名最高的牌組"></div>
             </div>
 
             <div class="home-grid">
                 <div class="home-panel">
                     <div class="home-panel-title">
                         <div class="home-panel-title-left">
-                            <span class="home-panel-accent"></span>
-                            <span>環境焦點牌組</span>
+                            <span>更多環境牌組</span>
                         </div>
-                        <button class="home-link-btn" onclick="switchMainView('tier')">檢視完整排表 →</button>
+                        <button class="home-link-btn" onclick="switchMainView('tier')">檢視完整排表</button>
                     </div>
                     <div class="home-meta-grid" id="home-meta-grid"></div>
                 </div>
@@ -118,7 +109,6 @@
                 <div class="home-panel">
                     <div class="home-panel-title">
                         <div class="home-panel-title-left">
-                            <span class="home-panel-accent"></span>
                             <span>社團公告與更新</span>
                         </div>
                         <div style="display:flex; align-items:center; gap:8px;">

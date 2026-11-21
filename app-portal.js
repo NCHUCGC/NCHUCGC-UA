@@ -94,9 +94,9 @@
                 const metaGrid = document.getElementById('home-meta-grid');
                 if (metaGrid) {
                     const rankOrder = { T0: 0, T1: 1, T2: 2, T3: 3, T4: 4, T5: 5, T6: 6, UNRATED: 7 };
-                    const topDecks = [...list]
-                        .sort((a, b) => (rankOrder[a.tier] ?? 9) - (rankOrder[b.tier] ?? 9))
-                        .slice(0, 8);
+                    // 首頁主視覺的牌桌已經放了排名前四的牌組，這裡接著列出後面的牌組；總數不超過四副時才全部列出
+                    const sortedDecks = [...list].sort((a, b) => (rankOrder[a.tier] ?? 9) - (rankOrder[b.tier] ?? 9));
+                    const topDecks = sortedDecks.length > 4 ? sortedDecks.slice(4, 12) : sortedDecks;
                     metaGrid.innerHTML = '';
                     if (topDecks.length === 0) {
                         metaGrid.innerHTML = '<div style="grid-column:1/-1; color:#7f85a3; font-size:13px; padding:24px; text-align:center;">尚無排表資料</div>';
@@ -122,6 +122,10 @@
                     }
                 }
 
+                // 3.5 首頁主視覺：把排名最高的四副牌組「擺上牌桌」，並統計排表的顏色分佈
+                renderHeroMat(list);
+                renderColorBar(list);
+
                 // 4. 社團公告與管理員編輯入口
                 const editAnnBtn = document.getElementById('btn-home-edit-ann');
                 if (editAnnBtn) editAnnBtn.style.display = isAdmin() ? 'inline-block' : 'none';
@@ -141,6 +145,53 @@
                     }
                 }
             }
+            function rankSortedDecks(list) {
+                const rankOrder = { T0: 0, T1: 1, T2: 2, T3: 3, T4: 4, T5: 5, T6: 6, UNRATED: 7 };
+                return [...list].sort((a, b) => (rankOrder[a.tier] ?? 9) - (rankOrder[b.tier] ?? 9));
+            }
+
+            function renderHeroMat(list) {
+                const mat = document.getElementById('home-mat');
+                if (!mat) return;
+                const top = rankSortedDecks(list).slice(0, 4);
+                const firstPaint = !window._matDealt && top.length > 0;
+                if (firstPaint) window._matDealt = true;
+                mat.classList.toggle('deal', firstPaint);
+                let html = '';
+                for (let i = 0; i < 4; i++) {
+                    const deck = top[i];
+                    if (!deck) { html += '<div class="mat-slot is-empty"></div>'; continue; }
+                    const ids = getDeckCoverIds(deck);
+                    const img = getCoverUrl(ids[0] || '', deck.series, deck.color);
+                    const tier = TIER_DEFS.find(t => t.key === deck.tier)?.label || deck.tier;
+                    html += `
+                        <div class="mat-slot ${esc(deck.color)}">
+                            <button type="button" class="mat-card" data-i="${i}" style="--i:${i}" title="${esc(deck.name)}">
+                                <img src="${esc(img)}" alt="${esc(deck.name)}">
+                            </button>
+                            <div class="mat-meta">
+                                <span class="rank-badge ${esc(deck.tier)}">${esc(tier)}</span>
+                                <span class="mat-name">${esc(deck.name)}</span>
+                            </div>
+                        </div>`;
+                }
+                mat.innerHTML = html;
+                mat.querySelectorAll('.mat-card').forEach(btn => {
+                    btn.onclick = () => openTierDetail(top[Number(btn.dataset.i)]);
+                });
+            }
+
+            function renderColorBar(list) {
+                const bar = document.getElementById('home-color-bar');
+                if (!bar) return;
+                const counts = {};
+                list.forEach(d => { if (d.color) counts[d.color] = (counts[d.color] || 0) + 1; });
+                const order = ['RED', 'BLUE', 'GREEN', 'YELLOW', 'PURPLE'].filter(c => counts[c]);
+                bar.innerHTML = order.length
+                    ? order.map(c => `<span class="seg ${c}" style="flex-grow:${counts[c]}" title="${COLOR_ZH[c]} ${counts[c]} 副">${COLOR_ZH[c]} ${counts[c]}</span>`).join('')
+                    : '<span class="seg" style="flex-grow:1">尚無資料</span>';
+            }
+
             window.renderHomeDashboard = renderHome;
 
             function renderAnnEditorList() {
