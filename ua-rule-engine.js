@@ -37,6 +37,8 @@ constructor() {
             this.waitingForOppTrigger = false;
             this.oppTriggerTimeoutId = null;
             this.oppSyncedKeywords = {};
+            this.isSoloTestMode = false;
+            this.soloTestBypass = false;
         }
 
         // Fix #6: 匯出我方場上所有角色的關鍵字徽章，讓對手端能 100% 同步看到
@@ -184,6 +186,7 @@ constructor() {
         }
 
         payApForCard(cardDef) {
+            if (this.isSoloTestMode && this.soloTestBypass) return true;
             let cost = cardDef?.apCost !== undefined ? cardDef.apCost : 1;
             if (cardDef && this.pendingApDiscounts && this.pendingApDiscounts.length > 0) {
                 const idx = this.pendingApDiscounts.findIndex(d => d.matchFn && d.matchFn(cardDef));
@@ -1673,6 +1676,7 @@ injectEngineUI() {
 
         checkPlayRequirements(cardDef) {
             if (!cardDef) return { ok: true };
+            if (this.isSoloTestMode && this.soloTestBypass) return { ok: true };
             if (this.isFirstPlayer !== null && !this.isMyTurn) {
                 return { ok: false, reason: '目前是對手的回合！' };
             }
@@ -2753,8 +2757,18 @@ injectEngineUI() {
 
                     case 'SEND_TARGET_TO_BOTTOM': {
                         taskContext.selectedTargets.forEach(t => {
-                            if (t.parentElement && t.parentElement.id.startsWith('opp-') && conn && isConnected) {
-                                conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_BOTTOM_SLOT', slotId: t.parentElement.id.replace('opp-', 'my-') });
+                            if (t.parentElement && t.parentElement.id.startsWith('opp-')) {
+                                if (conn && isConnected) {
+                                    conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_BOTTOM_SLOT', slotId: t.parentElement.id.replace('opp-', 'my-') });
+                                } else if (this.isSoloTestMode) {
+                                    const oppDeck = document.getElementById('opp-deck-area');
+                                    if (oppDeck) {
+                                        updateBpDisplay(t.parentElement, 0);
+                                        oppDeck.insertBefore(t, oppDeck.firstChild);
+                                        t.classList.add('is-flipped'); t.classList.remove('rest');
+                                        recalcStacking(oppDeck); updateSlotCounts();
+                                    }
+                                }
                             }
                         });
                         next();
@@ -2763,8 +2777,16 @@ injectEngineUI() {
 
                     case 'SEND_TARGET_TO_REMOVE': {
                         taskContext.selectedTargets.forEach(t => {
-                            if (t.parentElement && t.parentElement.id.startsWith('opp-') && conn && isConnected) {
-                                conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_REMOVE_SLOT', slotId: t.parentElement.id.replace('opp-', 'my-') });
+                            if (t.parentElement && t.parentElement.id.startsWith('opp-')) {
+                                if (conn && isConnected) {
+                                    conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_REMOVE_SLOT', slotId: t.parentElement.id.replace('opp-', 'my-') });
+                                } else if (this.isSoloTestMode) {
+                                    const oppRem = document.getElementById('opp-remove-area');
+                                    if (oppRem) {
+                                        updateBpDisplay(t.parentElement, 0);
+                                        this.moveCardToZone(t, oppRem);
+                                    }
+                                }
                             }
                         });
                         next();
@@ -3262,6 +3284,8 @@ injectEngineUI() {
                     const localSlotId = slot.id.replace('opp-', 'my-');
                     conn.send({ type: 'UPDATE_OPP_BP', slotId: localSlotId, bp: newBp });
                     conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_RETIRE_SLOT', slotId: localSlotId });
+                } else if (this.isSoloTestMode) {
+                    this.requestRetireOpponentCard(topCard);
                 }
                 return;
             }
@@ -3517,6 +3541,15 @@ injectEngineUI() {
                 this.updateEnergyHUD();
                 showSysMsg('對手正在處理生命觸發效果...');
                 conn.send({ type: 'ENGINE_EVENT', subType: 'TAKE_LIFE_DAMAGE', count: damageCount });
+            } else if (this.isSoloTestMode) {
+                const oppLife = document.getElementById('opp-life-area');
+                const oppOut = document.getElementById('opp-outside-area');
+                if (oppLife && oppOut) {
+                    const cards = Array.from(oppLife.querySelectorAll('.card'));
+                    const n = Math.min(Math.max(1, parseInt(damageCount, 10) || 1), cards.length);
+                    for (let i = 0; i < n; i++) this.moveCardToZone(cards.pop(), oppOut);
+                    showSysMsg(`[測試] 對假敵人造成 ${damageCount} 點傷害（剩餘生命 ${oppLife.querySelectorAll('.card').length}）`);
+                }
             }
         }
 
@@ -3881,6 +3914,12 @@ injectEngineUI() {
                     subType: 'FORCE_RETIRE_SLOT',
                     slotId: oppSlot.id.replace('opp-', 'my-')
                 });
+            } else if (this.isSoloTestMode) {
+                const oppOut = document.getElementById('opp-outside-area');
+                if (oppOut) {
+                    updateBpDisplay(oppSlot, 0);
+                    Array.from(oppSlot.querySelectorAll('.card')).forEach(c => this.moveCardToZone(c, oppOut));
+                }
             }
         }
 
@@ -3895,6 +3934,17 @@ injectEngineUI() {
                     subType: 'FORCE_BOUNCE_SLOT',
                     slotId: oppSlot.id.replace('opp-', 'my-')
                 });
+            } else if (this.isSoloTestMode) {
+                const oppHand = document.getElementById('opp-hand-area');
+                const oppOut = document.getElementById('opp-outside-area');
+                if (oppHand) {
+                    const cards = Array.from(oppSlot.querySelectorAll('.card'));
+                    const top = cards[cards.length - 1];
+                    const under = cards.slice(0, cards.length - 1);
+                    updateBpDisplay(oppSlot, 0);
+                    if (oppOut) under.forEach(uc => this.moveCardToZone(uc, oppOut));
+                    if (top) this.moveCardToZone(top, oppHand);
+                }
             }
         }
 

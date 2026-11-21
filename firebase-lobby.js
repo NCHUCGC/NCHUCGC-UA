@@ -142,6 +142,8 @@
                 });
             };
         }
+        const testNavBtn = document.getElementById('nav-btn-test');
+        if (testNavBtn) testNavBtn.style.display = isAdminUser() ? 'inline-block' : 'none';
         if (typeof window.renderTierBoard === 'function') window.renderTierBoard();
     }
 
@@ -677,6 +679,7 @@
         getMyDisplayName,
         changeMyNickname,
         isAdminUser,
+        getDb: () => state.db,
         isLoggedIn: () => !!(state.ready && state.user),
         publishOfficialTierList,
         voteDeckDifficulty,

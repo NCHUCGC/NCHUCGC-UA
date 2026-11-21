@@ -631,6 +631,7 @@
                 <button class="nav-tab" data-view="tier" onclick="switchMainView('tier')">環境排表</button>
                 <button class="nav-tab" data-view="builder" onclick="switchMainView('builder')">牌組構築</button>
                 <button class="nav-tab" data-view="rooms" onclick="switchMainView('rooms')">對戰大廳</button>
+                <button class="nav-tab" id="nav-btn-test" style="display:none; border:1px solid #6fb897; color:#82cca9;" onclick="window.uaTestMode && window.uaTestMode.enter()">測試模式</button>
             </div>
             <div class="nav-right">
                 <button class="ctrl-btn" id="btn-show-readme" style="background:#232845; border:1px solid #3c4370; padding:5px 10px; font-size:12px;">使用說明</button>
@@ -2314,6 +2315,10 @@
             });
         } // 👈 就是少了這一個關閉 setupConnection 函式的大括號！
         document.getElementById('btn-back-builder').addEventListener('click', () => {
+            if (window.uaTestMode && window.uaTestMode.isActive()) {
+                window.uaTestMode.exit();
+                return;
+            }
             if(confirm("確定要投降並返回構築區嗎？")) {
                 if(conn && isConnected) conn.send({ type: 'SURRENDER' });
                 resetBoard();
@@ -2394,6 +2399,8 @@
         };
 
         let myCardsElements = []; let oppCardsElements = [];
+        Object.defineProperty(window, "myCardsElements", { get: () => myCardsElements, set: v => { myCardsElements = v; }, configurable: true });
+        Object.defineProperty(window, "oppCardsElements", { get: () => oppCardsElements, set: v => { oppCardsElements = v; }, configurable: true });
 
         // ===== 【新增】復原上一步操作 (Undo) =====
         // 設計原則：不去每個操作點都手動插入「存檔」，而是掛在 broadcastMyState() 這個
@@ -3600,6 +3607,7 @@ function createCardDOM(cardData, networkId, isMine) {
         })();
     </script>
     <script src="ua-rule-engine.js"></script>
+    <script src="admin-test-mode.js"></script>
 
     <script>
         (function initNCHUCGC() {
