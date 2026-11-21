@@ -297,6 +297,19 @@
                             <button class="ctrl-btn" id="btn-lobby-quick-connect" style="padding:8px 16px;">連線</button>
                         </div>
                     </div>
+
+                    <div class="home-panel-title" style="margin-top:6px;">
+                        <span>人機對戰（單機練習）</span>
+                        <span style="font-size:12px; color:#8c93ad; font-weight:400;">自動擲硬幣決定先後攻</span>
+                    </div>
+                    <div class="lobby-form">
+                        <select id="ai-deck-selector"></select>
+                        <select id="ai-difficulty-selector">
+                            <option value="normal">難度：一般 AI（規則策略）</option>
+                            <option value="random">難度：隨機 AI（第一版）</option>
+                        </select>
+                        <button class="start-btn" id="btn-start-ai-match" style="padding:10px;">開始人機對戰</button>
+                    </div>
                 </div>
 
                 <div class="lobby-panel">
@@ -611,6 +624,9 @@
     <script src="firebase-lobby.js"></script>
     <script src="app-battle.js"></script>
     <script src="ua-rule-engine.js"></script>
+    <script src="ua-ai-state.js"></script>
+    <script src="ua-ai-brain.js"></script>
+    <script src="ua-ai-opponent.js"></script>
     <script src="admin-test-mode.js"></script>
     <script src="app-portal.js"></script>
 </body>

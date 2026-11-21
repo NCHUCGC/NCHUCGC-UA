@@ -1138,6 +1138,16 @@ window.appScale = 1;
                 }
             });
         } // 👈 就是少了這一個關閉 setupConnection 函式的大括號！
+
+        // 供單機人機對戰接入虛擬對手（沿用既有 setupConnection 訊息協定，不影響 P2P）
+        window.connectVirtualOpponent = function (virtualConn) {
+            if (conn && conn.open) {
+                try { conn.close(); } catch (e) {}
+            }
+            conn = virtualConn;
+            isConnected = false;
+            setupConnection();
+        };
         document.getElementById('btn-back-builder').addEventListener('click', () => {
             if (window.uaTestMode && window.uaTestMode.isActive()) {
                 window.uaTestMode.exit();
@@ -1189,6 +1199,11 @@ window.appScale = 1;
             window.myLastStartDeck = null;
             window.myLastStartAp = null;
             if (window.oppCustomImgMap) window.oppCustomImgMap.clear();
+            if (conn && conn.isVirtual) {
+                try { conn.close(); } catch (e) {}
+                conn = null;
+                isConnected = false;
+            }
             if (window.uaEngine && typeof window.uaEngine.resetMatchState === 'function') {
                 window.uaEngine.resetMatchState();
             }
