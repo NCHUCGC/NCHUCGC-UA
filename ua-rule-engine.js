@@ -1402,16 +1402,13 @@ injectEngineUI() {
                     ? def.generatedEnergy.color
                     : (def?.color && def.color !== 'NONE' ? def.color : domColor);
 
-                // 修正舊版 cards.js 爬蟲對產生能源的誤標：
-                // rawBase=5 -> 真 3 球；rawBase=4 -> 2 球+條件；rawBase=3 -> 真 2 球；
-                // rawBase=2 且效果文含「発生エナジー+」 -> 1 球+條件（新版爬蟲重抓後若無「発生エナジー+」則維持真 2 球）
+                // 新版 cards.js 基礎產生能源解碼（支援 0 / 1 / 2 / 3 球）：
+                // 若為 2 且效果文含自身「発生エナジー+」則還原為基礎 1 球＋動態條件加成；3 球直接保留為 3
                 const effText = (def?.effectText && def.effectText !== '-') ? def.effectText : '';
                 const hasSelfGenBoostText = /発生エナジー\+\[([赤青緑黄紫]+)\]/.test(effText) && !effText.includes('を与える');
                 let rawBase = (def?.generatedEnergy?.count !== undefined && def?.generatedEnergy?.count !== null) ? def.generatedEnergy.count : 1;
                 let baseCnt;
-                if (rawBase === 5) baseCnt = 3;
-                else if (rawBase === 4) baseCnt = 2;
-                else if (rawBase === 3) baseCnt = 2;
+                if (rawBase >= 3) baseCnt = 3;
                 else if (rawBase === 2) baseCnt = hasSelfGenBoostText ? 1 : 2;
                 else baseCnt = Math.max(0, rawBase);
 
@@ -1432,7 +1429,7 @@ injectEngineUI() {
                 if (this.enabled) {
                     const badge = document.createElement('div');
                     badge.className = 'eng-slot-en-badge';
-                    badge.title = '點擊可切換此卡產生 1 顆或 2 顆能源';
+                    badge.title = '點擊可循環切換此卡產生 1 / 2 / 3 顆能源';
                     badge.innerText = `${COLOR_NAMES[col]}×${cnt}`;
                     badge.style.cssText = `
                         position: absolute; bottom: -10px; left: 50%; transform: translateX(-50%);
@@ -1443,7 +1440,7 @@ injectEngineUI() {
                     `;
                     badge.onclick = (e) => {
                         e.stopPropagation();
-                        rt.manualEnergyCount = (cnt === 1) ? 2 : 1;
+                        rt.manualEnergyCount = (cnt >= 3) ? 1 : (cnt + 1);
                         showSysMsg(`已將【${def?.name || '此卡'}】的產生能源切換為 ${rt.manualEnergyCount} 顆！`);
                         this.updateEnergyHUD();
                     };

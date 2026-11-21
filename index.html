@@ -569,19 +569,21 @@
         .look-zone { flex: 2; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; }
         .hand-area, .look-area { display: flex; flex-wrap: nowrap; overflow: visible; width: 100%; height: var(--card-h); align-items: center; justify-content: center; }
 
-        .game-table { width: 1150px; height: 1000px; position: absolute; left: 0; top: 0; transform-origin: top left; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 50px; box-sizing: border-box; perspective: 1500px; }
+        .game-table { width: 1150px; height: 1000px; position: absolute; left: 0; top: 0; transform-origin: top left; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 18px 40px; box-sizing: border-box; perspective: 980px; }
 
-        .battlefield { display: flex; flex-direction: column; width: max-content; background: linear-gradient(145deg, #1a1d33, #241830); border: 3px solid #8f3a54; border-radius: 15px; box-shadow: inset 0 0 40px rgba(0,0,0,0.9), 0 15px 30px rgba(0,0,0,0.9); position: relative; margin: 0 auto; flex-shrink: 0; transform-origin: center center; transition: transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.6s ease; transform-style: flat; }
+        .battlefield { display: flex; flex-direction: column; width: max-content; background: linear-gradient(145deg, #1a1d33, #241830); border: 3px solid #8f3a54; border-radius: 15px; box-shadow: inset 0 0 40px rgba(0,0,0,0.9), 0 15px 30px rgba(0,0,0,0.9); position: relative; margin: 0 auto; flex-shrink: 0; transform-origin: center 54%; transition: transform 0.55s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.55s ease; transform-style: flat; }
         
-        .playmat { display: flex; justify-content: center; align-items: stretch; gap: 15px; padding: 10px 25px; width: 100%; box-sizing: border-box; }
-        .center-zone { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
+        .playmat { display: flex; justify-content: center; align-items: stretch; gap: 14px; padding: 6px 24px; width: 100%; box-sizing: border-box; }
+        .center-zone { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; }
         .card-row { display: flex; gap: 8px; }
-        .side-zone { display: flex; flex-direction: column; gap: 8px; height: 100%; justify-content: space-between; align-items: center; } 
-        .mode-3d .battlefield { transform: rotateX(25deg) translateY(-10px); box-shadow: 0 30px 60px rgba(0,0,0,0.9), inset 0 0 30px rgba(0,0,0,0.9); border-bottom: 12px solid #552a42; border-bottom-left-radius: 20px; border-bottom-right-radius: 20px; }
+        .ap-row { transform: scale(0.82); transform-origin: center center; margin: -14px 0; }
+        .side-zone { display: flex; flex-direction: column; gap: 6px; height: 100%; justify-content: space-between; align-items: center; } 
+        .mode-3d .battlefield { transform: rotateX(38deg) translateY(-18px) scale(1.1); box-shadow: 0 42px 80px rgba(0,0,0,0.95), inset 0 0 36px rgba(0,0,0,0.9); border-bottom: 14px solid #552a42; border-bottom-left-radius: 22px; border-bottom-right-radius: 22px; }
 
-        .board-divider { width: 100%; height: 2px; background: rgba(209, 196, 233, 0.3); box-shadow: 0 0 10px rgba(209, 196, 233, 0.6); }
+        .board-divider { width: 100%; height: 2px; background: rgba(209, 196, 233, 0.35); box-shadow: 0 0 10px rgba(209, 196, 233, 0.6); }
 
         .line-label { background: rgba(0,0,0,0.65); padding: 4px 12px; border-radius: 12px; color: rgba(255,255,255,0.9); font-size: 13px; font-weight: bold; text-align: center; margin-bottom: 8px; letter-spacing: 1px; white-space: nowrap; pointer-events: none; border: 1px solid rgba(255,255,255,0.1); }
+        .battlefield .line-label { padding: 2px 10px; font-size: 11px; margin-bottom: 2px; border-radius: 8px; line-height: 1.25; }
         .slot-group { display: flex; flex-direction: column; align-items: center; }
 
         .slot { width: var(--card-w); height: var(--card-h); background-color: rgba(0,0,0,0.4); border: 2px dashed rgba(209, 196, 233, 0.4); border-radius: 6px; box-shadow: inset 0 0 15px rgba(0,0,0,0.8); position: relative; display: flex; justify-content: center; align-items: center; cursor: pointer; pointer-events: auto;}
@@ -2032,19 +2034,19 @@
             let wrapper = document.getElementById('board-viewport');
             if(!wrapper) return;
             
-            let topUIHeight = 45;    
-            let bottomUIHeight = 190; 
+            let topUIHeight = 36;
+            let bottomUIHeight = window.is3D ? 155 : 175;
             
-            let safeHeight = wrapper.clientHeight - topUIHeight - bottomUIHeight; 
-            let targetHeight = 1000; 
+            let safeHeight = wrapper.clientHeight - topUIHeight - bottomUIHeight;
+            let targetHeight = window.is3D ? 820 : 910;
             
-            window.boardScale = safeHeight / targetHeight; 
+            window.boardScale = safeHeight / targetHeight;
             
-            if(window.boardScale > 1.2) window.boardScale = 1.2;
+            if(window.boardScale > 1.35) window.boardScale = 1.35;
             if(window.boardScale < 0.3) window.boardScale = 0.3;
             
             window.camX = (wrapper.clientWidth - (1150 * window.boardScale)) / 2;
-            window.camY = topUIHeight + (safeHeight - (targetHeight * window.boardScale)) / 2; 
+            window.camY = topUIHeight + (safeHeight - (1000 * window.boardScale)) / 2 + (window.is3D ? -12 : 0);
             
             updateCamera();
         };
@@ -2057,6 +2059,7 @@
             let table = document.getElementById('game-table-inner');
             if(window.is3D) table.classList.add('mode-3d');
             else table.classList.remove('mode-3d');
+            resetCam();
         };
 
         function startPan(e) {
