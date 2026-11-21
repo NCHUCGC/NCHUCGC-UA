@@ -1209,6 +1209,9 @@ copyBugReportToClipboard(overrideCardEl = null) {
                             duration: sentence.includes('このターン中') ? 'TURN' : 'CONTINUOUS',
                             conditions: sentenceConditions
                         });
+                        if (clause.includes('メインフェイズ終了時、このキャラを退場させる') || clause.includes('メインフェイズ終了時、このフィールドを退場させる')) {
+                            actions.push({ type: 'DELAYED_SELF_RETIRE', timing: 'END_OF_MAIN', conditions: sentenceConditions });
+                        }
                         return;
                     }
 
@@ -1399,19 +1402,24 @@ injectEngineUI() {
                     ? def.generatedEnergy.color
                     : (def?.color && def.color !== 'NONE' ? def.color : domColor);
 
-                // 修正 cards.js 爬蟲將標準 2 球卡誤標為 3 的問題：UA 卡片基礎產生能源上限為 2
-                let rawBase = (def?.generatedEnergy?.count > 0) ? def.generatedEnergy.count : 1;
-                let baseCnt = Math.min(2, rawBase);
-                const hasActiveEnBoost = !!(def?.effectText && def.effectText.includes('このキャラがアクティブの場合') && /発生エナジー\+\[([赤青緑黄紫]+)\]/.test(def.effectText));
+                // 修正舊版 cards.js 爬蟲對產生能源的誤標：
+                // rawBase=5 -> 真 3 球；rawBase=4 -> 2 球+條件；rawBase=3 -> 真 2 球；
+                // rawBase=2 且效果文含「発生エナジー+」 -> 1 球+條件（新版爬蟲重抓後若無「発生エナジー+」則維持真 2 球）
+                const effText = (def?.effectText && def.effectText !== '-') ? def.effectText : '';
+                const hasSelfGenBoostText = /発生エナジー\+\[([赤青緑黄紫]+)\]/.test(effText) && !effText.includes('を与える');
+                let rawBase = (def?.generatedEnergy?.count !== undefined && def?.generatedEnergy?.count !== null) ? def.generatedEnergy.count : 1;
+                let baseCnt;
+                if (rawBase === 5) baseCnt = 3;
+                else if (rawBase === 4) baseCnt = 2;
+                else if (rawBase === 3) baseCnt = 2;
+                else if (rawBase === 2) baseCnt = hasSelfGenBoostText ? 1 : 2;
+                else baseCnt = Math.max(0, rawBase);
+
                 let cnt;
                 if (rt && rt.manualEnergyCount !== null) {
                     cnt = rt.manualEnergyCount;
-                } else if (hasActiveEnBoost) {
-                    const enBoost = def.effectText.match(/発生エナジー\+\[([赤青緑黄紫]+)\]/);
-                    const boostVal = enBoost ? enBoost[1].length : 1;
-                    cnt = isActive ? (1 + boostVal) : 1;
                 } else {
-                    cnt = baseCnt;
+                    cnt = baseCnt + this.computeContinuousGeneratedEnergyBonus(topCard, def, slot, isActive);
                 }
 
                 if (rt && rt.tempEnergyBoost.length > 0) {
@@ -1444,6 +1452,158 @@ injectEngineUI() {
             });
 
             return totals;
+        }
+
+
+        computeContinuousGeneratedEnergyBonus(cardEl, def, slot, isActive) {
+            const eff = (def?.effectText && def.effectText !== '-') ? def.effectText : '';
+            if (!eff || !eff.includes('発生エナジー+')) return 0;
+
+            let bonus = 0;
+            const lines = eff.split('\n').map(l => l.trim()).filter(Boolean);
+            for (const line of lines) {
+                if (!line.includes('発生エナジー+')) continue;
+                // 起動メイン／登場時／アタック時／ブロック時／退場時 為觸發或啟動型，交由 tempEnergyBoost 處理，不常駐加總
+                if (/\[(起動メイン|登場時|アタック時|ブロック時|退場時)\]/.test(line)) continue;
+                if (line.includes('を与える') || line.includes('このターン中') || line.includes('次の自分のターン開始時まで')) continue;
+
+                const boostMatch = line.match(/発生エナジー\+\[([赤青緑黄紫]+)\]/);
+                if (!boostMatch) continue;
+                const val = boostMatch[1].length;
+
+                // 1. 此角色為活動狀態
+                if (line.includes('このキャラがアクティブの場合')) {
+                    if (isActive) bonus += val;
+                    continue;
+                }
+                // 2. 我方前線有〈指定卡名〉
+                const flNameM = line.match(/自分のフロントLに〈([^〉]+)〉がある場合/);
+                if (flNameM) {
+                    const target = flNameM[1].replace(/\s+/g, '');
+                    const hasFl = this.getSlotTopCards('#my-front-line .slot').some(c => (this.getCardDef(c)?.name || '').replace(/\s+/g, '').includes(target));
+                    if (hasFl) bonus += val;
+                    continue;
+                }
+                // 3. 我方場上有〈指定卡名〉
+                const fieldNameM = line.match(/自分の場に〈([^〉]+)〉がある場合/);
+                if (fieldNameM) {
+                    if (this.hasCharacterOnMyField(fieldNameM[1])) bonus += val;
+                    continue;
+                }
+                // 4. 我方場上（其他）［特徴：X］有 N 張以上
+                const traitCntM = line.match(/自分の場に(他の)?［特徴：([^］]+)］が(\d+)枚以上ある場合/);
+                if (traitCntM) {
+                    const exclSelf = !!traitCntM[1];
+                    const trait = traitCntM[2];
+                    const need = parseInt(traitCntM[3], 10) || 1;
+                    const cnt = this.getSlotTopCards('#my-front-line .slot, #my-energy-line .slot').filter(c => {
+                        if (exclSelf && c === cardEl) return false;
+                        const d = this.getCardDef(c);
+                        return d && Array.isArray(d.traits) && d.traits.some(t => t.includes(trait));
+                    }).length;
+                    if (cnt >= need) bonus += val;
+                    continue;
+                }
+                // 5. 此卡下方有裏側卡片（每 1 張 或 存在時）
+                if (line.includes('下に裏向きのカード')) {
+                    const allInSlot = slot ? Array.from(slot.querySelectorAll('.card')) : [];
+                    const faceDownUnder = allInSlot.filter(c => c !== cardEl && c.classList.contains('is-flipped')).length;
+                    if (line.includes('1枚につき')) bonus += faceDownUnder * val;
+                    else if (faceDownUnder > 0) bonus += val;
+                    continue;
+                }
+                // 6. 純常駐（例如突襲後常駐 発生エナジー+[緑]）
+                if (/^(?:\[レイド\])?この(?:キャラ|カード|フィールド)の発生エナジー\+\[/.test(line)) {
+                    const rt = this.getRuntime(cardEl);
+                    if (!line.startsWith('[レイド]') || (rt && rt.isRaided)) {
+                        bonus += val;
+                    }
+                }
+            }
+            return bonus;
+        }
+
+        computeAutoEnergyDiscount(cardDef) {
+            const eff = (cardDef?.effectText && cardDef.effectText !== '-') ? cardDef.effectText : '';
+            if (!eff || !eff.includes('必要エナジーを')) return 0;
+
+            let totalDiscount = 0;
+            const lines = eff.split('\n').map(l => l.trim()).filter(Boolean);
+            for (const line of lines) {
+                if (!line.includes('手札にあるこのカードの必要エナジーを') || !line.includes('減らす')) continue;
+                const valM = line.match(/必要エナジーを\[[^\]]*?(\d+)\]減らす/);
+                if (!valM) continue;
+                const val = parseInt(valM[1], 10) || 0;
+                if (val <= 0) continue;
+
+                // 1. 自己場上沒有任何卡片（66 張卡）
+                if (line.includes('自分の場にカードが1枚もない場合') || line.includes('自分の場にカードがない場合')) {
+                    if (this.getSlotTopCards('#my-front-line .slot, #my-energy-line .slot').length === 0) {
+                        totalDiscount += val;
+                    }
+                    continue;
+                }
+                // 2. 對手場上有指定顏色卡片（101 張卡）
+                const oppColM = line.match(/相手の場に([赤青緑黄紫])(?:か([赤青緑黄紫]))?のカードがある場合/);
+                if (oppColM) {
+                    const wantCols = [JP_COLOR_MAP[oppColM[1]], oppColM[2] ? JP_COLOR_MAP[oppColM[2]] : null].filter(Boolean);
+                    const hasOppCol = this.getSlotTopCards('#opp-front-line .slot, #opp-energy-line .slot').some(c => {
+                        if (c.classList.contains('is-flipped')) return false;
+                        const d = this.getCardDef(c);
+                        return d && wantCols.includes(d.color);
+                    });
+                    if (hasOppCol) totalDiscount += val;
+                    continue;
+                }
+                // 3. 自己場上沒有場域卡
+                if (line.includes('自分の場にフィールドがない場合')) {
+                    const hasField = this.getSlotTopCards('#my-energy-line .slot').some(c => this.getCardDef(c)?.type === 'FIELD');
+                    if (!hasField) totalDiscount += val;
+                    continue;
+                }
+                // 4. 自己場上有〈指定卡名〉
+                const myNameM = line.match(/自分の場に〈([^〉]+)〉がある場合/);
+                if (myNameM) {
+                    if (this.hasCharacterOnMyField(myNameM[1])) totalDiscount += val;
+                    continue;
+                }
+                // 5. 自己場上有［特徴：X］
+                const myTraitM = line.match(/自分の場に［特徴：([^］]+)］がある場合/);
+                if (myTraitM) {
+                    if (this.hasTraitOnMyField(myTraitM[1])) totalDiscount += val;
+                    continue;
+                }
+                // 6. 自己場外有〈指定卡名〉
+                const outNameM = line.match(/自分の場外に〈([^〉]+)〉がある場合/);
+                if (outNameM) {
+                    const target = outNameM[1].replace(/\s+/g, '');
+                    const hasOut = Array.from(document.querySelectorAll('#my-outside-area .card')).some(c => (this.getCardDef(c)?.name || '').replace(/\s+/g, '').includes(target));
+                    if (hasOut) totalDiscount += val;
+                    continue;
+                }
+                // 7. 場外每 N 張減 X
+                const outPerM = line.match(/自分の場外にあるカード(\d+)枚につき/);
+                if (outPerM) {
+                    const per = parseInt(outPerM[1], 10) || 1;
+                    const outCnt = document.querySelectorAll('#my-outside-area .card').length;
+                    totalDiscount += Math.floor(outCnt / per) * val;
+                    continue;
+                }
+                // 8. 雙方生命合計 <= N
+                const lifeSumM = line.match(/自分と相手のライフの合計が(\d+)以下の場合/);
+                if (lifeSumM) {
+                    const lim = parseInt(lifeSumM[1], 10) || 0;
+                    const myL = document.querySelectorAll('#my-life-area .card').length;
+                    const oppL = document.querySelectorAll('#opp-life-area .card').length;
+                    if (myL + oppL <= lim) totalDiscount += val;
+                    continue;
+                }
+                // 9. 無條件手牌減費
+                if (/^手札にあるこのカードの必要エナジーを/.test(line)) {
+                    totalDiscount += val;
+                }
+            }
+            return totalDiscount;
         }
 
         getActiveApCards() {
@@ -1853,7 +2013,9 @@ injectEngineUI() {
 
             const req = cardDef.requiredEnergy || { color: 'NONE', count: 0 };
             const script = this.getCardScriptById(cardDef.id);
-            const discount = (script && typeof script.getEnergyDiscount === 'function') ? (script.getEnergyDiscount(this, cardDef) || 0) : 0;
+            const scriptDiscount = (script && typeof script.getEnergyDiscount === 'function') ? (script.getEnergyDiscount(this, cardDef) || 0) : 0;
+            const autoDiscount = this.computeAutoEnergyDiscount(cardDef);
+            const discount = Math.max(scriptDiscount, autoDiscount);
             const neededCount = Math.max(0, req.count - discount);
             if (neededCount > 0 && req.color !== 'NONE') {
                 const myEn = this.calculateMyEnergy();
