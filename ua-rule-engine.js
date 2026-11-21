@@ -645,6 +645,132 @@ copyBugReportToClipboard(overrideCardEl = null) {
 /**
          * 將單條效果文拆解為嚴格有序的執行步驟 (支援選發代價、牌頂操作、位置移動、特召登場等 18 種動作)
          */
+        extractTargetFilters(clause) {
+            const filters = {
+                filterNames: [],
+                filterTraits: [],
+                filterColor: null,
+                minBp: null,
+                requireState: null
+            };
+            if (!clause) return filters;
+
+            // 指定卡名：〈...〉 或 カード名に「...」を含む
+            for (const m of clause.matchAll(/〈([^〉]+)〉/g)) {
+                if (m[1]) filters.filterNames.push(m[1].trim());
+            }
+            for (const m of clause.matchAll(/カード名に「([^」]+)」を含む/g)) {
+                if (m[1]) filters.filterNames.push(m[1].trim());
+            }
+
+            // 指定特徵：［特徴：...］ 或 特徴に「...」を持つ
+            for (const m of clause.matchAll(/［特徴：([^］]+)］/g)) {
+                if (m[1]) filters.filterTraits.push(m[1].trim());
+            }
+            for (const m of clause.matchAll(/特徴に「([^」]+)」を持つ/g)) {
+                if (m[1]) filters.filterTraits.push(m[1].trim());
+            }
+
+            // 指定顏色：赤の / 青の / 緑の / 黄の / 紫の
+            const colM = clause.match(/([赤青緑黄紫])の/);
+            if (colM && JP_COLOR_MAP[colM[1]]) {
+                filters.filterColor = JP_COLOR_MAP[colM[1]];
+            }
+
+            // BP 下限：BP(\d+)以上
+            const minBpM = clause.match(/BP(\d+)以上/);
+            if (minBpM) filters.minBp = parseInt(minBpM[1], 10);
+
+            // 狀態：アクティブの / レストの
+            if (clause.includes('アクティブの')) filters.requireState = 'ACTIVE';
+            else if (clause.includes('レストの')) filters.requireState = 'REST';
+
+            return filters;
+        }
+
+        matchesTargetFilters(cardEl, filters) {
+            if (!cardEl || !filters) return true;
+            const d = this.getCardDef(cardEl);
+            if (!d) return false;
+
+            if (filters.filterNames && filters.filterNames.length > 0) {
+                const cname = (d.name || '').replace(/\s+/g, '');
+                const ok = filters.filterNames.some(n => {
+                    const target = n.replace(/\s+/g, '');
+                    return cname.includes(target) || (d.name || '').includes(n);
+                });
+                if (!ok) return false;
+            }
+
+            if (filters.filterTraits && filters.filterTraits.length > 0) {
+                const traits = Array.isArray(d.traits) ? d.traits : [];
+                const ok = filters.filterTraits.some(t => traits.some(ct => ct.includes(t)));
+                if (!ok) return false;
+            }
+
+            if (filters.filterColor && d.color && d.color !== 'NONE' && d.color !== filters.filterColor) {
+                return false;
+            }
+
+            if (filters.minBp !== null && filters.minBp !== undefined) {
+                const bp = cardEl.parentElement && cardEl.parentElement.classList.contains('slot')
+                    ? this.getEffectiveCardBp(cardEl)
+                    : (d.bp || 0);
+                if (bp < filters.minBp) return false;
+            }
+
+            if (filters.requireState === 'ACTIVE' && cardEl.classList.contains('rest')) return false;
+            if (filters.requireState === 'REST' && !cardEl.classList.contains('rest')) return false;
+
+            return true;
+        }
+
+        promptOrderCardsToDeck(cards, dest = 'BOTTOM', onDone = null) {
+            const deckArea = document.getElementById('my-deck-area');
+            const list = (cards || []).filter(Boolean);
+            const placeOrdered = (ordered) => {
+                if (dest === 'TOP') {
+                    // ordered[0] 為最頂端 -> 最後 appendChild
+                    [...ordered].reverse().forEach(c => {
+                        deckArea.appendChild(c);
+                        c.classList.add('is-flipped');
+                        c.classList.remove('rest', 'in-life');
+                        c.style.position = 'absolute';
+                    });
+                } else {
+                    // ordered[0] 為最上面（較靠近牌組中央），最後一張為最底端 -> 先放 ordered[0] 再依序 insertBefore firstChild
+                    ordered.forEach(c => {
+                        deckArea.insertBefore(c, deckArea.firstChild);
+                        c.classList.add('is-flipped');
+                        c.classList.remove('rest', 'in-life');
+                        c.style.position = 'absolute';
+                    });
+                }
+                recalcStacking(deckArea);
+                updateSlotCounts();
+                broadcastMyState();
+                if (onDone) onDone();
+            };
+
+            if (list.length <= 1) {
+                placeOrdered(list);
+                return;
+            }
+
+            const isTop = dest === 'TOP';
+            this.promptModal({
+                title: `選擇放回牌組【${isTop ? '頂端' : '底部'}】的順序 (${list.length} 張)`,
+                desc: isTop
+                    ? `請依序點選卡片決定順序（1 = 最頂端，${list.length} = 最下面）：`
+                    : `請依序點選卡片決定順序（1 = 較上方，${list.length} = 最底端）：`,
+                cards: list,
+                selectCount: list.length,
+                upTo: false,
+                showOrderNumbers: true,
+                onConfirm: (ordered) => placeOrdered(ordered)
+            });
+        }
+
         compileSequentialClauses(rawLine) {
             const actions = [];
             if (!rawLine || rawLine === '-') return actions;
@@ -893,6 +1019,7 @@ copyBugReportToClipboard(overrideCardEl = null) {
                             const enLimit = clause.match(/必要エナジーが?(\d+)以下/);
                             const countM = clause.match(/(\d+)枚(まで)?/);
                             const excludeSelf = clause.includes('他のキャラ');
+                            const extraFilters = this.extractTargetFilters(clause);
                             actions.push({
                                 type: 'SELECT_TARGET',
                                 owner: isOpp ? 'OPP' : 'MY',
@@ -900,6 +1027,7 @@ copyBugReportToClipboard(overrideCardEl = null) {
                                 maxBp: bpLimit ? parseInt(bpLimit[1], 10) : null,
                                 maxEnergy: enLimit ? parseInt(enLimit[1], 10) : null,
                                 excludeSelf: excludeSelf,
+                                ...extraFilters,
                                 count: countM ? parseInt(countM[1], 10) : 1,
                                 upTo: clause.includes('まで'),
                                 conditions: sentenceConditions
@@ -939,11 +1067,13 @@ copyBugReportToClipboard(overrideCardEl = null) {
                         const fromOutside = clause.includes('場外から');
                         const maxEn = clause.match(/必要エナジーが?(\d+)以下/);
                         const enterRest = clause.includes('レストで');
+                        const extraFilters = this.extractTargetFilters(clause);
                         actions.push({
                             type: 'SPECIAL_SUMMON',
                             from: fromOutside ? 'OUTSIDE' : 'HAND',
                             maxEnergy: maxEn ? parseInt(maxEn[1], 10) : null,
                             enterRest: enterRest,
+                            ...extraFilters,
                             conditions: sentenceConditions
                         });
                         return;
@@ -1086,10 +1216,12 @@ copyBugReportToClipboard(overrideCardEl = null) {
                     if (clause.includes('自分の場外から') && clause.includes('手札に加える')) {
                         parsedAnyClauseInSentence = true;
                         const cm = clause.match(/(\d+)枚(まで)?手札に加える/);
+                        const extraFilters = this.extractTargetFilters(clause);
                         actions.push({
                             type: 'RECOVER_FROM_OUTSIDE',
                             count: cm ? parseInt(cm[1], 10) : 1,
                             upTo: cm ? !!cm[2] : true,
+                            ...extraFilters,
                             conditions: sentenceConditions
                         });
                         return;
@@ -2532,6 +2664,7 @@ injectEngineUI() {
                             if (act.maxEnergy !== null && act.maxEnergy !== undefined) {
                                 if ((d?.requiredEnergy?.count || 0) > act.maxEnergy) return false;
                             }
+                            if (!this.matchesTargetFilters(c, act)) return false;
                             return true;
                         });
 
@@ -2601,23 +2734,21 @@ injectEngineUI() {
                             upTo: isUpTo,
                             onConfirm: (keptOnTop) => {
                                 const rest = topCards.filter(c => !keptOnTop.includes(c));
-                                rest.forEach(c => {
-                                    if (act.remainderTo === 'OUTSIDE') {
-                                        this.moveCardToZone(c, outsideArea);
-                                    } else if (act.remainderTo === 'REMOVE') {
-                                        this.moveCardToZone(c, removeArea);
-                                    } else {
-                                        deckArea.insertBefore(c, deckArea.firstChild);
-                                        c.classList.add('is-flipped');
-                                    }
-                                });
-                                keptOnTop.reverse().forEach(c => {
-                                    deckArea.appendChild(c);
-                                    c.classList.add('is-flipped');
-                                });
-                                recalcStacking(deckArea);
-                                sendSystemChat(`[規則引擎] 對手檢視牌頂 ${lookCount} 張，將 ${keptOnTop.length} 張置於牌頂、${rest.length} 張置於${destLabel}。`);
-                                next();
+                                const finishTop = () => {
+                                    this.promptOrderCardsToDeck(keptOnTop, 'TOP', () => {
+                                        sendSystemChat(`[規則引擎] 對手檢視牌頂 ${lookCount} 張，將 ${keptOnTop.length} 張置於牌頂、${rest.length} 張置於${destLabel}。`);
+                                        next();
+                                    });
+                                };
+                                if (act.remainderTo === 'OUTSIDE') {
+                                    rest.forEach(c => this.moveCardToZone(c, outsideArea));
+                                    finishTop();
+                                } else if (act.remainderTo === 'REMOVE') {
+                                    rest.forEach(c => this.moveCardToZone(c, removeArea));
+                                    finishTop();
+                                } else {
+                                    this.promptOrderCardsToDeck(rest, 'BOTTOM', finishTop);
+                                }
                             }
                         });
                         break;
@@ -2689,6 +2820,7 @@ injectEngineUI() {
                             const d = this.getCardDef(c);
                             if (!d || d.type !== 'CHARACTER') return false;
                             if (act.maxEnergy !== null && (d.requiredEnergy?.count || 0) > act.maxEnergy) return false;
+                            if (!this.matchesTargetFilters(c, act)) return false;
                             return true;
                         });
                         if (candidates.length === 0) {
@@ -2966,22 +3098,20 @@ injectEngineUI() {
                                     }
                                 });
                                 const restCards = topCards.filter(c => !picked.includes(c));
-                                restCards.forEach(c => {
-                                    if (act.remainderTo === 'OUTSIDE') {
-                                        this.moveCardToZone(c, outsideArea);
-                                    } else if (act.remainderTo === 'REMOVE') {
-                                        this.moveCardToZone(c, removeArea);
-                                    } else if (act.remainderTo === 'TOP') {
-                                        deckArea.appendChild(c);
-                                        c.classList.add('is-flipped');
-                                    } else {
-                                        deckArea.insertBefore(c, deckArea.firstChild);
-                                        c.classList.add('is-flipped');
-                                    }
-                                });
-                                recalcStacking(deckArea);
                                 if (!isPickOutside) taskContext.addedFromLook = picked.length > 0;
-                                next();
+                                if (act.remainderTo === 'OUTSIDE') {
+                                    restCards.forEach(c => this.moveCardToZone(c, outsideArea));
+                                    recalcStacking(deckArea);
+                                    next();
+                                } else if (act.remainderTo === 'REMOVE') {
+                                    restCards.forEach(c => this.moveCardToZone(c, removeArea));
+                                    recalcStacking(deckArea);
+                                    next();
+                                } else if (act.remainderTo === 'TOP') {
+                                    this.promptOrderCardsToDeck(restCards, 'TOP', next);
+                                } else {
+                                    this.promptOrderCardsToDeck(restCards, 'BOTTOM', next);
+                                }
                             }
                         });
                         break;
@@ -2990,7 +3120,9 @@ injectEngineUI() {
                     case 'RECOVER_FROM_OUTSIDE': {
                         const outsideCards = Array.from(document.querySelectorAll('#my-outside-area .card')).filter(c => {
                             const d = this.getCardDef(c);
-                            return d && d.type === 'CHARACTER';
+                            if (!d || d.type !== 'CHARACTER') return false;
+                            if (!this.matchesTargetFilters(c, act)) return false;
+                            return true;
                         });
                         if (outsideCards.length === 0) {
                             showSysMsg('ℹ️ 場外目前沒有可回收的角色卡。');
@@ -4071,17 +4203,17 @@ injectEngineUI() {
                 });
             };
 
-            cards.forEach(cardEl => {
+            const createCardWrapper = (cardEl, sizeW = 110, sizeH = 154) => {
                 const def = this.getCardDef(cardEl);
                 const imgUrl = cardEl.querySelector('.card-front img')?.src || def?.imageUrl || '';
                 const selectable = cardFilterFn ? cardFilterFn(cardEl) : true;
 
                 const wrapper = document.createElement('div');
                 wrapper.style.cssText = `
-                    width: 110px; height: 154px; border-radius: 8px; overflow: hidden;
+                    width: ${sizeW}px; height: ${sizeH}px; border-radius: 8px; overflow: hidden;
                     border: 3px solid ${selectable ? 'rgba(255,255,255,0.25)' : 'rgba(255,0,0,0.2)'};
                     opacity: ${selectable ? '1' : '0.4'}; cursor: ${selectable ? 'pointer' : 'not-allowed'};
-                    transition: 0.2s; position: relative;
+                    transition: 0.2s; position: relative; flex-shrink: 0;
                 `;
                 wrapper.innerHTML = `<img src="${imgUrl}" style="width:100%; height:100%; object-fit:cover;">`;
                 wrapperMap.set(cardEl, wrapper);
@@ -4097,9 +4229,9 @@ injectEngineUI() {
                             if (selectedList.length >= selectCount) {
                                 if (selectCount === 1) {
                                     selectedList.length = 0;
-                                    Array.from(cardsBox.children).forEach(ch => {
-                                        ch.style.borderColor = 'rgba(255,255,255,0.25)';
-                                        ch.style.transform = 'scale(1)';
+                                    wrapperMap.forEach(w => {
+                                        w.style.borderColor = 'rgba(255,255,255,0.25)';
+                                        w.style.transform = 'scale(1)';
                                     });
                                 } else {
                                     return;
@@ -4115,8 +4247,70 @@ injectEngineUI() {
                         }
                     };
                 }
-                cardsBox.appendChild(wrapper);
-            });
+                return wrapper;
+            };
+
+            // 若所有候選卡皆位於場上卡槽（前線／能源線），自動依實際盤面位置（前線 4 格／能源線 4 格）排版
+            const fieldSlotPat = /^(my|opp)-(fl|en)-([1-4])$/;
+            const isFieldSelection = cards.length > 0 && cards.every(c => c && c.parentElement && fieldSlotPat.test(c.parentElement.id || ''));
+
+            if (isFieldSelection) {
+                const slotToCard = new Map();
+                let hasMy = false, hasOpp = false;
+                cards.forEach(c => {
+                    const sid = c.parentElement.id;
+                    slotToCard.set(sid, c);
+                    if (sid.startsWith('my-')) hasMy = true;
+                    if (sid.startsWith('opp-')) hasOpp = true;
+                });
+
+                const buildFieldRow = (label, slotIds, accentColor) => {
+                    const hasAnyInRow = slotIds.some(sid => slotToCard.has(sid));
+                    if (!hasAnyInRow) return null;
+                    const rowWrap = document.createElement('div');
+                    rowWrap.style.cssText = 'width:100%; display:flex; flex-direction:column; align-items:center; gap:6px; margin-bottom:6px;';
+                    const lbl = document.createElement('div');
+                    lbl.textContent = label;
+                    lbl.style.cssText = `font-size:12px; font-weight:900; color:${accentColor}; letter-spacing:1px;`;
+                    rowWrap.appendChild(lbl);
+
+                    const grid = document.createElement('div');
+                    grid.style.cssText = 'display:grid; grid-template-columns:repeat(4, 96px); gap:10px; justify-content:center;';
+                    slotIds.forEach(sid => {
+                        const c = slotToCard.get(sid);
+                        if (c) {
+                            grid.appendChild(createCardWrapper(c, 96, 134));
+                        } else {
+                            const empty = document.createElement('div');
+                            empty.style.cssText = 'width:96px; height:134px; border-radius:8px; border:2px dashed rgba(255,255,255,0.14); background:rgba(255,255,255,0.03); display:flex; align-items:center; justify-content:center; font-size:11px; color:#555;';
+                            empty.textContent = '空';
+                            grid.appendChild(empty);
+                        }
+                    });
+                    rowWrap.appendChild(grid);
+                    return rowWrap;
+                };
+
+                const boardWrap = document.createElement('div');
+                boardWrap.style.cssText = 'width:100%; display:flex; flex-direction:column; gap:6px; align-items:center;';
+                if (hasOpp) {
+                    const oppEn = buildFieldRow('對手 能源線 (ENERGY LINE)', ['opp-en-4', 'opp-en-3', 'opp-en-2', 'opp-en-1'], '#f39c12');
+                    const oppFl = buildFieldRow('對手 前線 (FRONT LINE)', ['opp-fl-4', 'opp-fl-3', 'opp-fl-2', 'opp-fl-1'], '#e74c3c');
+                    if (oppEn) boardWrap.appendChild(oppEn);
+                    if (oppFl) boardWrap.appendChild(oppFl);
+                }
+                if (hasMy) {
+                    const myFl = buildFieldRow('我方 前線 (FRONT LINE)', ['my-fl-1', 'my-fl-2', 'my-fl-3', 'my-fl-4'], '#6fb897');
+                    const myEn = buildFieldRow('我方 能源線 (ENERGY LINE)', ['my-en-1', 'my-en-2', 'my-en-3', 'my-en-4'], '#6c93c7');
+                    if (myFl) boardWrap.appendChild(myFl);
+                    if (myEn) boardWrap.appendChild(myEn);
+                }
+                cardsBox.appendChild(boardWrap);
+            } else {
+                cards.forEach(cardEl => {
+                    cardsBox.appendChild(createCardWrapper(cardEl, 110, 154));
+                });
+            }
 
             let confirmBtn = null;
             if (onConfirm) {
