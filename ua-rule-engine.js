@@ -8,9 +8,10 @@
  * 5. 內建「未知特殊句型半自動結算輔助視窗」，確保全卡池 100% 卡片登場時皆有反應！
  */
 (function () {
-    const COLOR_NAMES = { RED: '紅', BLUE: '藍', GREEN: '綠', YELLOW: '黃', PURPLE: '紫', NONE: '無' };
-    const COLOR_HEX = { RED: '#e74c3c', BLUE: '#3498db', GREEN: '#2ecc71', YELLOW: '#f1c40f', PURPLE: '#9b59b6', NONE: '#95a5a6' };
-    const JP_COLOR_MAP = { '赤': 'RED', '青': 'BLUE', '緑': 'GREEN', '黄': 'YELLOW', '紫': 'PURPLE' };
+    const U = window.UAUtils || {};
+    const COLOR_NAMES = U.COLOR_ZH || { RED: '紅', BLUE: '藍', GREEN: '綠', YELLOW: '黃', PURPLE: '紫', NONE: '無' };
+    const COLOR_HEX = U.COLOR_HEX || { RED: '#e74c3c', BLUE: '#3498db', GREEN: '#2ecc71', YELLOW: '#f1c40f', PURPLE: '#9b59b6', NONE: '#95a5a6' };
+    const JP_COLOR_MAP = U.JP_COLOR_MAP || { '赤': 'RED', '青': 'BLUE', '緑': 'GREEN', '黄': 'YELLOW', '紫': 'PURPLE' };
 
     class UARuleEngine {
 constructor() {
@@ -300,54 +301,43 @@ copyBugReportToClipboard(overrideCardEl = null) {
             return report;
         }
         getBaseCardId(id) {
-            if (!id) return '';
-            return id.replace(/([\/_](p\d+|s|sp\d*)|★)+$/i, '');
+            return window.UAUtils ? window.UAUtils.getBaseCardId(id) : (id ? id.replace(/([\/_](p\d+|s|sp\d*)|★)+$/i, '') : '');
         }
 
         getZhEntry(defOrId) {
-            const map = window.UA_ZH_MAP;
-            if (!map || !defOrId) return null;
-            const rawId = typeof defOrId === 'string' ? defOrId : defOrId.id;
-            if (!rawId) return null;
-            const base = this.getBaseCardId(rawId);
-            if (map[base]) return map[base];
-            if (map[rawId]) return map[rawId];
-            return null;
+            return window.UAUtils ? window.UAUtils.getZhEntry(defOrId) : null;
         }
 
         getDisplayName(def) {
-            if (!def) return '';
-            const zh = this.getZhEntry(def);
-            return (zh && zh.name) ? zh.name : (def.name || def.id || '');
+            return window.UAUtils ? window.UAUtils.getDisplayName(def) : (def?.name || def?.id || '');
         }
 
         getDisplayEffectText(def) {
-            if (!def) return '';
-            const zh = this.getZhEntry(def);
-            return (zh && zh.effectText) ? zh.effectText : (def.effectText || '');
+            return window.UAUtils ? window.UAUtils.getDisplayEffectText(def) : (def?.effectText || '');
         }
 
         getDisplayTriggerText(def) {
-            if (!def) return '';
-            const zh = this.getZhEntry(def);
-            return (zh && zh.triggerText) ? zh.triggerText : (def.triggerText || '');
+            return window.UAUtils ? window.UAUtils.getDisplayTriggerText(def) : (def?.triggerText || '');
         }
 
 // 極速索引初始化：只建 Map 參照，不修改原物件、不做深拷貝
         initCatalog() {
+            this.resolvedDefCache.clear();
+            if (window.UAUtils) {
+                window.UAUtils.ensureCatalogIndex();
+                this.catalogMap = window.UAUtils.catalogById;
+                this.baseIdMap = window.UAUtils.catalogByBaseId;
+                return;
+            }
             if (typeof masterCardCatalog === 'undefined') return;
             this.catalogMap.clear();
             this.baseIdMap.clear();
-            this.resolvedDefCache.clear();
-
             for (let i = 0; i < masterCardCatalog.length; i++) {
                 const c = masterCardCatalog[i];
                 this.catalogMap.set(c.id, c);
                 if (c.color && c.color !== 'NONE' && (c.bp !== null || c.effectText)) {
                     const baseId = this.getBaseCardId(c.id);
-                    if (!this.baseIdMap.has(baseId)) {
-                        this.baseIdMap.set(baseId, c);
-                    }
+                    if (!this.baseIdMap.has(baseId)) this.baseIdMap.set(baseId, c);
                 }
             }
         }
@@ -1358,8 +1348,8 @@ injectEngineUI() {
                     pointer-events: auto; width: 140px; box-sizing: border-box; line-height: 1.45;
                 `;
                 infoHud.innerHTML = `<div style="color:#b39ddb; font-weight:bold; border-bottom:1px solid rgba(255,255,255,0.15); padding-bottom:3px; margin-bottom:4px; text-align:center;">公開資訊</div><div id="ua-pub-info-body">載入中...</div>`;
-                const vp = document.getElementById('board-viewport');
-                if (vp) vp.appendChild(infoHud);
+                const stack = document.getElementById('hud-right-stack') || document.getElementById('board-viewport');
+                if (stack) stack.appendChild(infoHud);
             }
 
             if (!document.getElementById('ua-prompt-modal')) {
