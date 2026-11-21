@@ -80,8 +80,19 @@
                     }
                 } else if (act.type === 'GRANT_KEYWORD') {
                     score += 1100;
-                } else if (act.type === 'LOOK_TOP_DECK' || act.type === 'RECOVER_FROM_OUTSIDE') {
+                } else if (act.type === 'LOOK_TOP_DECK' || act.type === 'RECOVER_FROM_OUTSIDE' || act.type === 'LOOK_AND_ARRANGE_TOP') {
                     score += 900;
+                } else if (act.type === 'SPECIAL_SUMMON') {
+                    score += 2200;
+                } else if (act.type === 'OPP_DISCARD_HAND') {
+                    score += (act.count || 1) * 1400;
+                } else if (act.type === 'BOOST_GENERATED_ENERGY') {
+                    score += (state.calculateEnergy().ALL < getTargetEnergyNeeded(state)) ? 1600 : 200;
+                } else if (act.type === 'PUT_DECK_TOP_UNDER_SELF') {
+                    score += 700;
+                } else if (act.type === 'CHOOSE_ONE_BRANCH') {
+                    const bestOpt = Math.max(0, ...(act.options || []).map(o => this.estimateActionsValue(state, o.actions)));
+                    score += bestOpt;
                 } else if (act.type === 'OPTIONAL_COST_BRANCH') {
                     const subVal = this.estimateActionsValue(state, act.thenActions);
                     if (subVal > 500) score += subVal * 0.5;

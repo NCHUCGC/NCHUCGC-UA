@@ -504,7 +504,10 @@
                 if (act.conditions && act.conditions.length > 0) {
                     const ok = act.conditions.every(cond => {
                         if (cond.type === 'SELF_IS_ACTIVE') return !sourceCard.isRest;
+                        if (cond.type === 'SELF_IS_REST') return !!sourceCard.isRest;
+                        if (cond.type === 'OPP_HAS_LOWERED_BP') return FRONT_SLOTS.some(s => (this.playerMirror.front[s]?.bpMod || 0) < 0);
                         if (cond.type === 'HAS_CHAR_ON_FIELD') return this.hasCharacterOnMyField(cond.name);
+                        if (cond.type === 'HAS_ANY_CHAR_ON_FIELD') return (cond.names || []).some(n => this.hasCharacterOnMyField(n));
                         if (cond.type === 'HAS_TRAIT_ON_FIELD') return this.hasTraitOnMyField(cond.trait);
                         if (cond.type === 'IF_ADDED_TO_HAND') return !!ctx.addedFromLook;
                         return true;
@@ -513,6 +516,26 @@
                 }
 
                 switch (act.type) {
+                    case 'CHOOSE_ONE_BRANCH': {
+                        const opts = act.options || [];
+                        if (opts.length === 0) break;
+                        let chosen = opts[0];
+                        if (difficulty === 'random') {
+                            chosen = opts[Math.floor(Math.random() * opts.length)];
+                        } else if (brain && typeof brain.estimateActionsValue === 'function') {
+                            let bestScore = -Infinity;
+                            opts.forEach(opt => {
+                                const sc = brain.estimateActionsValue(this, opt.actions || []);
+                                if (sc > bestScore) { bestScore = sc; chosen = opt; }
+                            });
+                        }
+                        if (chosen && chosen.actions) {
+                            logs.push(`[電腦效果] 【${sourceCard.def.name}】選擇發動：${chosen.label}`);
+                            this.executeActionList(sourceCard, sourceSlotId, chosen.actions, ctx, brain, difficulty, outgoingEvents, logs);
+                        }
+                        break;
+                    }
+
                     case 'OPTIONAL_COST_BRANCH': {
                         const cost = act.cost;
                         if (!cost || !act.thenActions || act.thenActions.length === 0) break;
@@ -540,12 +563,24 @@
 
                     case 'SELECT_TARGET': {
                         const count = act.count || 1;
+                        let effectiveMaxBp = act.maxBp;
+                        if (Array.isArray(act.bpUpgrades)) {
+                            act.bpUpgrades.forEach(up => {
+                                const upOk = (up.conditions || []).every(cond => {
+                                    if (cond.type === 'HAS_CHAR_ON_FIELD') return this.hasCharacterOnMyField(cond.name);
+                        if (cond.type === 'HAS_ANY_CHAR_ON_FIELD') return (cond.names || []).some(n => this.hasCharacterOnMyField(n));
+                                    if (cond.type === 'HAS_TRAIT_ON_FIELD') return this.hasTraitOnMyField(cond.trait);
+                                    return true;
+                                });
+                                if (upOk) effectiveMaxBp = effectiveMaxBp != null ? Math.max(effectiveMaxBp, up.maxBp) : up.maxBp;
+                            });
+                        }
                         if (act.owner === 'OPP') {
                             const cands = FRONT_SLOTS
                                 .map(sid => this.playerMirror.front[sid])
                                 .filter(p => {
                                     if (!p) return false;
-                                    if (act.maxBp !== null && act.maxBp !== undefined && p.effectiveBp > act.maxBp) return false;
+                                    if (effectiveMaxBp !== null && effectiveMaxBp !== undefined && p.effectiveBp > effectiveMaxBp) return false;
                                     if (act.minBp !== null && act.minBp !== undefined && p.effectiveBp < act.minBp) return false;
                                     if (act.requireState === 'ACTIVE' && p.isRest) return false;
                                     if (act.requireState === 'REST' && !p.isRest) return false;
@@ -595,6 +630,29 @@
                             milled++;
                         }
                         if (milled > 0) logs.push(`[電腦效果] 【${sourceCard.def.name}】將牌頂 ${milled} 張送場外`);
+                        break;
+                    }
+
+                    case 'PUT_DECK_TOP_UNDER_SELF': {
+                        const arr = sourceSlotId ? this.getSlotArray(sourceSlotId) : null;
+                        if (arr && arr.length > 0) {
+                            let placed = 0;
+                            for (let i = 0; i < (act.count || 1) && this.deck.length > 0; i++) {
+                                const c = this.deck.pop();
+                                c.isFlipped = true;
+                                c.isRest = false;
+                                arr.unshift(c);
+                                placed++;
+                            }
+                            if (placed > 0) logs.push(`[電腦效果] 【${sourceCard.def.name}】將牌頂 ${placed} 張以裏側置於下方`);
+                        }
+                        break;
+                    }
+
+                    case 'OPP_DISCARD_HAND': {
+                        const cnt = Math.max(1, act.count || 1);
+                        outgoingEvents.push({ type: 'ENGINE_EVENT', subType: 'FORCE_DISCARD_HAND', count: cnt });
+                        logs.push(`[電腦效果] 【${sourceCard.def.name}】要求玩家捨棄 ${cnt} 張手牌！`);
                         break;
                     }
 
@@ -662,15 +720,29 @@
                     }
 
                     case 'BOUNCE_TO_HAND': {
-                        ctx.selectedTargets.forEach(t => {
-                            if (t.owner === 'OPP') {
-                                outgoingEvents.push({ type: 'ENGINE_EVENT', subType: 'FORCE_BOUNCE_SLOT', slotId: t.slotId });
-                                this.playerMirror.front[t.slotId] = null;
-                                logs.push(`[電腦效果] 【${sourceCard.def.name}】將我方前線角色退回手牌！`);
-                            } else {
-                                this.forceMoveSlotCard(t.slotId, 'HAND');
+                        if (act.target === 'SELECTED' && ctx.selectedTargets.length > 0) {
+                            ctx.selectedTargets.forEach(t => {
+                                if (t.owner === 'OPP') {
+                                    outgoingEvents.push({ type: 'ENGINE_EVENT', subType: 'FORCE_BOUNCE_SLOT', slotId: t.slotId });
+                                    this.playerMirror.front[t.slotId] = null;
+                                    logs.push(`[電腦效果] 【${sourceCard.def.name}】將我方前線角色退回手牌！`);
+                                } else {
+                                    this.forceMoveSlotCard(t.slotId, 'HAND');
+                                }
+                            });
+                        } else if (act.target === 'MY_OTHER') {
+                            const others = [...FRONT_SLOTS, ...ENERGY_SLOTS]
+                                .map(sid => ({ sid, card: this.getSlotTop(sid) }))
+                                .filter(x => x.card && x.card !== sourceCard && x.card.def?.type === 'CHARACTER' &&
+                                    (!act.maxRequiredEnergy || (x.card.def.requiredEnergy?.count || 0) <= act.maxRequiredEnergy));
+                            if (others.length > 0) {
+                                this.forceMoveSlotCard(others[0].sid, 'HAND');
+                                logs.push(`[電腦效果] 【${sourceCard.def.name}】將 1 張場上角色退回手牌`);
+                            } else if (act.selfFallback && sourceSlotId) {
+                                this.forceMoveSlotCard(sourceSlotId, 'HAND');
+                                logs.push(`[電腦效果] 【${sourceCard.def.name}】無其他目標，返回手牌`);
                             }
-                        });
+                        }
                         break;
                     }
 
@@ -698,7 +770,20 @@
 
                     case 'SET_REST': {
                         const targets = act.target === 'SELECTED' ? ctx.selectedTargets : [{ owner: 'MY', slotId: sourceSlotId, card: sourceCard }];
+                        const upgradeRetire = Array.isArray(act.upgradeToRetireConditions) && act.upgradeToRetireConditions.length > 0 &&
+                            act.upgradeToRetireConditions.every(cond => {
+                                if (cond.type === 'HAS_CHAR_ON_FIELD') return this.hasCharacterOnMyField(cond.name);
+                        if (cond.type === 'HAS_ANY_CHAR_ON_FIELD') return (cond.names || []).some(n => this.hasCharacterOnMyField(n));
+                                if (cond.type === 'HAS_TRAIT_ON_FIELD') return this.hasTraitOnMyField(cond.trait);
+                                return true;
+                            });
                         targets.forEach(t => {
+                            if (upgradeRetire && t.owner === 'OPP') {
+                                outgoingEvents.push({ type: 'ENGINE_EVENT', subType: 'FORCE_RETIRE_SLOT', slotId: t.slotId });
+                                this.playerMirror.front[t.slotId] = null;
+                                logs.push(`[電腦效果] 【${sourceCard.def.name}】滿足條件升級，使我方前線角色退場！`);
+                                return;
+                            }
                             if (t.owner === 'OPP') {
                                 outgoingEvents.push({ type: 'ENGINE_EVENT', subType: 'FORCE_REST_SLOT', slotId: t.slotId });
                                 if (this.playerMirror.front[t.slotId]) this.playerMirror.front[t.slotId].isRest = true;
@@ -788,6 +873,103 @@
                             this.hand.push(c);
                         });
                         if (picked.length > 0) logs.push(`[電腦效果] 【${sourceCard.def.name}】從場外回收了 ${picked.length} 張角色`);
+                        break;
+                    }
+
+                    case 'SPECIAL_SUMMON': {
+                        const pool = act.from === 'OUTSIDE' ? this.outside : this.hand;
+                        const cands = pool
+                            .filter(c => {
+                                if (!c.def || c.def.type !== 'CHARACTER') return false;
+                                if (act.maxEnergy !== null && act.maxEnergy !== undefined && (c.def.requiredEnergy?.count || 0) > act.maxEnergy) return false;
+                                return this.matchesFilters(c.def, act);
+                            })
+                            .sort((a, b) => (b.def?.bp || 0) - (a.def?.bp || 0));
+                        if (cands.length === 0) break;
+
+                        const emptyFront = FRONT_SLOTS.find(s => this.front[s].length === 0);
+                        const emptyEnergy = ENERGY_SLOTS.find(s => this.energy[s].length === 0);
+                        const destSlot = emptyFront || emptyEnergy;
+                        if (!destSlot) break;
+
+                        const chosen = cands[0];
+                        const idx = pool.indexOf(chosen);
+                        if (idx !== -1) pool.splice(idx, 1);
+                        chosen.isFlipped = false;
+                        chosen.isRest = !!act.enterRest;
+                        chosen.isRaided = false;
+
+                        if (FRONT_SLOTS.includes(destSlot)) this.front[destSlot].push(chosen);
+                        else this.energy[destSlot].push(chosen);
+                        logs.push(`[電腦效果] 【${sourceCard.def.name}】從${act.from === 'OUTSIDE' ? '場外' : '手牌'}特殊登場了【${chosen.def.name}】`);
+                        break;
+                    }
+
+                    case 'LOOK_AND_ARRANGE_TOP': {
+                        const lookCnt = Math.min(act.count || 1, this.deck.length);
+                        if (lookCnt === 0) break;
+                        const topCards = [];
+                        for (let i = 0; i < lookCnt; i++) topCards.push(this.deck.pop());
+                        topCards.sort((a, b) => (b.def?.bp || 0) - (a.def?.bp || 0));
+
+                        const maxKeep = act.keepUpTo !== undefined ? Math.min(act.keepUpTo, lookCnt) : lookCnt;
+                        const keepCnt = act.remainderTo === 'TOP' ? lookCnt : Math.min(maxKeep, Math.max(1, Math.ceil(lookCnt / 2)));
+                        const kept = topCards.slice(0, keepCnt);
+                        const rest = topCards.slice(keepCnt);
+
+                        rest.forEach(c => {
+                            if (act.remainderTo === 'OUTSIDE') { c.isFlipped = false; this.outside.push(c); }
+                            else if (act.remainderTo === 'REMOVE') { c.isFlipped = false; this.remove.push(c); }
+                            else { c.isFlipped = true; this.deck.unshift(c); }
+                        });
+                        [...kept].reverse().forEach(c => {
+                            c.isFlipped = true;
+                            this.deck.push(c);
+                        });
+                        logs.push(`[電腦效果] 【${sourceCard.def.name}】檢視並調整了牌組頂端 ${lookCnt} 張`);
+                        break;
+                    }
+
+                    case 'MOVE_LINE': {
+                        const targets = (act.target === 'SELECTED' && ctx.selectedTargets.length > 0)
+                            ? ctx.selectedTargets.filter(t => t.owner === 'MY')
+                            : (sourceSlotId ? [{ owner: 'MY', slotId: sourceSlotId, card: sourceCard }] : []);
+                        const destPool = act.toZone === 'FRONT_LINE' ? FRONT_SLOTS : ENERGY_SLOTS;
+                        targets.forEach(t => {
+                            if (!t.slotId) return;
+                            const isAlreadyInDest = destPool.includes(t.slotId);
+                            if (isAlreadyInDest) return;
+                            const emptyDest = destPool.find(s => (this.front[s] || this.energy[s]).length === 0);
+                            if (!emptyDest) return;
+                            const srcArr = this.getSlotArray(t.slotId);
+                            if (!srcArr || srcArr.length === 0) return;
+                            if (FRONT_SLOTS.includes(emptyDest)) this.front[emptyDest] = [...srcArr];
+                            else this.energy[emptyDest] = [...srcArr];
+                            srcArr.length = 0;
+                            if (this.bpMods.hasOwnProperty(t.slotId)) this.bpMods[t.slotId] = 0;
+                            logs.push(`[電腦效果] 【${t.card?.def?.name || sourceCard.def.name}】移動至${act.toZone === 'FRONT_LINE' ? '前線' : '能源線'}`);
+                        });
+                        break;
+                    }
+
+                    case 'BOOST_GENERATED_ENERGY': {
+                        if (sourceCard) {
+                            if (!Array.isArray(sourceCard.tempEnergyBoost)) sourceCard.tempEnergyBoost = [];
+                            sourceCard.tempEnergyBoost.push({ color: act.color || 'NONE', count: act.count || 1 });
+                            logs.push(`[電腦效果] 【${sourceCard.def.name}】本回合產生能源 +${act.count || 1}`);
+                        }
+                        break;
+                    }
+
+                    case 'DELAYED_SELF_RETIRE': {
+                        if (sourceCard) {
+                            sourceCard.retireAtEndOfMain = true;
+                        }
+                        break;
+                    }
+
+                    case 'GRANT_EVENT_AP_DISCOUNT': {
+                        logs.push(`[電腦效果] 【${sourceCard.def.name}】賦予本回合事件卡 AP 減免`);
                         break;
                     }
 

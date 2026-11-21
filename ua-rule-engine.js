@@ -533,12 +533,31 @@ copyBugReportToClipboard(overrideCardEl = null) {
         parseCardEffectTextToAbilities(effectText) {
             if (!effectText || effectText === '-') return [];
             const abilities = [];
-            const lines = effectText.split('\n').map(l => l.trim()).filter(Boolean);
+            const rawLines = effectText.split('\n').map(l => l.trim()).filter(Boolean);
+            const lines = [];
+            for (let i = 0; i < rawLines.length; i++) {
+                const l = rawLines[i];
+                if (l.startsWith('・') && lines.length > 0 && /以下から『?1つ』?(?:まで)?(選ぶ|得る)/.test(lines[lines.length - 1])) {
+                    lines[lines.length - 1] += '\n' + l;
+                } else {
+                    lines.push(l);
+                }
+            }
 
             lines.forEach(line => {
-                // 跳過純突襲條件行與純登場狀態行
+                // 跳過純突襲條件行、純登場狀態行與已由引擎常駐規則處理的被動敘述
                 if (line.startsWith('[レイド]') && line.includes('移動できる')) return;
                 if (line.includes('このフィールドはアクティブで場に登場させる')) return;
+                if (line.includes('手札にあるこのカードの必要エナジーを') && line.includes('減らす') && !/\[(登場時|アタック時|ブロック時|退場時|起動メイン)\]/.test(line)) return;
+                if (line.includes('このカードは全ての場所でイベントカードとしても扱う')) return;
+                if (/^このカードは〈[^〉]+〉としても(?:〈[^〉]+〉としても)?扱う。?$/.test(line)) return;
+                if (/^このキャラはフロントLに〔登場・移動〕できない。?$/.test(line)) return;
+                if (/^このキャラはBP\d+以上のキャラにブロックされない。?$/.test(line)) return;
+                if (/^このキャラはフロントLにある場合もエナジーを発生させる。?$/.test(line)) return;
+                if (/^このキャラはBPをマイナスする効果を受けない。?$/.test(line)) return;
+                if (/^このキャラはレイド以外で登場できない。?$/.test(line)) return;
+                if (/^このキャラは相手の効果で場を離れない。?$/.test(line)) return;
+                if (/^このカードの色と必要エナジーは、全ての色として扱う。?$/.test(line)) return;
 
                 // 移除括號補充說明 (保留中括號內的括號如 [インパクト（1）])
                 const cleanLine = line
@@ -614,6 +633,35 @@ copyBugReportToClipboard(overrideCardEl = null) {
                     depth = Math.max(0, depth - 1);
                     current += ch;
                 } else if (ch === '。' && depth === 0) {
+                    const trimmed = current.trim();
+                    if (trimmed) result.push(trimmed);
+                    current = '';
+                } else {
+                    current += ch;
+                }
+            }
+            const tail = current.trim();
+            if (tail) result.push(tail);
+            return result;
+        }
+
+        /**
+         * 依「、」切子句，但忽略「」與『』內部的「、」（避免「メインフェイズ終了時、このキャラを退場させる。」被切斷誤判）
+         */
+        splitClausesOutsideQuotes(text) {
+            const result = [];
+            if (!text) return result;
+            let current = '';
+            let depth = 0;
+            for (let i = 0; i < text.length; i++) {
+                const ch = text[i];
+                if (ch === '「' || ch === '『') {
+                    depth++;
+                    current += ch;
+                } else if (ch === '」' || ch === '』') {
+                    depth = Math.max(0, depth - 1);
+                    current += ch;
+                } else if (ch === '、' && depth === 0) {
                     const trimmed = current.trim();
                     if (trimmed) result.push(trimmed);
                     current = '';
@@ -776,6 +824,47 @@ copyBugReportToClipboard(overrideCardEl = null) {
 
             // ==================== 跨句號複合套餐優先提取 ====================
 
+            // 套餐 0：多選一分支（「以下から1つ選ぶ / 得る」＋「・選項1」「・選項2」）
+            if (cleanText.includes('\n・') && /以下から『?1つ』?(?:まで)?(選ぶ|得る)/.test(cleanText)) {
+                const parts = cleanText.split(/\n(?=・)/);
+                const headerPart = parts[0].trim();
+                const optionLines = parts.slice(1).map(s => s.replace(/^・\s*/, '').trim()).filter(Boolean);
+
+                // 將開頭的條件／前置動作與「以下から1つ選ぶ/得る」分離
+                const cleanedHeader = headerPart
+                    .replace(/このキャラはこのターン中、以下から1つを得る。?/g, '')
+                    .replace(/(?:そうした場合、)?以下から『?1つ』?(?:まで)?(選ぶ|得る)。?/g, '')
+                    .replace(/このターン中に〈[^〉]+〉が既に選んだ効果は選べない。?/g, '')
+                    .replace(/このキャラが登場したターン中のみ発動できる。?/g, '')
+                    .trim();
+
+                const headerConditions = [];
+                if (headerPart.includes('元々のBPよりBPが低いキャラがある場合')) {
+                    headerConditions.push({ type: 'OPP_HAS_LOWERED_BP' });
+                }
+                if (cleanedHeader.length > 2) {
+                    const preActs = this.compileSequentialClauses(cleanedHeader);
+                    preActs.forEach(a => {
+                        if (a.type !== 'INTERACTIVE_FALLBACK') actions.push(a);
+                    });
+                }
+
+                const options = optionLines.map(optRaw => ({
+                    label: optRaw.length > 42 ? optRaw.slice(0, 42) + '…' : optRaw,
+                    rawText: optRaw,
+                    actions: this.compileSequentialClauses(optRaw)
+                }));
+
+                if (options.length > 0) {
+                    actions.push({
+                        type: 'CHOOSE_ONE_BRANCH',
+                        options,
+                        conditions: headerConditions
+                    });
+                }
+                return actions;
+            }
+
             // 套餐 1：選發代價套餐（「～てもよい。そうした場合、...」）
             const optCostMatch = cleanText.match(/^((?:[^。]|「[^」]*」|『[^』]*』)+?てもよい)。そうした場合、([\s\S]+)$/);
             if (optCostMatch) {
@@ -908,10 +997,33 @@ copyBugReportToClipboard(overrideCardEl = null) {
             // ==================== 逐句 (。) 與逐逗號 (、) 拆解 ====================
 
             const sentences = this.splitSentencesOutsideQuotes(cleanText);
+            const abilityGateConditions = [];
 
             sentences.forEach(sentence => {
-                const sentenceConditions = [];
+                const sentenceConditions = [...abilityGateConditions];
                 let body = sentence.replace(/^・\s*/, '').trim();
+
+                // 跳過「〈X〉のこの効果は1ターンに1回のみ発動できる/する」與純發動前提句
+                if (/^〈[^〉]+〉のこの効果は1ターンに1回のみ発動/.test(body)) {
+                    return;
+                }
+                if (body === 'このキャラがレストの場合のみ発動できる') {
+                    abilityGateConditions.push({ type: 'SELF_IS_REST' });
+                    return;
+                }
+                const useOnlyCharM = body.match(/^このカードは自分の場に〈([^〉]+)〉(?:と〈([^〉]+)〉)?がある場合のみ使用できる$/);
+                if (useOnlyCharM) {
+                    abilityGateConditions.push({ type: 'HAS_CHAR_ON_FIELD', name: useOnlyCharM[1] });
+                    if (useOnlyCharM[2]) abilityGateConditions.push({ type: 'HAS_CHAR_ON_FIELD', name: useOnlyCharM[2] });
+                    return;
+                }
+                // 手牌條件減費句與全色視為句（若與事件卡正文在同一段）直接略過
+                if (body.includes('手札にあるこのカードの必要エナジーを') && body.includes('減らす')) {
+                    return;
+                }
+                if (body === 'このカードの色と必要エナジーは、全ての色として扱う') {
+                    return;
+                }
 
                 // 提取句子開頭條件
                 let condLoop = true;
@@ -922,9 +1034,16 @@ copyBugReportToClipboard(overrideCardEl = null) {
                         body = body.replace(/^(手札に)?加えた場合、/, '').trim();
                         condLoop = true;
                     }
-                    const charCond = body.match(/^自分の場に〈([^〉]+)〉がある場合、/);
+                    const charOrCond = body.match(/^自分の場に〈([^〉]+)〉か〈([^〉]+)〉がある場合、/);
+                    if (charOrCond) {
+                        sentenceConditions.push({ type: 'HAS_ANY_CHAR_ON_FIELD', names: [charOrCond[1], charOrCond[2]] });
+                        body = body.slice(charOrCond[0].length).trim();
+                        condLoop = true;
+                    }
+                    const charCond = body.match(/^自分の場に〈([^〉]+)〉(?:と〈([^〉]+)〉)?がある場合、/);
                     if (charCond) {
                         sentenceConditions.push({ type: 'HAS_CHAR_ON_FIELD', name: charCond[1] });
+                        if (charCond[2]) sentenceConditions.push({ type: 'HAS_CHAR_ON_FIELD', name: charCond[2] });
                         body = body.slice(charCond[0].length).trim();
                         condLoop = true;
                     }
@@ -942,6 +1061,52 @@ copyBugReportToClipboard(overrideCardEl = null) {
                     if (body.startsWith('その後、')) {
                         body = body.slice('その後、'.length).trim();
                         condLoop = true;
+                    }
+                }
+
+                // Special 條件升級句 1：『BP5000以下』に代わる
+                const bpUpgradeM = body.match(/^『BP(\d+)以下』に代わる$/);
+                if (bpUpgradeM) {
+                    for (let i = actions.length - 1; i >= 0; i--) {
+                        if (actions[i].type === 'SELECT_TARGET') {
+                            if (!actions[i].bpUpgrades) actions[i].bpUpgrades = [];
+                            actions[i].bpUpgrades.push({ conditions: sentenceConditions, maxBp: parseInt(bpUpgradeM[1], 10) });
+                            return;
+                        }
+                    }
+                }
+
+                // Special 條件升級句 2：『退場させる』に代わる（原本為レストにする）
+                if (body === '『退場させる』に代わる') {
+                    for (let i = actions.length - 1; i >= 0; i--) {
+                        if (actions[i].type === 'SET_REST') {
+                            actions[i].upgradeToRetireConditions = sentenceConditions;
+                            return;
+                        }
+                    }
+                }
+
+                // 事件卡 AP 減免句（含場外事件張數擴張範圍）
+                const evApDiscM = body.match(/次に手札から使用する必要エナジーが『?(\d+)』?以下のイベントカードの消費APを-(\d+)する/);
+                if (evApDiscM) {
+                    actions.push({
+                        type: 'GRANT_EVENT_AP_DISCOUNT',
+                        baseMaxEnergy: parseInt(evApDiscM[1], 10),
+                        amount: parseInt(evApDiscM[2], 10),
+                        perOutsideEvents: 0,
+                        energyStep: 0,
+                        conditions: sentenceConditions
+                    });
+                    return;
+                }
+                const evApScaleM = body.match(/自分の場外にあるイベントカード(\d+)枚につき、この効果で消費APを-\d+するイベントカードの必要エナジーの範囲\+(\d+)/);
+                if (evApScaleM) {
+                    for (let i = actions.length - 1; i >= 0; i--) {
+                        if (actions[i].type === 'GRANT_EVENT_AP_DISCOUNT') {
+                            actions[i].perOutsideEvents = parseInt(evApScaleM[1], 10);
+                            actions[i].energyStep = parseInt(evApScaleM[2], 10);
+                            return;
+                        }
                     }
                 }
 
@@ -972,7 +1137,7 @@ copyBugReportToClipboard(overrideCardEl = null) {
                 }
 
                 const sentenceAllTraitMatch = body.match(/自分の場の［特徴：([^］]+)］全て/);
-                const clauses = body.split('、').map(c => c.trim()).filter(Boolean);
+                const clauses = this.splitClausesOutsideQuotes(body);
                 let hasTargetSelectionInSentence = false;
                 let apTargetConfig = null;
                 let parsedAnyClauseInSentence = false;
@@ -996,7 +1161,7 @@ copyBugReportToClipboard(overrideCardEl = null) {
                     }
 
                     // 1. 選擇目標（「～を選び」/「～を選ぶ」）
-                    if (clause.includes('選び') || clause.includes('選ぶ')) {
+                    if ((clause.includes('選び') || clause.includes('選ぶ')) && !clause.includes('以下から') && !clause.includes('効果は選べない')) {
                         parsedAnyClauseInSentence = true;
                         if (clause.includes('APカード')) {
                             const m = clause.match(/(\d+)枚(まで)?/);
@@ -1040,6 +1205,22 @@ copyBugReportToClipboard(overrideCardEl = null) {
                     if (millM) {
                         parsedAnyClauseInSentence = true;
                         actions.push({ type: 'MILL_DECK', count: parseInt(millM[1], 10), conditions: sentenceConditions });
+                        return;
+                    }
+
+                    // 3.5 牌頂裏側置於自己下方（「自分の山札の上からX枚を裏向きでこのキャラの下に置く」）
+                    const underM = clause.match(/自分の山札の上から(\d+)枚を裏向きでこの(?:キャラ|カード)の下に置[きく]/);
+                    if (underM) {
+                        parsedAnyClauseInSentence = true;
+                        actions.push({ type: 'PUT_DECK_TOP_UNDER_SELF', count: parseInt(underM[1], 10), conditions: sentenceConditions });
+                        return;
+                    }
+
+                    // 3.6 對手棄牌（「相手は自身の手札をX枚場外に置く」）
+                    const oppDiscM = clause.match(/相手は自身の手札を『?(\d+)枚』?(?:まで)?場外に置[きく]/);
+                    if (oppDiscM) {
+                        parsedAnyClauseInSentence = true;
+                        actions.push({ type: 'OPP_DISCARD_HAND', count: parseInt(oppDiscM[1], 10), conditions: sentenceConditions });
                         return;
                     }
 
@@ -1125,7 +1306,25 @@ copyBugReportToClipboard(overrideCardEl = null) {
                         return;
                     }
 
-                    // 10. 退場（「退場させる」）
+                    // 10. 產生能源加成（優先於「退場させる」，避免「発生エナジー+[X]と「メインフェイズ終了時、このキャラを退場させる。」」被誤判成立刻退場）
+                    const enBoostM = clause.match(/発生エナジー\+\[([赤青緑黄紫]+)\]/);
+                    if (enBoostM) {
+                        parsedAnyClauseInSentence = true;
+                        const cStr = enBoostM[1];
+                        actions.push({
+                            type: 'BOOST_GENERATED_ENERGY',
+                            color: JP_COLOR_MAP[cStr[0]] || 'NONE',
+                            count: cStr.length,
+                            duration: sentence.includes('このターン中') ? 'TURN' : 'CONTINUOUS',
+                            conditions: sentenceConditions
+                        });
+                        if (clause.includes('メインフェイズ終了時、このキャラを退場させる') || clause.includes('メインフェイズ終了時、このフィールドを退場させる')) {
+                            actions.push({ type: 'DELAYED_SELF_RETIRE', timing: 'END_OF_MAIN', conditions: sentenceConditions });
+                        }
+                        return;
+                    }
+
+                    // 10.5 退場（「退場させる」）
                     if (clause.includes('退場させる')) {
                         parsedAnyClauseInSentence = true;
                         actions.push({
@@ -1154,7 +1353,7 @@ copyBugReportToClipboard(overrideCardEl = null) {
                     // 12. 賦予關鍵字
                     const kwMap = [
                         { tag: '[インパクト（1）]', alt: '[インパクト(1)]', kw: 'IMPACT', val: 1 },
-                        { tag: '[インパクト（+1）]', alt: '[インパクト(+1)]', kw: 'IMPACT_PLUS', val: 1 },
+                        { tag: 'インパクト（+1）', alt: 'インパクト(+1)', kw: 'IMPACT_PLUS', val: 1 },
                         { tag: '[ダメージ（2）]', alt: '[ダメージ(2)]', kw: 'DAMAGE', val: 2 },
                         { tag: '[ダメージ（+1）]', alt: '[ダメージ(+1)]', kw: 'DAMAGE_PLUS', val: 1 },
                         { tag: '[狙い撃ち]', alt: '[狙い撃ち]', kw: 'SNIPE', val: 1 },
@@ -1184,24 +1383,6 @@ copyBugReportToClipboard(overrideCardEl = null) {
                             target: hasTargetSelectionInSentence ? 'SELECTED' : 'SELF',
                             conditions: sentenceConditions
                         });
-                        return;
-                    }
-
-                    // 13. 產生能源加成
-                    const enBoostM = clause.match(/発生エナジー\+\[([赤青緑黄紫]+)\]/);
-                    if (enBoostM) {
-                        parsedAnyClauseInSentence = true;
-                        const cStr = enBoostM[1];
-                        actions.push({
-                            type: 'BOOST_GENERATED_ENERGY',
-                            color: JP_COLOR_MAP[cStr[0]] || 'NONE',
-                            count: cStr.length,
-                            duration: sentence.includes('このターン中') ? 'TURN' : 'CONTINUOUS',
-                            conditions: sentenceConditions
-                        });
-                        if (clause.includes('メインフェイズ終了時、このキャラを退場させる') || clause.includes('メインフェイズ終了時、このフィールドを退場させる')) {
-                            actions.push({ type: 'DELAYED_SELF_RETIRE', timing: 'END_OF_MAIN', conditions: sentenceConditions });
-                        }
                         return;
                     }
 
@@ -1583,6 +1764,12 @@ injectEngineUI() {
                     const myL = document.querySelectorAll('#my-life-area .card').length;
                     const oppL = document.querySelectorAll('#opp-life-area .card').length;
                     if (myL + oppL <= lim) totalDiscount += val;
+                    continue;
+                }
+                // 8.5 自己場外有事件卡 N 張以上
+                const outEvM = line.match(/自分の場外にイベントカードが(\d+)枚以上ある場合/);
+                if (outEvM) {
+                    if (this.countEventsInMyOutside() >= (parseInt(outEvM[1], 10) || 1)) totalDiscount += val;
                     continue;
                 }
                 // 9. 無條件手牌減費
@@ -2698,7 +2885,10 @@ injectEngineUI() {
             if (!conditions || conditions.length === 0) return true;
             return conditions.every(cond => {
                 if (cond.type === 'SELF_IS_ACTIVE') return !sourceCardEl.classList.contains('rest');
+                if (cond.type === 'SELF_IS_REST') return sourceCardEl.classList.contains('rest');
+                if (cond.type === 'OPP_HAS_LOWERED_BP') return this.hasOppLoweredBpChar();
                 if (cond.type === 'HAS_CHAR_ON_FIELD') return this.hasCharacterOnMyField(cond.name);
+                if (cond.type === 'HAS_ANY_CHAR_ON_FIELD') return (cond.names || []).some(n => this.hasCharacterOnMyField(n));
                 if (cond.type === 'HAS_TRAIT_ON_FIELD') return this.hasTraitOnMyField(cond.trait);
                 if (cond.type === 'IF_ADDED_TO_HAND') return !!taskContext.addedFromLook;
                 return true;
@@ -2739,6 +2929,27 @@ injectEngineUI() {
                 }
 
                 switch (act.type) {
+                    // 🌟 多選一分支（「以下から1つ選ぶ / 得る」）
+                    case 'CHOOSE_ONE_BRANCH': {
+                        const opts = act.options || [];
+                        if (opts.length === 0) { next(); break; }
+                        const btns = opts.map((opt, idx) => ({
+                            label: `選項 ${idx + 1}：${opt.label}`,
+                            color: idx % 2 === 0 ? '#4f739e' : '#8d7cc4',
+                            onClick: () => {
+                                this.executeAbilityActions(sourceCardEl, opt.actions, 0, taskContext, next);
+                            }
+                        }));
+                        btns.push({ label: '略過', color: '#7f8c8d', onClick: () => next() });
+                        this.promptModal({
+                            title: `多選一效果：【${this.getDisplayName(sourceDef) || '卡片效果'}】`,
+                            desc: `請從以下效果中選擇 1 項發動：`,
+                            cards: sourceCardEl ? [sourceCardEl] : [],
+                            customButtons: btns
+                        });
+                        break;
+                    }
+
                     // 🌟 選發代價分支（「～てもよい。そうした場合、...」）
                     case 'OPTIONAL_COST_BRANCH': {
                         const cost = act.cost;
@@ -2803,12 +3014,21 @@ injectEngineUI() {
                             selector = act.zone === 'FRONT_LINE' ? '#my-front-line .slot' : (act.zone === 'ENERGY_LINE' ? '#my-energy-line .slot' : '#my-front-line .slot, #my-energy-line .slot');
                         }
 
+                        let effectiveMaxBp = act.maxBp;
+                        if (Array.isArray(act.bpUpgrades)) {
+                            act.bpUpgrades.forEach(up => {
+                                if (this.checkActionConditions(sourceCardEl, up.conditions, taskContext)) {
+                                    effectiveMaxBp = effectiveMaxBp != null ? Math.max(effectiveMaxBp, up.maxBp) : up.maxBp;
+                                }
+                            });
+                        }
+
                         const candidates = this.getSlotTopCards(selector).filter(c => {
                             if (act.excludeSelf && c === sourceCardEl) return false;
                             const d = this.getCardDef(c);
                             if (d && d.type !== 'CHARACTER') return false;
-                            if (act.maxBp !== null && act.maxBp !== undefined) {
-                                if (this.getEffectiveCardBp(c) > act.maxBp) return false;
+                            if (effectiveMaxBp !== null && effectiveMaxBp !== undefined) {
+                                if (this.getEffectiveCardBp(c) > effectiveMaxBp) return false;
                             }
                             if (act.maxEnergy !== null && act.maxEnergy !== undefined) {
                                 if ((d?.requiredEnergy?.count || 0) > act.maxEnergy) return false;
@@ -2826,7 +3046,7 @@ injectEngineUI() {
 
                         this.promptModal({
                             title: `選擇效果目標：【${sourceDef?.name || '效果'}】`,
-                            desc: `請選擇 ${act.owner === 'OPP' ? '對手' : '我方'}${act.zone === 'FRONT_LINE' ? '前線' : '場上'}${act.maxBp ? ` BP ${act.maxBp} 以下的` : ''}角色 ${act.upTo ? `最多 ${act.count}` : act.count} 張：`,
+                            desc: `請選擇 ${act.owner === 'OPP' ? '對手' : '我方'}${act.zone === 'FRONT_LINE' ? '前線' : '場上'}${effectiveMaxBp ? ` BP ${effectiveMaxBp} 以下的` : ''}角色 ${act.upTo ? `最多 ${act.count}` : act.count} 張：`,
                             cards: candidates,
                             selectCount: act.count,
                             upTo: act.upTo,
@@ -2912,6 +3132,40 @@ injectEngineUI() {
 
                     case 'MILL_DECK': {
                         this.millDeckCards(act.count);
+                        next();
+                        break;
+                    }
+
+                    case 'PUT_DECK_TOP_UNDER_SELF': {
+                        const deckArea = document.getElementById('my-deck-area');
+                        const slot = sourceCardEl?.parentElement;
+                        if (deckArea && slot && slot.classList.contains('slot')) {
+                            const cnt = Math.max(1, act.count || 1);
+                            let placed = 0;
+                            for (let i = 0; i < cnt; i++) {
+                                const deckCards = Array.from(deckArea.querySelectorAll('.card'));
+                                if (deckCards.length === 0) break;
+                                const topDeck = deckCards[deckCards.length - 1];
+                                topDeck.classList.add('is-flipped');
+                                topDeck.classList.remove('rest', 'in-life');
+                                topDeck.style.position = 'absolute';
+                                slot.insertBefore(topDeck, slot.firstChild);
+                                placed++;
+                            }
+                            if (placed > 0) {
+                                recalcStacking(deckArea);
+                                recalcStacking(slot);
+                                updateSlotCounts();
+                                showSysMsg(`已將牌組頂端 ${placed} 張以裏側置於【${sourceDef?.name || '此角色'}】下方！`);
+                                sendSystemChat(`[規則引擎] 對手將牌組頂端 ${placed} 張以裏側置於【${sourceDef?.name || '角色'}】下方。`);
+                            }
+                        }
+                        next();
+                        break;
+                    }
+
+                    case 'OPP_DISCARD_HAND': {
+                        this.requestOpponentDiscard(act.count || 1);
                         next();
                         break;
                     }
@@ -3026,13 +3280,39 @@ injectEngineUI() {
 
                     case 'SET_REST': {
                         const targets = act.target === 'SELECTED' ? taskContext.selectedTargets : [sourceCardEl];
+                        const upgradeRetire = Array.isArray(act.upgradeToRetireConditions) && act.upgradeToRetireConditions.length > 0 &&
+                            this.checkActionConditions(sourceCardEl, act.upgradeToRetireConditions, taskContext);
                         targets.forEach(t => {
                             if (!t) return;
+                            if (upgradeRetire) {
+                                if (t.parentElement && t.parentElement.id.startsWith('opp-')) {
+                                    this.requestRetireOpponentCard(t);
+                                } else if (t.parentElement) {
+                                    this.retireCardFromSlot(t.parentElement);
+                                }
+                                return;
+                            }
                             t.classList.add('rest');
                             if (t.parentElement?.id.startsWith('opp-') && conn && isConnected) {
                                 conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_REST_SLOT', slotId: t.parentElement.id.replace('opp-', 'my-') });
                             }
                         });
+                        next();
+                        break;
+                    }
+
+                    case 'GRANT_EVENT_AP_DISCOUNT': {
+                        const bonusRange = act.perOutsideEvents > 0
+                            ? Math.floor(this.countEventsInMyOutside() / act.perOutsideEvents) * (act.energyStep || 1)
+                            : 0;
+                        const maxEn = (act.baseMaxEnergy || 0) + bonusRange;
+                        const amt = act.amount || 1;
+                        this.pendingApDiscounts.push({
+                            amount: amt,
+                            desc: `必要能源 ${maxEn} 以下事件卡 AP-${amt}`,
+                            matchFn: (d) => d && d.type === 'EVENT' && ((d.requiredEnergy?.count || 0) <= maxEn)
+                        });
+                        showSysMsg(`本回合下次使用必要能源 ${maxEn} 以下的事件卡，消費 AP -${amt}！`);
                         next();
                         break;
                     }
