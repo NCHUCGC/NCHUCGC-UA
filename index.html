@@ -555,7 +555,12 @@
         #opp-hand-area { justify-content: flex-end; }
         #opp-hand-area .card { margin-left: -82px; }
         #opp-hand-area .card:first-child { margin-left: 0; }
-        .hud-bottom { position: absolute; bottom: 0px; left: 50%; transform: translateX(-50%) scale(0.75); transform-origin: bottom center; width: 90%; max-width: 900px; display: flex; gap: 15px; z-index: 10010; pointer-events: none; align-items: flex-end; justify-content: center; }
+        .hud-bottom { position: absolute; bottom: 0px; left: 0; width: 100%; height: 0; overflow: visible; z-index: 10010; pointer-events: none; }
+        #my-hand-zone { position: absolute; left: 50%; bottom: -56px; transform: translateX(-50%) scale(0.92); transform-origin: bottom center; width: 920px; pointer-events: none; }
+        #my-hand-area { pointer-events: auto; }
+        #my-look-zone { position: absolute; right: 82px; bottom: 12px; width: 250px; align-items: flex-end; transform: scale(0.72); transform-origin: bottom right; pointer-events: auto; }
+        #my-look-area { justify-content: flex-end; }
+        #my-match-actions { position: absolute; left: 20px; bottom: 18px; display: flex; gap: 8px; pointer-events: auto; z-index: 10010; }
         .hand-zone, .look-zone { pointer-events: auto; }
 
         .hud-sidebar { position: absolute; right: 20px; top: 20px; display: flex; flex-direction: column; gap: 15px; background: rgba(0,0,0,0.4); padding: 15px; border-radius: 12px; border: 2px solid rgba(179, 157, 219, 0.5); width: 130px; box-sizing: border-box; box-shadow: 0 0 30px rgba(0,0,0,0.5); z-index: 10010; pointer-events: auto; backdrop-filter: blur(3px); }
@@ -597,14 +602,16 @@
         .card { 
             width: var(--card-w); height: var(--card-h); border-radius: 6px; box-shadow: 0 4px 8px rgba(0,0,0,0.8); 
             cursor: grab; transition: transform 0.2s ease-out, margin 0.2s ease-out; position: absolute; touch-action: none; 
-            transform: translate(var(--tx, 0px), var(--ty, 0px)) rotate(calc(var(--rot, 0deg) + var(--tilt, 0deg))) scale(var(--scale, 1)); 
+            transform: translate(var(--tx, 0px), calc(var(--ty, 0px) + var(--fan-y, 0px))) rotate(calc(var(--rot, 0deg) + var(--tilt, 0deg) + var(--fan-rot, 0deg))) scale(var(--scale, 1)); 
             pointer-events: auto; 
         }
         
-        .hand-area .card, .look-area .card { margin-left: -75px;}
-        .hand-area .card:first-child, .look-area .card:first-child { margin-left: 0; }
+        .hand-area .card, .look-area .card { margin-left: -75px; }
+        #my-hand-area .card { margin-left: -46px; transform-origin: center bottom; }
+        .hand-area .card:first-child, .look-area .card:first-child, #my-hand-area .card:first-child { margin-left: 0; }
         .card:hover { --scale: 1.05; box-shadow: 0 15px 25px rgba(0,0,0,0.8); z-index: 500 !important; }
         .hand-area .card:hover, .look-area .card:hover { --scale: 1.2; --ty: -30px; margin-right: 65px; z-index: 500 !important; }
+        #my-hand-area .card:hover { --scale: 1.16; --ty: -72px; --fan-rot: 0deg !important; --fan-y: 0px !important; margin-right: 46px; z-index: 650 !important; }
         
         .card-inner { position: relative; width: 100%; height: 100%; transition: transform 0.3s; transform-style: preserve-3d; }
         .card.is-flipped .card-inner { transform: rotateY(180deg); }
@@ -615,7 +622,7 @@
         .ap-card .card-back { background-image: url('https://www.unionarena-tcg.com/tc/images/rules/region-card/img_apcard_jp.png'); background-size: 100% 115%; background-position: top center; border: 1px solid rgba(179, 157, 219, 0.5); }
         #opp-hand-area .card-inner, #opp-look-area .card-inner { transform: rotateY(180deg) !important; }
         
-        .card.dragging { --scale: 1.15; --rot: 5deg; z-index: 999999 !important; transition: none; box-shadow: -20px 40px 50px rgba(0,0,0,0.6); }
+        .card.dragging { --scale: 1.15; --rot: 5deg; --fan-rot: 0deg !important; --fan-y: 0px !important; z-index: 999999 !important; transition: none; box-shadow: -20px 40px 50px rgba(0,0,0,0.6); }
         .card.stack-glowing { box-shadow: 0 0 15px 5px #d1c4e9 !important; }
         .card.active-touch { z-index: 600 !important; }
         .card.active-touch::before {
@@ -1150,20 +1157,23 @@
                 </div>
 
                 <div class="hud-bottom">
-                    <div class="hand-zone"><div class="line-label" style="color:#6fb897;">YOUR HAND (我方手牌)</div><div class="hand-area" id="my-hand-area"></div></div>
-                    <div class="look-zone">
-                        <div class="line-label" style="display: flex; flex-direction: column; gap: 5px; align-items: center; border: none; background: transparent;">
-                            <span style="background: rgba(0,0,0,0.65); padding: 4px 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">檢索確認</span>
-                            <div style="display: flex; gap: 8px; pointer-events: auto;">
+                    <div id="my-match-actions">
+                        <button onclick="rollDice()" class="ctrl-btn" style="background: #8d7cc4; padding: 8px 12px;">🎲 擲骰子</button>
+                        <button id="btn-back-builder" class="ctrl-btn danger" style="padding: 8px 12px;">🔙 投降返回</button>
+                    </div>
+                    <div class="hand-zone" id="my-hand-zone">
+                        <div class="line-label" style="color:#6fb897; margin-bottom: 10px;">YOUR HAND (我方手牌)</div>
+                        <div class="hand-area" id="my-hand-area"></div>
+                    </div>
+                    <div class="look-zone" id="my-look-zone">
+                        <div class="line-label" style="display: flex; flex-direction: column; gap: 5px; align-items: flex-end; border: none; background: transparent; margin-bottom: 6px;">
+                            <span style="background: rgba(0,0,0,0.65); padding: 4px 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">我方檢索區</span>
+                            <div style="display: flex; gap: 6px; pointer-events: auto;">
                                 <button class="ctrl-btn" style="padding: 4px 8px; font-size: 12px; background: #4f739e;" onclick="sendToDeck('my-look-area', 'my-deck-area', false)">置頂</button> 
                                 <button class="ctrl-btn" style="padding: 4px 8px; font-size: 12px; background: #4f739e;" onclick="sendToDeck('my-look-area', 'my-deck-area', true)">置底</button>
                             </div>
                         </div>
                         <div class="look-area" id="my-look-area"></div>
-                    </div>
-                    <div style="display: flex; flex-direction: column; gap: 10px; pointer-events: auto; margin-bottom: 15px;">
-                        <button onclick="rollDice()" class="ctrl-btn" style="background: #8d7cc4; padding: 10px;">🎲 擲骰子</button>
-                        <button id="btn-back-builder" class="ctrl-btn danger" style="padding: 10px;">🔙 投降返回</button>
                     </div>
                 </div>
 
@@ -2023,7 +2033,7 @@
             if(!wrapper) return;
             
             let topUIHeight = 45;    
-            let bottomUIHeight = 260; 
+            let bottomUIHeight = 190; 
             
             let safeHeight = wrapper.clientHeight - topUIHeight - bottomUIHeight; 
             let targetHeight = 1000; 
@@ -2983,7 +2993,11 @@ function createCardDOM(cardData, networkId, isMine) {
 
         function applyStackingStyle(card, slotBelow, myIndex) {
             if (!slotBelow) return;
-            card.style.zIndex = myIndex + 1; 
+            card.style.zIndex = myIndex + 1;
+            if (slotBelow.id !== 'my-hand-area') {
+                card.style.removeProperty('--fan-rot');
+                card.style.removeProperty('--fan-y');
+            } 
             
             if (slotBelow.id.includes('hand') || slotBelow.id.includes('look') || slotBelow.id.includes('modal')) { 
                 card.style.position = 'relative';
@@ -3024,7 +3038,24 @@ function createCardDOM(cardData, networkId, isMine) {
 
         function recalcStacking(areaElement) { 
             if(!areaElement) return; 
-            Array.from(areaElement.querySelectorAll('.card')).forEach((c, idx) => applyStackingStyle(c, areaElement, idx)); 
+            let cards = Array.from(areaElement.querySelectorAll('.card'));
+            let isMyHand = areaElement.id === 'my-hand-area';
+            let n = cards.length;
+            let center = (n - 1) / 2;
+            let stepDeg = n > 1 ? Math.min(2.6, 18 / n) : 0;
+            cards.forEach((c, idx) => {
+                applyStackingStyle(c, areaElement, idx);
+                if (isMyHand) {
+                    let offset = idx - center;
+                    let fanRot = (offset * stepDeg).toFixed(2);
+                    let fanY = (offset * offset * 1.8).toFixed(1);
+                    c.style.setProperty('--fan-rot', `${fanRot}deg`);
+                    c.style.setProperty('--fan-y', `${fanY}px`);
+                } else {
+                    c.style.removeProperty('--fan-rot');
+                    c.style.removeProperty('--fan-y');
+                }
+            }); 
             updateLifeAreaHeight(areaElement);
         }
 
