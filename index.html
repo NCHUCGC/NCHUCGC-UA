@@ -79,51 +79,166 @@
         #builder-scene { display: none; flex: 1; min-height: 0; }
 
         .home-hero {
-            background: linear-gradient(135deg, #171b33 0%, #231934 100%);
-            border: 1px solid #353b66; border-radius: 14px; padding: 34px 38px;
-            display: flex; justify-content: space-between; align-items: center; gap: 24px;
+            position: relative; overflow: hidden; flex-shrink: 0;
+            background:
+                radial-gradient(circle at 8% 110%, rgba(214, 69, 93, 0.24) 0%, transparent 45%),
+                radial-gradient(circle at 92% -10%, rgba(74, 143, 231, 0.26) 0%, transparent 48%),
+                linear-gradient(135deg, #121629 0%, #171c33 55%, #121526 100%);
+            border: 1px solid #2e375e; border-radius: 10px; padding: 26px 32px;
+            display: grid; grid-template-columns: 1.45fr 1fr; align-items: center; gap: 28px;
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
         }
-        .home-hero-tag {
-            display: inline-block; font-size: 12px; font-weight: 700; letter-spacing: 1px;
-            color: #6fb897; background: rgba(111, 184, 151, 0.14); border: 1px solid rgba(111, 184, 151, 0.4);
-            padding: 4px 10px; border-radius: 6px; margin-bottom: 12px;
+        .home-hero::before {
+            content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+            background: linear-gradient(90deg, #d6455d 0%, #6f5a9e 50%, #4a8fe7 100%);
         }
-        .home-hero h1 { margin: 0 0 10px 0; font-size: 32px; font-weight: 900; color: #fff; letter-spacing: 0.5px; }
-        .home-hero p { margin: 0; font-size: 15px; color: #b8bed4; line-height: 1.65; max-width: 720px; }
-        .home-hero-actions { display: flex; flex-direction: column; gap: 10px; min-width: 220px; }
-        .home-cta-primary {
-            background: #6fb897; color: #0f1420; border: none; border-radius: 9px;
-            padding: 13px 20px; font-size: 15px; font-weight: 900; cursor: pointer; transition: 0.18s;
+        .home-hero-kicker {
+            display: inline-flex; align-items: center; gap: 8px;
+            font-size: 11px; font-weight: 900; letter-spacing: 2px; color: #9eb8e6;
+            margin-bottom: 8px; text-transform: uppercase;
         }
-        .home-cta-primary:hover { background: #82cca9; }
-        .home-cta-secondary {
-            background: #232845; color: #e6e8f2; border: 1px solid #3c4370; border-radius: 9px;
-            padding: 11px 20px; font-size: 14px; font-weight: 700; cursor: pointer; transition: 0.18s;
+        .home-hero-kicker::before {
+            content: ''; width: 22px; height: 2px;
+            background: linear-gradient(90deg, #d6455d, #4a8fe7);
         }
-        .home-cta-secondary:hover { border-color: #b39ddb; color: #fff; }
+        .home-hero h1 {
+            margin: 0 0 8px 0; font-size: 32px; font-weight: 900; color: #fff;
+            letter-spacing: 0.8px; line-height: 1.2;
+        }
+        .home-hero-sub {
+            margin: 0 0 18px 0; font-size: 14px; color: #aeb6cf; line-height: 1.5;
+        }
+        .home-kpi-strip { display: flex; gap: 12px; flex-wrap: wrap; }
+        .home-kpi {
+            background: rgba(12, 15, 28, 0.72); border: 1px solid #2c3457; border-radius: 7px;
+            padding: 8px 14px; min-width: 126px; display: flex; flex-direction: column; gap: 2px;
+        }
+        .home-kpi-label { font-size: 11px; font-weight: 700; color: #8c96b5; letter-spacing: 0.5px; }
+        .home-kpi-val { font-size: 18px; font-weight: 900; color: #fff; letter-spacing: 0.5px; }
+        .home-kpi-val.live { color: #6fb897; }
+        .home-kpi-val small { font-size: 11px; font-weight: 700; color: #8c96b5; margin-left: 4px; }
 
-        .home-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; flex: 1; min-height: 0; }
+        .home-launch-box {
+            background: rgba(11, 14, 26, 0.82); border: 1px solid #323c66; border-radius: 9px;
+            padding: 16px 18px; display: flex; flex-direction: column; gap: 12px;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+        }
+        .home-launch-head {
+            display: flex; justify-content: space-between; align-items: center;
+            font-size: 12px; font-weight: 700; color: #9aa4c4;
+            border-bottom: 1px solid #252c4a; padding-bottom: 8px;
+        }
+        .home-ready-badge {
+            font-size: 11px; font-weight: 900; padding: 2px 8px; border-radius: 4px;
+            letter-spacing: 0.5px;
+        }
+        .home-ready-badge.ok { background: rgba(111, 184, 151, 0.18); color: #7cd4aa; border: 1px solid rgba(111, 184, 151, 0.5); }
+        .home-ready-badge.warn { background: rgba(214, 69, 93, 0.18); color: #f08899; border: 1px solid rgba(214, 69, 93, 0.5); }
+        .home-launch-deck {
+            display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+        }
+        .home-launch-deck-name {
+            font-size: 17px; font-weight: 900; color: #fff;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .home-launch-deck-cnt { font-size: 12px; font-weight: 700; color: #9aa4c4; flex-shrink: 0; }
+        .home-launch-actions { display: grid; grid-template-columns: 1.35fr 1fr; gap: 10px; }
+        .home-cta-primary {
+            background: linear-gradient(135deg, #c9415a 0%, #5a4b8c 52%, #3a75c4 100%);
+            color: #fff; border: 1px solid rgba(255, 255, 255, 0.22); border-radius: 7px;
+            padding: 11px 16px; font-size: 14px; font-weight: 900; letter-spacing: 0.8px;
+            cursor: pointer; transition: 0.18s; box-shadow: 0 4px 16px rgba(58, 117, 196, 0.35);
+        }
+        .home-cta-primary:hover { filter: brightness(1.12); transform: translateY(-1px); }
+        .home-cta-secondary {
+            background: #1b213b; color: #dde2f2; border: 1px solid #35406b; border-radius: 7px;
+            padding: 11px 14px; font-size: 13px; font-weight: 700; cursor: pointer; transition: 0.18s;
+        }
+        .home-cta-secondary:hover { border-color: #6c93c7; color: #fff; background: #232a4a; }
+
+        .home-grid { display: grid; grid-template-columns: 1.55fr 1fr; gap: 16px; flex: 1; min-height: 0; }
         .home-panel {
-            background: #141729; border: 1px solid #2b3052; border-radius: 12px; padding: 20px 22px;
-            display: flex; flex-direction: column; gap: 12px;
+            background: #131729; border: 1px solid #283052; border-radius: 10px; padding: 16px 20px;
+            display: flex; flex-direction: column; gap: 12px; min-height: 0;
         }
         .home-panel-title {
-            font-size: 15px; font-weight: 900; color: #d1c4e9;
-            border-bottom: 1px solid #2b3052; padding-bottom: 8px;
-            display: flex; justify-content: space-between; align-items: center;
+            font-size: 14px; font-weight: 900; color: #e2e6f5; letter-spacing: 0.6px;
+            border-bottom: 1px solid #252c4a; padding-bottom: 9px;
+            display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-shrink: 0;
         }
-        .entry-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-        .entry-card {
-            background: #1a1e36; border: 1px solid #2f355c; border-radius: 10px; padding: 16px;
-            cursor: pointer; transition: 0.18s; display: flex; flex-direction: column; gap: 6px;
+        .home-panel-title-left { display: flex; align-items: center; gap: 8px; }
+        .home-panel-accent {
+            width: 4px; height: 15px; border-radius: 2px;
+            background: linear-gradient(180deg, #d6455d, #4a8fe7);
         }
-        .entry-card:hover { border-color: #b39ddb; transform: translateY(-2px); }
-        .entry-card-title { font-size: 15px; font-weight: 900; color: #fff; }
-        .entry-card-desc { font-size: 13px; color: #9aa0b8; line-height: 1.5; }
-        .announce-item { padding: 10px 12px; background: #1a1e36; border-radius: 8px; border-left: 3px solid #6c93c7; }
-        .announce-head { display: flex; justify-content: space-between; font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 4px; }
-        .announce-date { font-size: 12px; color: #8c93ad; font-weight: 400; }
-        .announce-body { font-size: 13px; color: #b8bed4; line-height: 1.5; }
+        .home-link-btn {
+            background: transparent; border: 1px solid #323c66; color: #9eb8e6;
+            padding: 4px 10px; border-radius: 5px; font-size: 12px; font-weight: 700;
+            cursor: pointer; transition: 0.15s;
+        }
+        .home-link-btn:hover { border-color: #6c93c7; color: #fff; background: rgba(108, 147, 199, 0.14); }
+
+        .home-meta-grid {
+            display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+            overflow-y: auto; padding-right: 2px; flex: 1; align-content: start;
+        }
+        .home-meta-card {
+            position: relative; background: #191e36; border: 1px solid #2d365c; border-radius: 8px;
+            overflow: hidden; cursor: pointer; transition: 0.16s; display: flex; flex-direction: column;
+            border-left: 3px solid #666;
+        }
+        .home-meta-card:hover { border-color: #6c93c7; transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0, 0, 0, 0.55); }
+        .home-meta-card.RED { border-left-color: #e74c3c; }
+        .home-meta-card.BLUE { border-left-color: #3498db; }
+        .home-meta-card.GREEN { border-left-color: #2ecc71; }
+        .home-meta-card.YELLOW { border-left-color: #f1c40f; }
+        .home-meta-card.PURPLE { border-left-color: #9b59b6; }
+        .home-meta-card .tier-deck-cover, .home-meta-card .tier-deck-cover-dual { height: 112px; }
+        .home-meta-tier {
+            position: absolute; top: 6px; left: 6px; z-index: 2;
+            padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: 900;
+            letter-spacing: 0.5px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.8);
+        }
+        .home-meta-tier.T0 { background: #cf6679; color: #fff; }
+        .home-meta-tier.T1 { background: #e57373; color: #111; }
+        .home-meta-tier.T2 { background: #ffb74d; color: #111; }
+        .home-meta-tier.T3 { background: #fff176; color: #111; }
+        .home-meta-tier.T4 { background: #81c784; color: #111; }
+        .home-meta-tier.T5 { background: #64b5f6; color: #111; }
+        .home-meta-tier.T6 { background: #9575cd; color: #fff; }
+        .home-meta-tier.UNRATED { background: rgba(20, 24, 42, 0.9); color: #cfd4e6; border: 1px solid #495382; }
+        .home-meta-info { padding: 8px 10px; display: flex; flex-direction: column; gap: 3px; }
+        .home-meta-name { font-size: 13px; font-weight: 900; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .home-meta-sub { font-size: 11px; color: #919bb8; display: flex; justify-content: space-between; gap: 6px; }
+        .home-meta-series { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+        .home-ann-list { display: flex; flex-direction: column; gap: 10px; overflow-y: auto; flex: 1; padding-right: 2px; }
+        .announce-item {
+            padding: 11px 13px; background: #181d34; border: 1px solid #262e4f;
+            border-radius: 7px; border-left: 3px solid #4a8fe7;
+        }
+        .announce-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 13px; font-weight: 900; color: #fff; margin-bottom: 5px; }
+        .announce-date { font-size: 11px; color: #8c96b5; font-weight: 700; flex-shrink: 0; }
+        .announce-body { font-size: 13px; color: #b8c0d9; line-height: 1.55; white-space: pre-wrap; }
+        .home-util-bar {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+            border-top: 1px solid #252c4a; padding-top: 12px; flex-shrink: 0;
+        }
+        .home-util-btn {
+            background: #1a2038; border: 1px solid #2f3961; color: #cfd6eb;
+            border-radius: 7px; padding: 9px 12px; font-size: 12px; font-weight: 700;
+            cursor: pointer; transition: 0.15s; text-align: center;
+        }
+        .home-util-btn:hover { border-color: #6c93c7; color: #fff; background: #222947; }
+
+        #home-ann-modal {
+            display: none; position: fixed; inset: 0; z-index: 100570;
+            background: rgba(8, 10, 20, 0.85); justify-content: center; align-items: center;
+        }
+        .home-ann-edit-row {
+            display: flex; justify-content: space-between; align-items: flex-start; gap: 10px;
+            background: #111426; border: 1px solid #2b3052; border-radius: 7px; padding: 10px 12px;
+        }
 
         /* Tier List */
         .tier-toolbar {
@@ -658,47 +773,86 @@
         <section id="home-scene">
             <div class="home-hero">
                 <div>
-                    <div class="home-hero-tag">NCHUCGC UNION ARENA PLATFORM</div>
+                    <div class="home-hero-kicker">NCHUCGC // UNION ARENA SIMULATOR</div>
                     <h1>興大卡研 Union Arena 模擬器</h1>
-                    <p>整合社團環境強度排表、牌組構築與遠端連線對戰。可從環境排表直接檢視主流軸心與優缺點，並一鍵匯入構築進行實戰測試。</p>
+                    <p class="home-hero-sub">全自動規則引擎・社團即時環境排表・遠端 P2P 連線對戰</p>
+                    <div class="home-kpi-strip">
+                        <div class="home-kpi">
+                            <span class="home-kpi-label">線上對戰房</span>
+                            <span class="home-kpi-val live" id="home-stat-rooms">0<small>等待中</small></span>
+                        </div>
+                        <div class="home-kpi">
+                            <span class="home-kpi-label">排表收錄</span>
+                            <span class="home-kpi-val" id="home-stat-decks">0<small>副牌組</small></span>
+                        </div>
+                        <div class="home-kpi">
+                            <span class="home-kpi-label">卡池資料庫</span>
+                            <span class="home-kpi-val" id="home-stat-cards">0<small>張卡片</small></span>
+                        </div>
+                    </div>
                 </div>
-                <div class="home-hero-actions">
-                    <button class="home-cta-primary" onclick="switchMainView('rooms')">進入對戰大廳</button>
-                    <button class="home-cta-secondary" onclick="switchMainView('tier')">檢視社團環境 Tier List</button>
+                <div class="home-launch-box">
+                    <div class="home-launch-head">
+                        <span>目前出戰牌組</span>
+                        <span id="home-ready-badge" class="home-ready-badge warn">構築中</span>
+                    </div>
+                    <div class="home-launch-deck">
+                        <span id="home-active-deck-name" class="home-launch-deck-name">預設牌組</span>
+                        <span id="home-active-deck-cnt" class="home-launch-deck-cnt">主牌 0/50 ｜ AP 0/3</span>
+                    </div>
+                    <div class="home-launch-actions">
+                        <button class="home-cta-primary" onclick="switchMainView('rooms')">進入對戰大廳</button>
+                        <button class="home-cta-secondary" onclick="switchMainView('builder')">編輯出戰牌組</button>
+                    </div>
                 </div>
             </div>
 
             <div class="home-grid">
                 <div class="home-panel">
                     <div class="home-panel-title">
-                        <span>功能入口</span>
-                        <span style="font-size:12px; color:#8c93ad; font-weight:400;">Phase 1</span>
+                        <div class="home-panel-title-left">
+                            <span class="home-panel-accent"></span>
+                            <span>環境焦點牌組</span>
+                        </div>
+                        <button class="home-link-btn" onclick="switchMainView('tier')">檢視完整排表 →</button>
                     </div>
-                    <div class="entry-cards">
-                        <div class="entry-card" onclick="switchMainView('tier')">
-                            <div class="entry-card-title">環境排表 (Tier List)</div>
-                            <div class="entry-card-desc">檢視社團 T0–T6 環境強度排表與操作難度，管理員可即時拖曳調整。</div>
-                        </div>
-                        <div class="entry-card" onclick="switchMainView('builder')">
-                            <div class="entry-card-title">牌組構築與連線</div>
-                            <div class="entry-card-desc">管理多套牌組、批次匯入與列印代牌，透過房號連線進行對戰。</div>
-                        </div>
-                        <div class="entry-card" onclick="document.getElementById('readme-modal').style.display='flex'">
-                            <div class="entry-card-title">平台操作說明</div>
-                            <div class="entry-card-desc">查看快捷鍵、觸控操作、檢索視窗與對戰規則引擎使用方式。</div>
-                        </div>
-                    </div>
+                    <div class="home-meta-grid" id="home-meta-grid"></div>
                 </div>
 
                 <div class="home-panel">
                     <div class="home-panel-title">
-                        <span>社團公告與更新</span>
-                        <span id="home-updated-at" style="font-size:12px; color:#8c93ad; font-weight:400;"></span>
+                        <div class="home-panel-title-left">
+                            <span class="home-panel-accent"></span>
+                            <span>社團公告與更新</span>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <span id="home-updated-at" style="font-size:11px; color:#8c96b5; font-weight:700;"></span>
+                            <button id="btn-home-edit-ann" class="home-link-btn" style="display:none; border-color:#6fb897; color:#82cca9;">管理公告</button>
+                        </div>
                     </div>
-                    <div id="home-announcements" style="display:flex; flex-direction:column; gap:10px;"></div>
+                    <div id="home-announcements" class="home-ann-list"></div>
+                    <div class="home-util-bar">
+                        <button class="home-util-btn" onclick="document.getElementById('readme-modal').style.display='flex'">操作說明與快捷鍵</button>
+                        <button class="home-util-btn" onclick="generatePrintLayout()">列印目前牌組代牌</button>
+                    </div>
                 </div>
             </div>
         </section>
+
+        <div id="home-ann-modal">
+            <div class="tier-detail-box" style="width:580px;">
+                <h3 style="margin:0; font-size:17px; color:#fff;">管理社團公告（即時雲端同步）</h3>
+                <div style="display:flex; flex-direction:column; gap:8px;">
+                    <input type="text" id="ann-input-title" placeholder="公告標題" style="background:#111426; border:1px solid #353c66; color:#fff; padding:8px 10px; border-radius:7px; font-size:13px; outline:none;">
+                    <textarea id="ann-input-body" rows="3" placeholder="公告內容..." style="background:#111426; border:1px solid #353c66; color:#fff; padding:8px 10px; border-radius:7px; font-size:13px; outline:none; resize:vertical; font-family:inherit;"></textarea>
+                    <button class="start-btn" id="btn-ann-add" style="align-self:flex-end; padding:7px 16px;">新增並即時發佈</button>
+                </div>
+                <div id="home-ann-edit-list" style="display:flex; flex-direction:column; gap:8px; max-height:240px; overflow-y:auto;"></div>
+                <div class="td-actions">
+                    <button class="ctrl-btn" id="btn-ann-close" style="background:#313456; padding:8px 16px;">關閉</button>
+                </div>
+            </div>
+        </div>
 
         <section id="tier-scene">
             <div id="tier-sticky">
@@ -1336,6 +1490,7 @@
             const apOk = myApData.length === 3;
             st.className = 'lobby-deck-status ' + (mainOk && apOk ? 'ok' : 'warn');
             st.innerHTML = `<span>主牌 ${myDeckData.length} / 50 ｜ AP ${myApData.length} / 3</span><span>${mainOk && apOk ? '可出戰' : '尚未完成'}</span>`;
+            if (typeof window.renderHomeDashboard === 'function') window.renderHomeDashboard();
         }
 
         function updateDeckSelector() {
@@ -3655,6 +3810,7 @@ function createCardDOM(cardData, networkId, isMine) {
                     btn.classList.toggle('active', btn.dataset.view === viewName);
                 });
                 if (viewName === 'tier') renderTierBoard();
+                if (viewName === 'home') renderHome();
                 if (typeof updateBackTop === 'function') updateBackTop();
             };
 
@@ -3682,15 +3838,119 @@ function createCardDOM(cardData, networkId, isMine) {
                 if (envEl && meta.envLabel) envEl.textContent = meta.envLabel;
                 const updEl = document.getElementById('home-updated-at');
                 if (updEl && meta.updatedAt) updEl.textContent = `更新於 ${meta.updatedAt}`;
-                const box = document.getElementById('home-announcements');
-                if (box && Array.isArray(meta.announcements)) {
-                    box.innerHTML = meta.announcements.map(a => `
-                        <div class="announce-item">
-                            <div class="announce-head"><span>${a.title}</span><span class="announce-date">${a.date}</span></div>
-                            <div class="announce-body">${a.body}</div>
-                        </div>
-                    `).join('');
+
+                // 1. 即時數據條（線上房間、排表副數、卡庫張數）
+                const roomsEl = document.getElementById('home-stat-rooms');
+                if (roomsEl) {
+                    const summary = (window.nchucgcLobby && typeof window.nchucgcLobby.getRoomsSummary === 'function')
+                        ? window.nchucgcLobby.getRoomsSummary()
+                        : { waiting: 0, playing: 0, total: 0 };
+                    roomsEl.innerHTML = `${summary.waiting}<small>等待中${summary.playing ? ` / ${summary.playing} 對戰中` : ''}</small>`;
                 }
+                const list = window.NCHUCGC_TIER_LIST || [];
+                const decksEl = document.getElementById('home-stat-decks');
+                if (decksEl) decksEl.innerHTML = `${list.length}<small>副牌組</small>`;
+                const cardsEl = document.getElementById('home-stat-cards');
+                if (cardsEl && typeof masterCardCatalog !== 'undefined') {
+                    cardsEl.innerHTML = `${masterCardCatalog.length.toLocaleString()}<small>張卡片</small>`;
+                }
+
+                // 2. 目前出戰牌組狀態
+                const nameEl = document.getElementById('home-active-deck-name');
+                const cntEl = document.getElementById('home-active-deck-cnt');
+                const badgeEl = document.getElementById('home-ready-badge');
+                if (nameEl) nameEl.textContent = currentDeckName || '預設牌組';
+                if (cntEl) cntEl.textContent = `主牌 ${myDeckData.length} / 50 ｜ AP ${myApData.length} / 3`;
+                if (badgeEl) {
+                    const ok = myDeckData.length === 50 && myApData.length === 3;
+                    badgeEl.className = 'home-ready-badge ' + (ok ? 'ok' : 'warn');
+                    badgeEl.textContent = ok ? '已就緒' : '構築中';
+                }
+
+                // 3. 環境焦點牌組（優先 T0 -> T1 -> T2 -> 其餘，最多顯示 8 副）
+                const metaGrid = document.getElementById('home-meta-grid');
+                if (metaGrid) {
+                    const rankOrder = { T0: 0, T1: 1, T2: 2, T3: 3, T4: 4, T5: 5, T6: 6, UNRATED: 7 };
+                    const topDecks = [...list]
+                        .sort((a, b) => (rankOrder[a.tier] ?? 9) - (rankOrder[b.tier] ?? 9))
+                        .slice(0, 8);
+                    metaGrid.innerHTML = '';
+                    if (topDecks.length === 0) {
+                        metaGrid.innerHTML = '<div style="grid-column:1/-1; color:#7f85a3; font-size:13px; padding:24px; text-align:center;">尚無排表資料</div>';
+                    } else {
+                        topDecks.forEach(deck => {
+                            const tierLabel = TIER_DEFS.find(t => t.key === deck.tier)?.label || deck.tier;
+                            const card = document.createElement('div');
+                            card.className = `home-meta-card ${deck.color}`;
+                            card.innerHTML = `
+                                <span class="home-meta-tier ${esc(deck.tier)}">${esc(tierLabel)}</span>
+                                ${coverThumbHtml(deck)}
+                                <div class="home-meta-info">
+                                    <div class="home-meta-name">${esc(deck.name)}</div>
+                                    <div class="home-meta-sub">
+                                        <span class="home-meta-series">${esc(deck.series)}</span>
+                                        <span>${COLOR_ZH[deck.color] || deck.color}</span>
+                                    </div>
+                                </div>
+                            `;
+                            card.onclick = () => openTierDetail(deck);
+                            metaGrid.appendChild(card);
+                        });
+                    }
+                }
+
+                // 4. 社團公告與管理員編輯入口
+                const editAnnBtn = document.getElementById('btn-home-edit-ann');
+                if (editAnnBtn) editAnnBtn.style.display = isAdmin() ? 'inline-block' : 'none';
+
+                const box = document.getElementById('home-announcements');
+                const anns = Array.isArray(meta.announcements) ? meta.announcements : [];
+                if (box) {
+                    if (anns.length === 0) {
+                        box.innerHTML = '<div style="color:#7f85a3; font-size:13px; padding:16px; text-align:center;">目前尚無社團公告</div>';
+                    } else {
+                        box.innerHTML = anns.map(a => `
+                            <div class="announce-item">
+                                <div class="announce-head"><span>${esc(a.title)}</span><span class="announce-date">${esc(a.date)}</span></div>
+                                <div class="announce-body">${esc(a.body)}</div>
+                            </div>
+                        `).join('');
+                    }
+                }
+            }
+            window.renderHomeDashboard = renderHome;
+
+            function renderAnnEditorList() {
+                const listBox = document.getElementById('home-ann-edit-list');
+                if (!listBox) return;
+                const anns = (window.NCHUCGC_TIER_META && Array.isArray(window.NCHUCGC_TIER_META.announcements))
+                    ? window.NCHUCGC_TIER_META.announcements : [];
+                if (anns.length === 0) {
+                    listBox.innerHTML = '<div style="color:#7f85a3; font-size:12px; text-align:center; padding:10px;">目前沒有公告</div>';
+                    return;
+                }
+                listBox.innerHTML = '';
+                anns.forEach((a, idx) => {
+                    const row = document.createElement('div');
+                    row.className = 'home-ann-edit-row';
+                    row.innerHTML = `
+                        <div style="flex:1; min-width:0;">
+                            <div style="font-size:13px; font-weight:700; color:#fff;">${esc(a.title)} <span style="font-size:11px; color:#8c96b5; font-weight:400;">(${esc(a.date)})</span></div>
+                            <div style="font-size:12px; color:#b8c0d9; margin-top:3px;">${esc(a.body)}</div>
+                        </div>
+                        <button class="ctrl-btn danger" style="padding:4px 10px; font-size:11px; flex-shrink:0;">刪除</button>
+                    `;
+                    row.querySelector('button').onclick = () => {
+                        const next = anns.filter((_, i) => i !== idx);
+                        window.NCHUCGC_TIER_META.announcements = next;
+                        renderHome();
+                        renderAnnEditorList();
+                        if (window.nchucgcLobby && typeof window.nchucgcLobby.publishAnnouncements === 'function') {
+                            window.nchucgcLobby.publishAnnouncements(next);
+                        }
+                    };
+                    listBox.appendChild(row);
+                });
             }
 
             function esc(v) {
@@ -4517,6 +4777,37 @@ function createCardDOM(cardData, networkId, isMine) {
                 });
                 document.getElementById('tier-add-modal')?.addEventListener('click', (e) => {
                     if (e.target.id === 'tier-add-modal') e.target.style.display = 'none';
+                });
+
+                document.getElementById('btn-home-edit-ann')?.addEventListener('click', () => {
+                    if (!isAdmin()) return;
+                    renderAnnEditorList();
+                    document.getElementById('home-ann-modal').style.display = 'flex';
+                });
+                document.getElementById('btn-ann-close')?.addEventListener('click', () => {
+                    document.getElementById('home-ann-modal').style.display = 'none';
+                });
+                document.getElementById('home-ann-modal')?.addEventListener('click', (e) => {
+                    if (e.target.id === 'home-ann-modal') e.target.style.display = 'none';
+                });
+                document.getElementById('btn-ann-add')?.addEventListener('click', () => {
+                    if (!isAdmin()) return;
+                    const titleEl = document.getElementById('ann-input-title');
+                    const bodyEl = document.getElementById('ann-input-body');
+                    const title = (titleEl?.value || '').trim();
+                    const body = (bodyEl?.value || '').trim();
+                    if (!title || !body) { showSysMsg('請填寫公告標題與內容。'); return; }
+                    const today = new Date().toISOString().slice(0, 10);
+                    window.NCHUCGC_TIER_META = window.NCHUCGC_TIER_META || {};
+                    const next = [{ date: today, title, body }, ...(window.NCHUCGC_TIER_META.announcements || [])];
+                    window.NCHUCGC_TIER_META.announcements = next;
+                    if (titleEl) titleEl.value = '';
+                    if (bodyEl) bodyEl.value = '';
+                    renderHome();
+                    renderAnnEditorList();
+                    if (window.nchucgcLobby && typeof window.nchucgcLobby.publishAnnouncements === 'function') {
+                        window.nchucgcLobby.publishAnnouncements(next);
+                    }
                 });
             });
         })();

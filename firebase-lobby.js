@@ -145,6 +145,7 @@
         const testNavBtn = document.getElementById('nav-btn-test');
         if (testNavBtn) testNavBtn.style.display = isAdminUser() ? 'inline-block' : 'none';
         if (typeof window.renderTierBoard === 'function') window.renderTierBoard();
+        if (typeof window.renderHomeDashboard === 'function') window.renderHomeDashboard();
     }
 
     // ==================== 在線狀態 (Presence) ====================
@@ -522,12 +523,41 @@
                 state.cloudTierList = val;
                 window.NCHUCGC_TIER_LIST = val;
                 if (typeof window.renderTierBoard === 'function') window.renderTierBoard();
+                if (typeof window.renderHomeDashboard === 'function') window.renderHomeDashboard();
             }
         });
         state.db.ref('tierVotes').on('value', snap => {
             state.tierVotes = snap.val() || {};
             if (typeof window.renderTierBoard === 'function') window.renderTierBoard();
         });
+        state.db.ref('announcements').on('value', snap => {
+            const val = snap.val();
+            if (Array.isArray(val)) {
+                window.NCHUCGC_TIER_META = window.NCHUCGC_TIER_META || {};
+                window.NCHUCGC_TIER_META.announcements = val;
+                if (typeof window.renderHomeDashboard === 'function') window.renderHomeDashboard();
+            }
+        });
+    }
+
+    function publishAnnouncements(list) {
+        if (!state.ready || !isAdminUser()) {
+            showSysMsg('僅限管理員帳號可編輯公告。');
+            return;
+        }
+        state.db.ref('announcements').set(list).then(() => {
+            showSysMsg('社團公告已即時同步更新');
+        }).catch(err => {
+            console.error('更新公告失敗:', err);
+            showSysMsg('公告同步失敗，請確認 Firebase 安全規則已加入 announcements 節點。');
+        });
+    }
+
+    function getRoomsSummary() {
+        const rooms = Object.values(state.roomsMap || {}).filter(r => r && r.peerId);
+        const waiting = rooms.filter(r => r.status !== 'playing').length;
+        const playing = rooms.filter(r => r.status === 'playing').length;
+        return { waiting, playing, total: rooms.length };
     }
 
     function publishOfficialTierList(cleanList) {
@@ -656,6 +686,7 @@
             state.db.ref('rooms').on('value', snap => {
                 state.roomsMap = snap.val() || {};
                 renderRoomList();
+                if (typeof window.renderHomeDashboard === 'function') window.renderHomeDashboard();
             });
 
             listenCloudTierList();
@@ -682,6 +713,8 @@
         getDb: () => state.db,
         isLoggedIn: () => !!(state.ready && state.user),
         publishOfficialTierList,
+        publishAnnouncements,
+        getRoomsSummary,
         voteDeckDifficulty,
         getDeckVoteSummary
     };
