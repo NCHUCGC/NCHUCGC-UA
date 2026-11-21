@@ -77,11 +77,9 @@
                     title: 'ロキシー [登場時]', desc: '選擇對手前線最多 1 張角色休息並凍結（失去原效果）：',
                     cards: opp, selectCount: 1, upTo: true,
                     onConfirm: (sel) => {
-                        if (sel.length && sel[0].parentElement?.id.startsWith('opp-') && conn && isConnected) {
-                            sel[0].classList.add('rest');
-                            const sid = sel[0].parentElement.id.replace('opp-', 'my-');
-                            conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_REST_SLOT', slotId: sid });
-                            conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_FREEZE_SLOT', slotId: sid });
+                        if (sel.length) {
+                            engine.requestRestOpponentCard(sel[0]);
+                            engine.requestFreezeOpponentCard(sel[0]);
                         }
                         done();
                     }

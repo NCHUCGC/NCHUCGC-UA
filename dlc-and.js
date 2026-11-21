@@ -54,8 +54,8 @@
             engine.drawCards(1);
             const hasUnderBilly = engine.getSlotTopCards('#my-front-line .slot, #my-energy-line .slot')
                 .some(c => engine.getCardDef(c)?.name.includes('ビリー') && engine.getCardDef(c)?.traits?.includes('UNDER'));
-            if (hasUnderBilly && conn && isConnected) {
-                conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_DISCARD_HAND', count: 1 });
+            if (hasUnderBilly) {
+                engine.requestOpponentDiscard(1);
             }
             if (onComplete) onComplete();
         }

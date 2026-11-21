@@ -18,9 +18,8 @@
             cards: cands, selectCount: 1, upTo: true,
             onConfirm: (sel) => {
                 if (sel.length) {
-                    if (toRemove && sel[0].parentElement?.id.startsWith('opp-') && conn && isConnected) {
-                        conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_REMOVE_SLOT', slotId: sel[0].parentElement.id.replace('opp-', 'my-') });
-                    } else engine.requestRetireOpponentCard(sel[0]);
+                    if (toRemove) engine.requestRemoveOpponentCard(sel[0]);
+                    else engine.requestRetireOpponentCard(sel[0]);
                 }
                 onDone();
             }
@@ -118,12 +117,8 @@
                         cardEl.classList.add('rest');
                         engine.usedNamedAbilityThisTurn.add('ARK_FROSTNOVA');
                         sel.forEach(t => {
-                            t.classList.add('rest');
-                            if (t.parentElement?.id.startsWith('opp-') && conn && isConnected) {
-                                const sid = t.parentElement.id.replace('opp-', 'my-');
-                                conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_REST_SLOT', slotId: sid });
-                                conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_FREEZE_SLOT', slotId: sid });
-                            }
+                            engine.requestRestOpponentCard(t);
+                            engine.requestFreezeOpponentCard(t);
                         });
                         done();
                     }

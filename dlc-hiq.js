@@ -56,10 +56,7 @@
                         if (sel.length) {
                             if (retire) engine.requestRetireOpponentCard(sel[0]);
                             else {
-                                sel[0].classList.add('rest');
-                                if (sel[0].parentElement?.id.startsWith('opp-') && conn && isConnected) {
-                                    conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_REST_SLOT', slotId: sel[0].parentElement.id.replace('opp-', 'my-') });
-                                }
+                                engine.requestRestOpponentCard(sel[0]);
                             }
                         }
                         done();

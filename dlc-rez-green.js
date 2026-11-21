@@ -188,10 +188,7 @@
                 title: '❄️ 【ハインケル】退場時橫置對手角色', desc: '選擇最多 1 張對手前線 BP 4500 以上的角色轉為休息：',
                 cards: cands, selectCount: 1, upTo: true,
                 onConfirm: (sel) => {
-                    if (sel.length > 0 && conn && isConnected) {
-                        sel[0].classList.add('rest');
-                        conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_REST_SLOT', slotId: sel[0].parentElement.id.replace('opp-', 'my-') });
-                    }
+                    if (sel.length > 0) engine.requestRestOpponentCard(sel[0]);
                     if (onComplete) onComplete();
                 }
             });
@@ -374,10 +371,11 @@
                                 selectCount: 1, upTo: true,
                                 onConfirm: (picked) => {
                                     picked.forEach(c => engine.moveCardToZone(c, document.getElementById('my-hand-area')));
-                                    topCards.filter(c => !picked.includes(c)).forEach(c => { deckArea.insertBefore(c, deckArea.firstChild); c.classList.add('is-flipped'); });
-                                    recalcStacking(deckArea); broadcastMyState();
-                                    if (picked.length > 0) engine.executeAbilityActions(cardEl, [{ type: 'DISCARD_HAND', count: 1 }], 0, { selectedTargets: [], addedFromLook: false }, onComplete);
-                                    else if (onComplete) onComplete();
+                                    const rest = topCards.filter(c => !picked.includes(c));
+                                    engine.promptOrderCardsToDeck(rest, 'BOTTOM', () => {
+                                        if (picked.length > 0) engine.executeAbilityActions(cardEl, [{ type: 'DISCARD_HAND', count: 1 }], 0, { selectedTargets: [], addedFromLook: false }, onComplete);
+                                        else if (onComplete) onComplete();
+                                    });
                                 }
                             });
                         }
@@ -413,10 +411,11 @@
                 selectCount: 1, upTo: true,
                 onConfirm: (picked) => {
                     picked.forEach(c => engine.moveCardToZone(c, document.getElementById('my-hand-area')));
-                    topCards.filter(c => !picked.includes(c)).forEach(c => { deckArea.insertBefore(c, deckArea.firstChild); c.classList.add('is-flipped'); });
-                    recalcStacking(deckArea); broadcastMyState();
-                    if (picked.length > 0) engine.executeAbilityActions(cardEl, [{ type: 'DISCARD_HAND', count: 1 }], 0, { selectedTargets: [], addedFromLook: false }, onComplete);
-                    else if (onComplete) onComplete();
+                    const rest = topCards.filter(c => !picked.includes(c));
+                    engine.promptOrderCardsToDeck(rest, 'BOTTOM', () => {
+                        if (picked.length > 0) engine.executeAbilityActions(cardEl, [{ type: 'DISCARD_HAND', count: 1 }], 0, { selectedTargets: [], addedFromLook: false }, onComplete);
+                        else if (onComplete) onComplete();
+                    });
                 }
             });
         }

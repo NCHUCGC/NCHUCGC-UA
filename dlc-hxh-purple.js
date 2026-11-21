@@ -8,8 +8,8 @@
     // EX01BT/HTR-2-054 ヒソカ
     scripts['EX01BT/HTR-2-054'] = {
         onPlay(engine, cardEl, onComplete) {
-            if (document.querySelectorAll('#opp-hand-area .card').length >= 3 && conn && isConnected) {
-                conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_DISCARD_HAND', count: 1 });
+            if (document.querySelectorAll('#opp-hand-area .card').length >= 3) {
+                engine.requestOpponentDiscard(1);
             }
             if (onComplete) onComplete();
         }

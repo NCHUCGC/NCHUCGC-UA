@@ -128,12 +128,7 @@
                             onClick: () => engine.promptModal({
                                 title: '選擇休息目標', desc: '選擇最多 1 張：', cards: opp, selectCount: 1, upTo: true,
                                 onConfirm: (sel) => {
-                                    if (sel.length) {
-                                        sel[0].classList.add('rest');
-                                        if (sel[0].parentElement?.id.startsWith('opp-') && conn && isConnected) {
-                                            conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_REST_SLOT', slotId: sel[0].parentElement.id.replace('opp-', 'my-') });
-                                        }
-                                    }
+                                    if (sel.length) engine.requestRestOpponentCard(sel[0]);
                                     done();
                                 }
                             })
@@ -212,9 +207,8 @@
                         onConfirm: (sel) => {
                             const hand = document.getElementById('my-hand-area');
                             sel.forEach(c => engine.moveCardToZone(c, hand));
-                            top3.filter(c => !sel.includes(c)).forEach(c => { deckArea.insertBefore(c, deckArea.firstChild); c.classList.add('is-flipped'); });
-                            recalcStacking(deckArea);
-                            done();
+                            const rest = top3.filter(c => !sel.includes(c));
+                            engine.promptOrderCardsToDeck(rest, 'BOTTOM', done);
                         }
                     });
                 }

@@ -121,10 +121,12 @@
                 cardFilterFn: (c) => { const d = engine.getCardDef(c); return !!(d && d.type === 'CHARACTER' && d.color === 'PURPLE' && (d.requiredEnergy?.count || 0) <= 2 && (d.apCost ?? 1) === 1); },
                 selectCount: 1, upTo: true,
                 onConfirm: (picked) => {
-                    topCards.filter(c => !picked.includes(c)).forEach(c => { deckArea.insertBefore(c, deckArea.firstChild); c.classList.add('is-flipped'); });
-                    recalcStacking(deckArea);
-                    if (picked.length > 0) engine.chooseEmptyFieldSlotAndPlace(picked[0], { allowFront: true, allowEnergy: true, enterRest: true }, (p) => { if (p) engine.triggerCardAbilities(picked[0], 'ON_PLAY', onComplete); else if (onComplete) onComplete(); });
-                    else { broadcastMyState(); if (onComplete) onComplete(); }
+                    const rest = topCards.filter(c => !picked.includes(c));
+                    const afterOrder = () => {
+                        if (picked.length > 0) engine.chooseEmptyFieldSlotAndPlace(picked[0], { allowFront: true, allowEnergy: true, enterRest: true }, (p) => { if (p) engine.triggerCardAbilities(picked[0], 'ON_PLAY', onComplete); else if (onComplete) onComplete(); });
+                        else { broadcastMyState(); if (onComplete) onComplete(); }
+                    };
+                    engine.promptOrderCardsToDeck(rest, 'BOTTOM', afterOrder);
                 }
             });
         }

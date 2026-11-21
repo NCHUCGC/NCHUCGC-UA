@@ -156,12 +156,7 @@
                 engine.promptModal({
                     title: '浦飯 幽助：未防禦觸發', desc: '選擇對手前線最多 1 張轉為休息：', cards: opp, selectCount: 1, upTo: true,
                     onConfirm: (sel) => {
-                        if (sel.length) {
-                            sel[0].classList.add('rest');
-                            if (sel[0].parentElement?.id.startsWith('opp-') && conn && isConnected) {
-                                conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_REST_SLOT', slotId: sel[0].parentElement.id.replace('opp-', 'my-') });
-                            }
-                        }
+                        if (sel.length) engine.requestRestOpponentCard(sel[0]);
                         done();
                     }
                 });

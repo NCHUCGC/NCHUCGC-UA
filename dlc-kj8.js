@@ -55,9 +55,9 @@
                     title: '亜白 ミナ [起動メイン]', desc: '選擇對手前線 1 張休息角色凍結（下次不會轉活動）：',
                     cards: rested, selectCount: 1, upTo: false,
                     onConfirm: (sel) => {
-                        if (sel.length && sel[0].parentElement?.id.startsWith('opp-') && conn && isConnected) {
+                        if (sel.length) {
                             engine.getRuntime(cardEl).usedOncePerTurn = true;
-                            conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_FREEZE_SLOT', slotId: sel[0].parentElement.id.replace('opp-', 'my-') });
+                            engine.requestFreezeOpponentCard(sel[0]);
                         }
                         done();
                     }

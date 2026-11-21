@@ -21,9 +21,8 @@
             cards: cands, selectCount: 1, upTo: true,
             onConfirm: (sel) => {
                 if (sel.length) {
-                    if (toRemove && sel[0].parentElement?.id.startsWith('opp-') && conn && isConnected) {
-                        conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_REMOVE_SLOT', slotId: sel[0].parentElement.id.replace('opp-', 'my-') });
-                    } else engine.requestRetireOpponentCard(sel[0]);
+                    if (toRemove) engine.requestRemoveOpponentCard(sel[0]);
+                    else engine.requestRetireOpponentCard(sel[0]);
                 }
                 onDone();
             }

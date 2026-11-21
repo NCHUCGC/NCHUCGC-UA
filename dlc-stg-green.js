@@ -108,10 +108,11 @@
                 selectCount: 1, upTo: true,
                 onConfirm: (picked) => {
                     picked.forEach(c => engine.moveCardToZone(c, document.getElementById('my-hand-area')));
-                    topCards.filter(c => !picked.includes(c)).forEach(c => { deckArea.insertBefore(c, deckArea.firstChild); c.classList.add('is-flipped'); });
-                    recalcStacking(deckArea); broadcastMyState();
-                    if (picked.length > 0) engine.executeAbilityActions(cardEl, [{ type: 'DISCARD_HAND', count: 1 }], 0, { selectedTargets: [], addedFromLook: false }, onComplete);
-                    else if (onComplete) onComplete();
+                    const rest = topCards.filter(c => !picked.includes(c));
+                    engine.promptOrderCardsToDeck(rest, 'BOTTOM', () => {
+                        if (picked.length > 0) engine.executeAbilityActions(cardEl, [{ type: 'DISCARD_HAND', count: 1 }], 0, { selectedTargets: [], addedFromLook: false }, onComplete);
+                        else if (onComplete) onComplete();
+                    });
                 }
             });
         }
@@ -388,9 +389,8 @@
                         const d = engine.getCardDef(c);
                         if (d && (d.type === 'FIELD' || d.name.includes('フェイリス'))) engine.activateMyApCards(1);
                     });
-                    topCards.filter(c => !picked.includes(c)).forEach(c => { deckArea.insertBefore(c, deckArea.firstChild); c.classList.add('is-flipped'); });
-                    recalcStacking(deckArea); broadcastMyState();
-                    if (onComplete) onComplete();
+                    const rest = topCards.filter(c => !picked.includes(c));
+                    engine.promptOrderCardsToDeck(rest, 'BOTTOM', onComplete);
                 }
             });
         }

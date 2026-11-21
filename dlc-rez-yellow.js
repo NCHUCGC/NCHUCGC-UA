@@ -632,7 +632,7 @@
                         onClick: () => {
                             if (engine.payAp(1)) {
                                 engine.drawCards(1);
-                                if (conn && isConnected) conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_DISCARD_HAND', count: 1 });
+                                engine.requestOpponentDiscard(1);
                             }
                             if (onComplete) onComplete();
                         }
@@ -679,13 +679,8 @@
                         engine.moveCardToZone(c, handArea);
                         if (engine.getCardDef(c)?.traits?.includes('王選候補者')) engine.activateMyApCards(1);
                     });
-                    topCards.filter(c => !picked.includes(c)).forEach(c => {
-                        deckArea.insertBefore(c, deckArea.firstChild);
-                        c.classList.add('is-flipped');
-                    });
-                    recalcStacking(deckArea);
-                    broadcastMyState();
-                    if (onComplete) onComplete();
+                    const rest = topCards.filter(c => !picked.includes(c));
+                    engine.promptOrderCardsToDeck(rest, 'BOTTOM', onComplete);
                 }
             });
         }

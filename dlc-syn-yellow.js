@@ -336,10 +336,7 @@
                 selectCount: 1,
                 upTo: true,
                 onConfirm: (sel) => {
-                    if (sel.length > 0 && conn && isConnected) {
-                        sel[0].classList.add('rest');
-                        conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_REST_SLOT', slotId: sel[0].parentElement.id.replace('opp-', 'my-') });
-                    }
+                    if (sel.length > 0) engine.requestRestOpponentCard(sel[0]);
                     if (onComplete) onComplete();
                 }
             });
@@ -488,13 +485,7 @@
                         onConfirm: (sel2) => {
                             sel2.forEach(c => { pickedAll.push(c); engine.moveCardToZone(c, handArea); });
                             const rest = topCards.filter(c => !pickedAll.includes(c));
-                            rest.forEach(c => {
-                                deckArea.insertBefore(c, deckArea.firstChild);
-                                c.classList.add('is-flipped');
-                            });
-                            recalcStacking(deckArea);
-                            broadcastMyState();
-                            if (onComplete) onComplete();
+                            engine.promptOrderCardsToDeck(rest, 'BOTTOM', onComplete);
                         }
                     });
                 }

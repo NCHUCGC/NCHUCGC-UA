@@ -75,12 +75,8 @@
                     onConfirm: (sel) => {
                         if (sel.length > 0) {
                             const t = sel[0];
-                            t.classList.add('rest');
-                            if (t.parentElement?.id.startsWith('opp-') && conn && isConnected) {
-                                const sid = t.parentElement.id.replace('opp-', 'my-');
-                                conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_REST_SLOT', slotId: sid });
-                                conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_FREEZE_SLOT', slotId: sid });
-                            }
+                            engine.requestRestOpponentCard(t);
+                            engine.requestFreezeOpponentCard(t);
                         }
                         askDiscardSelfActive();
                     }
@@ -364,10 +360,11 @@
                     upTo: true,
                     onConfirm: (sel) => {
                         const rest = topCards.filter(c => !sel.includes(c));
-                        rest.forEach(c => { deckArea.insertBefore(c, deckArea.firstChild); c.classList.add('is-flipped'); });
-                        recalcStacking(deckArea);
-                        if (sel.length > 0) engine.chooseEmptyFieldSlotAndPlace(sel[0], { enterRest: true }, () => done());
-                        else done();
+                        const afterOrder = () => {
+                            if (sel.length > 0) engine.chooseEmptyFieldSlotAndPlace(sel[0], { enterRest: true }, () => done());
+                            else done();
+                        };
+                        engine.promptOrderCardsToDeck(rest, 'BOTTOM', afterOrder);
                     }
                 });
             },
@@ -450,11 +447,7 @@
                     upTo: true,
                     onConfirm: (sel) => {
                         if (sel.length > 0) {
-                            const t = sel[0];
-                            t.classList.add('rest');
-                            if (t.parentElement?.id.startsWith('opp-') && conn && isConnected) {
-                                conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_REST_SLOT', slotId: t.parentElement.id.replace('opp-', 'my-') });
-                            }
+                            engine.requestRestOpponentCard(sel[0]);
                         }
                         applyZygraBonus();
                     }
@@ -722,8 +715,8 @@
                     onConfirm: (sel) => {
                         if (sel.length > 0) {
                             const t = sel[0];
-                            if (toRemove && t.parentElement?.id.startsWith('opp-') && conn && isConnected) {
-                                conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_REMOVE_SLOT', slotId: t.parentElement.id.replace('opp-', 'my-') });
+                            if (toRemove) {
+                                engine.requestRemoveOpponentCard(t);
                             } else {
                                 engine.requestRetireOpponentCard(t);
                             }

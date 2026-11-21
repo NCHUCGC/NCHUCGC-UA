@@ -26,8 +26,8 @@
             onPlay(engine, cardEl, done) {
                 const opp = engine.getSlotTopCards('#opp-front-line .slot').filter(c => engine.getEffectiveCardBp(c) <= 4000);
                 const afterBounce = () => {
-                    if (document.querySelectorAll('#opp-hand-area .card').length >= 4 && conn && isConnected) {
-                        conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_DISCARD_HAND', count: 1 });
+                    if (document.querySelectorAll('#opp-hand-area .card').length >= 4) {
+                        engine.requestOpponentDiscard(1);
                     }
                     done();
                 };

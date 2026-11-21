@@ -24,8 +24,8 @@
             cards: cands, selectCount: 1, upTo: true,
             onConfirm: (sel) => {
                 if (sel.length) {
-                    if (toRemove && sel[0].parentElement?.id.startsWith('opp-') && conn && isConnected) {
-                        conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_REMOVE_SLOT', slotId: sel[0].parentElement.id.replace('opp-', 'my-') });
+                    if (toRemove) {
+                        engine.requestRemoveOpponentCard(sel[0]);
                     } else {
                         engine.requestRetireOpponentCard(sel[0]);
                     }
@@ -67,7 +67,7 @@
                 const picks = fingers >= 4 ? 3 : (fingers === 3 ? 2 : 1);
                 const doDiscard = (cb) => {
                     engine.drawCards(1);
-                    if (conn && isConnected) conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_DISCARD_HAND', count: 1 });
+                    engine.requestOpponentDiscard(1);
                     showSysMsg('宿儺：我方抽 1 張，對手棄 1 張手牌！');
                     cb();
                 };
@@ -435,9 +435,7 @@
                     onConfirm: (sel) => {
                         if (sel.length) {
                             const is5000 = engine.getEffectiveCardBp(sel[0]) === 5000;
-                            if (sel[0].parentElement?.id.startsWith('opp-') && conn && isConnected) {
-                                conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_REMOVE_SLOT', slotId: sel[0].parentElement.id.replace('opp-', 'my-') });
-                            }
+                            engine.requestRemoveOpponentCard(sel[0]);
                             if (is5000) engine.drawCards(1);
                         }
                         done();

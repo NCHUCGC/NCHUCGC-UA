@@ -204,9 +204,7 @@
                     desc: `選擇 1 張對手前線 BP${limit} 以下角色移至移除區：`,
                     cards: opp, selectCount: 1, upTo: false,
                     onConfirm: (sel) => {
-                        if (sel.length && sel[0].parentElement?.id.startsWith('opp-') && conn && isConnected) {
-                            conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_REMOVE_SLOT', slotId: sel[0].parentElement.id.replace('opp-', 'my-') });
-                        }
+                        if (sel.length) engine.requestRemoveOpponentCard(sel[0]);
                         done();
                     }
                 });

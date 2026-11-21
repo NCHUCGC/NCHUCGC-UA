@@ -365,15 +365,15 @@
                 selectCount: 1, upTo: true,
                 onConfirm: (picked) => {
                     const rest = topCards.filter(c => !picked.includes(c));
-                    rest.forEach(c => { deckArea.insertBefore(c, deckArea.firstChild); c.classList.add('is-flipped'); });
-                    recalcStacking(deckArea);
-                    if (picked.length > 0) {
-                        engine.moveCardToZone(picked[0], document.getElementById('my-outside-area'));
-                        activateCardTriggerInPlace(engine, picked[0], onComplete);
-                    } else {
-                        broadcastMyState();
-                        if (onComplete) onComplete();
-                    }
+                    engine.promptOrderCardsToDeck(rest, 'BOTTOM', () => {
+                        if (picked.length > 0) {
+                            engine.moveCardToZone(picked[0], document.getElementById('my-outside-area'));
+                            activateCardTriggerInPlace(engine, picked[0], onComplete);
+                        } else {
+                            broadcastMyState();
+                            if (onComplete) onComplete();
+                        }
+                    });
                 }
             });
         }

@@ -411,19 +411,20 @@
                 },
                 selectCount: 1, upTo: true,
                 onConfirm: (picked) => {
-                    topCards.filter(c => !picked.includes(c)).forEach(c => { deckArea.insertBefore(c, deckArea.firstChild); c.classList.add('is-flipped'); });
-                    recalcStacking(deckArea);
-                    if (picked.length > 0) {
-                        const target = picked[0];
-                        const isField = engine.getCardDef(target)?.type === 'FIELD';
-                        engine.chooseEmptyFieldSlotAndPlace(target, { allowFront: !isField, allowEnergy: true, enterRest: false }, (placed) => {
-                            if (placed) engine.triggerCardAbilities(target, 'ON_PLAY', onComplete);
-                            else if (onComplete) onComplete();
-                        });
-                    } else {
-                        broadcastMyState();
-                        if (onComplete) onComplete();
-                    }
+                    const rest = topCards.filter(c => !picked.includes(c));
+                    engine.promptOrderCardsToDeck(rest, 'BOTTOM', () => {
+                        if (picked.length > 0) {
+                            const target = picked[0];
+                            const isField = engine.getCardDef(target)?.type === 'FIELD';
+                            engine.chooseEmptyFieldSlotAndPlace(target, { allowFront: !isField, allowEnergy: true, enterRest: false }, (placed) => {
+                                if (placed) engine.triggerCardAbilities(target, 'ON_PLAY', onComplete);
+                                else if (onComplete) onComplete();
+                            });
+                        } else {
+                            broadcastMyState();
+                            if (onComplete) onComplete();
+                        }
+                    });
                 }
             });
         }

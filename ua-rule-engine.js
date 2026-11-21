@@ -4328,6 +4328,120 @@ injectEngineUI() {
             }
         }
 
+
+        requestRestOpponentCard(oppCardEl) {
+            if (!oppCardEl) return;
+            const oppSlot = oppCardEl.parentElement;
+            if (!oppSlot || !oppSlot.id.startsWith('opp-')) return;
+            oppCardEl.classList.add('rest');
+            const def = this.getCardDef(oppCardEl);
+            sendSystemChat(`[規則引擎] 對手的【${def?.name || '角色'}】轉為休息狀態！`);
+            if (conn && isConnected) {
+                conn.send({
+                    type: 'ENGINE_EVENT',
+                    subType: 'FORCE_REST_SLOT',
+                    slotId: oppSlot.id.replace('opp-', 'my-')
+                });
+            } else if (this.isSoloTestMode) {
+                showSysMsg(`[測試] 假敵人【${this.getDisplayName(def)}】已轉為休息狀態`);
+            }
+        }
+
+        requestFreezeOpponentCard(oppCardEl) {
+            if (!oppCardEl) return;
+            const oppSlot = oppCardEl.parentElement;
+            if (!oppSlot || !oppSlot.id.startsWith('opp-')) return;
+            const def = this.getCardDef(oppCardEl);
+            sendSystemChat(`[規則引擎] 對手的【${def?.name || '角色'}】下次起始階段無法轉為活動！`);
+            if (conn && isConnected) {
+                conn.send({
+                    type: 'ENGINE_EVENT',
+                    subType: 'FORCE_FREEZE_SLOT',
+                    slotId: oppSlot.id.replace('opp-', 'my-')
+                });
+            } else if (this.isSoloTestMode) {
+                const rt = this.getRuntime(oppCardEl);
+                if (rt) rt.frozenNextTurn = true;
+                showSysMsg(`[測試] 假敵人【${this.getDisplayName(def)}】已被凍結（下次不活動）`);
+            }
+        }
+
+        requestRemoveOpponentCard(oppCardEl) {
+            if (!oppCardEl) return;
+            const oppSlot = oppCardEl.parentElement;
+            if (!oppSlot || !oppSlot.id.startsWith('opp-')) return;
+            const def = this.getCardDef(oppCardEl);
+            sendSystemChat(`[規則引擎] 對手的【${def?.name || '角色'}】被放置於移除區！`);
+            if (conn && isConnected) {
+                conn.send({
+                    type: 'ENGINE_EVENT',
+                    subType: 'FORCE_REMOVE_SLOT',
+                    slotId: oppSlot.id.replace('opp-', 'my-')
+                });
+            } else if (this.isSoloTestMode) {
+                const oppRem = document.getElementById('opp-remove-area');
+                const oppOut = document.getElementById('opp-outside-area');
+                if (oppRem) {
+                    const cards = Array.from(oppSlot.querySelectorAll('.card'));
+                    const top = cards[cards.length - 1];
+                    const under = cards.slice(0, cards.length - 1);
+                    updateBpDisplay(oppSlot, 0);
+                    if (oppOut) under.forEach(uc => this.moveCardToZone(uc, oppOut));
+                    if (top) this.moveCardToZone(top, oppRem);
+                }
+            }
+        }
+
+        requestBottomOpponentCard(oppCardEl) {
+            if (!oppCardEl) return;
+            const oppSlot = oppCardEl.parentElement;
+            if (!oppSlot || !oppSlot.id.startsWith('opp-')) return;
+            const def = this.getCardDef(oppCardEl);
+            sendSystemChat(`[規則引擎] 對手的【${def?.name || '角色'}】被放置於牌組底部！`);
+            if (conn && isConnected) {
+                conn.send({
+                    type: 'ENGINE_EVENT',
+                    subType: 'FORCE_BOTTOM_SLOT',
+                    slotId: oppSlot.id.replace('opp-', 'my-')
+                });
+            } else if (this.isSoloTestMode) {
+                const oppDeck = document.getElementById('opp-deck-area');
+                const oppOut = document.getElementById('opp-outside-area');
+                if (oppDeck) {
+                    const cards = Array.from(oppSlot.querySelectorAll('.card'));
+                    const top = cards[cards.length - 1];
+                    const under = cards.slice(0, cards.length - 1);
+                    updateBpDisplay(oppSlot, 0);
+                    if (oppOut) under.forEach(uc => this.moveCardToZone(uc, oppOut));
+                    if (top) {
+                        oppDeck.insertBefore(top, oppDeck.firstChild);
+                        top.classList.add('is-flipped');
+                        top.classList.remove('rest', 'in-life');
+                        top.style.position = 'absolute';
+                        recalcStacking(oppDeck);
+                        updateSlotCounts();
+                    }
+                }
+            }
+        }
+
+        requestOpponentDiscard(count = 1) {
+            const n = Math.max(1, parseInt(count, 10) || 1);
+            sendSystemChat(`[規則引擎] 要求對手捨棄 ${n} 張手牌！`);
+            if (conn && isConnected) {
+                conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_DISCARD_HAND', count: n });
+            } else if (this.isSoloTestMode) {
+                const oppHand = document.getElementById('opp-hand-area');
+                const oppOut = document.getElementById('opp-outside-area');
+                if (oppHand && oppOut) {
+                    const cards = Array.from(oppHand.querySelectorAll('.card'));
+                    const drop = Math.min(n, cards.length);
+                    for (let i = 0; i < drop; i++) this.moveCardToZone(cards.pop(), oppOut);
+                    showSysMsg(`[測試] 假敵人已棄置 ${drop} 張手牌（剩餘 ${oppHand.querySelectorAll('.card').length} 張）`);
+                }
+            }
+        }
+
         promptModal({ title, desc, cards = [], cardFilterFn = null, selectCount = 1, upTo = false, showOrderNumbers = false, customButtons = [], onConfirm = null }) {
             const modal = document.getElementById('ua-prompt-modal');
             const titleEl = document.getElementById('ua-prompt-title');

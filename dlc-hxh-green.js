@@ -26,10 +26,7 @@
                 title: '登場時效果：クラピカ', desc: '選擇對手前線 BP 2500 以下或［特徴：幻影旅団］最多 1 張轉為休息：',
                 cards: cands, selectCount: 1, upTo: true,
                 onConfirm: (sel) => {
-                    if (sel.length > 0 && conn && isConnected) {
-                        sel[0].classList.add('rest');
-                        conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_REST_SLOT', slotId: sel[0].parentElement.id.replace('opp-', 'my-') });
-                    }
+                    if (sel.length > 0) engine.requestRestOpponentCard(sel[0]);
                     if (onComplete) onComplete();
                 }
             });
@@ -228,9 +225,8 @@
                         engine.moveCardToZone(c, document.getElementById('my-hand-area'));
                         if (engine.getCardDef(c)?.name.includes('ゴン＝フリークス')) engine.drawCards(1);
                     });
-                    topCards.filter(c => !picked.includes(c)).forEach(c => { deckArea.insertBefore(c, deckArea.firstChild); c.classList.add('is-flipped'); });
-                    recalcStacking(deckArea); broadcastMyState();
-                    if (onComplete) onComplete();
+                    const rest = topCards.filter(c => !picked.includes(c));
+                    engine.promptOrderCardsToDeck(rest, 'BOTTOM', onComplete);
                 }
             });
         }
