@@ -1402,9 +1402,11 @@ copyBugReportToClipboard(overrideCardEl = null) {
                     if (bpM) {
                         parsedAnyClauseInSentence = true;
                         const amount = parseInt(bpM[1], 10);
+                        const isUntilNextTurn = sentence.includes('次の自分のターン開始時まで');
                         actions.push({
                             type: 'MODIFY_BP',
                             amount: amount,
+                            duration: isUntilNextTurn ? 'NEXT_MY_TURN' : 'TURN',
                             target: sentenceAllTraitMatch ? 'ALL_MY_TRAIT' : (hasTargetSelectionInSentence ? 'SELECTED' : 'SELF'),
                             filterTrait: sentenceAllTraitMatch ? sentenceAllTraitMatch[1] : null,
                             conditions: sentenceConditions
@@ -2979,6 +2981,7 @@ injectEngineUI() {
 
             const matched = def.parsedAbilities.filter(ab => {
                 if (!ab.timings.includes(timing)) return false;
+                if (ab.oncePerTurn && rt.usedOncePerTurn) return false;
                 if (ab.requireRaided && !rt.isRaided) return false;
                 if (ab.duringMyTurnOnly && this.isFirstPlayer !== null && !this.isMyTurn) return false;
                 if (ab.duringOppTurnOnly && this.isFirstPlayer !== null && this.isMyTurn) return false;
@@ -2993,6 +2996,7 @@ injectEngineUI() {
                     return;
                 }
                 const ab = matched[idx];
+                if (ab.oncePerTurn) rt.usedOncePerTurn = true;
                 const orderedActions = this.compileSequentialClauses(ab.rawText || def.effectText);
                 this.executeAbilityActions(
                     cardEl,
@@ -3113,10 +3117,113 @@ injectEngineUI() {
                                             }
                                             this.executeAbilityActions(sourceCardEl, act.thenActions, 0, taskContext, next);
                                         } else if (cost.type === 'MILL_DECK') {
-                                            this.millDeckCards(cost.count);
+                                            if (this.millDeckCards(cost.count) < cost.count) {
+                                                showSysMsg(`牌組不足 ${cost.count} 張，無法支付代價！`);
+                                                next();
+                                                return;
+                                            }
                                             this.executeAbilityActions(sourceCardEl, act.thenActions, 0, taskContext, next);
+                                        } else if (cost.type === 'BOUNCE_OTHER') {
+                                            const cands = this.getSlotTopCards('#my-front-line .slot, #my-energy-line .slot').filter(c => c !== sourceCardEl && this.getCardDef(c)?.type === 'CHARACTER');
+                                            if (cands.length === 0) {
+                                                showSysMsg('場上沒有可退回手牌的其他角色！');
+                                                next();
+                                                return;
+                                            }
+                                            this.promptModal({
+                                                title: '選擇退回手牌的角色代價',
+                                                desc: '請選擇 1 張其他我方角色退回手牌：',
+                                                cards: cands,
+                                                selectCount: 1,
+                                                upTo: false,
+                                                onConfirm: (sel) => {
+                                                    if (sel.length === 0) { next(); return; }
+                                                    this.bounceSlotTopCardToHand(sel[0].parentElement);
+                                                    this.executeAbilityActions(sourceCardEl, act.thenActions, 0, taskContext, next);
+                                                }
+                                            });
                                         } else {
-                                            this.executeAbilityActions(sourceCardEl, act.thenActions, 0, taskContext, next);
+                                            // 通用選發代價執行器：支援「退場（自分／他／フィールド／キャラ）」「レストにする」「手札を〜場外/リムーブ」「ライフ手札」「裏向きカード」
+                                            const cDesc = cost.desc || '';
+                                            const outsideArea = document.getElementById('my-outside-area');
+                                            const removeArea = document.getElementById('my-remove-area');
+                                            const handArea = document.getElementById('my-hand-area');
+
+                                            if (cDesc.includes('このカードを退場させる') || cDesc.includes('このキャラを退場させる')) {
+                                                const s = sourceCardEl?.parentElement;
+                                                if (!s || !s.classList.contains('slot')) { next(); return; }
+                                                this.retireCardFromSlot(s);
+                                                this.executeAbilityActions(sourceCardEl, act.thenActions, 0, taskContext, next);
+                                            } else if (cDesc.includes('他のキャラを1枚退場させてもよい') || cDesc.includes('他のカードを1枚退場させてもよい')) {
+                                                const onlyChar = cDesc.includes('他のキャラ');
+                                                const cands = this.getSlotTopCards('#my-front-line .slot, #my-energy-line .slot').filter(c => c !== sourceCardEl && (!onlyChar || this.getCardDef(c)?.type === 'CHARACTER'));
+                                                if (!cands.length) { showSysMsg('場上無可退場目標！'); next(); return; }
+                                                this.promptModal({
+                                                    title: '支付代價：選擇退場目標', desc: '請選擇 1 張退場：', cards: cands, selectCount: 1, upTo: false,
+                                                    onConfirm: (sel) => {
+                                                        if (!sel.length) { next(); return; }
+                                                        this.retireCardFromSlot(sel[0].parentElement);
+                                                        this.executeAbilityActions(sourceCardEl, act.thenActions, 0, taskContext, next);
+                                                    }
+                                                });
+                                            } else if (cDesc.includes('場のキャラを1枚退場させてもよい') || cDesc.includes('場のフィールドを1枚退場させてもよい')) {
+                                                const wantField = cDesc.includes('フィールド');
+                                                const cands = this.getSlotTopCards('#my-front-line .slot, #my-energy-line .slot').filter(c => wantField ? this.getCardDef(c)?.type === 'FIELD' : this.getCardDef(c)?.type === 'CHARACTER');
+                                                if (!cands.length) { showSysMsg('場上無可退場目標！'); next(); return; }
+                                                this.promptModal({
+                                                    title: '支付代價：選擇退場目標', desc: '請選擇 1 張退場：', cards: cands, selectCount: 1, upTo: false,
+                                                    onConfirm: (sel) => {
+                                                        if (!sel.length) { next(); return; }
+                                                        this.retireCardFromSlot(sel[0].parentElement);
+                                                        this.executeAbilityActions(sourceCardEl, act.thenActions, 0, taskContext, next);
+                                                    }
+                                                });
+                                            } else if (cDesc.includes('レストにしてもよい')) {
+                                                if (cDesc.includes('このフィールドをレストにしてもよい') || cDesc.includes('このキャラをレストにしてもよい')) {
+                                                    if (!sourceCardEl || sourceCardEl.classList.contains('rest')) { showSysMsg('此卡已處於休息狀態！'); next(); return; }
+                                                    sourceCardEl.classList.add('rest');
+                                                    this.executeAbilityActions(sourceCardEl, act.thenActions, 0, taskContext, next);
+                                                } else {
+                                                    const zoneSel = cDesc.includes('フロントL') ? '#my-front-line .slot' : (cDesc.includes('エナジーL') ? '#my-energy-line .slot' : '#my-front-line .slot, #my-energy-line .slot');
+                                                    const cands = this.getSlotTopCards(zoneSel).filter(c => !c.classList.contains('rest') && this.getCardDef(c)?.type === 'CHARACTER');
+                                                    if (!cands.length) { showSysMsg('無可轉為休息的活動角色！'); next(); return; }
+                                                    this.promptModal({
+                                                        title: '支付代價：選擇休息角色', desc: '請選擇 1 張活動角色轉為休息：', cards: cands, selectCount: 1, upTo: false,
+                                                        onConfirm: (sel) => {
+                                                            if (!sel.length) { next(); return; }
+                                                            sel[0].classList.add('rest');
+                                                            this.executeAbilityActions(sourceCardEl, act.thenActions, 0, taskContext, next);
+                                                        }
+                                                    });
+                                                }
+                                            } else if (cDesc.includes('手札を') && (cDesc.includes('場外に置いてもよい') || cDesc.includes('リムーブエリアに置いてもよい'))) {
+                                                const m = cDesc.match(/手札を(\d+)枚/);
+                                                const cnt = m ? parseInt(m[1], 10) : 1;
+                                                const toRem = cDesc.includes('リムーブエリア');
+                                                const hc = Array.from(document.querySelectorAll('#my-hand-area .card'));
+                                                if (hc.length < cnt) { showSysMsg(`手牌不足 ${cnt} 張！`); next(); return; }
+                                                this.promptModal({
+                                                    title: `支付代價：選擇 ${cnt} 張手牌`, desc: `請選擇 ${cnt} 張手牌移至${toRem ? '移除區' : '場外'}：`, cards: hc, selectCount: cnt, upTo: false,
+                                                    onConfirm: (sel) => {
+                                                        if (sel.length < cnt) { next(); return; }
+                                                        sel.forEach(c => this.moveCardToZone(c, toRem ? removeArea : outsideArea));
+                                                        this.executeAbilityActions(sourceCardEl, act.thenActions, 0, taskContext, next);
+                                                    }
+                                                });
+                                            } else if (cDesc.includes('ライフエリアにあるカードを1枚手札に加えてもよい') || cDesc.includes('ライフを1枚手札に加えてもよい')) {
+                                                const lc = Array.from(document.querySelectorAll('#my-life-area .card'));
+                                                if (!lc.length) { showSysMsg('生命區已無卡片！'); next(); return; }
+                                                this.moveCardToZone(lc[lc.length - 1], handArea);
+                                                this.executeAbilityActions(sourceCardEl, act.thenActions, 0, taskContext, next);
+                                            } else if (cDesc.includes('下の裏向きのカードを') && cDesc.includes('場外に置いてもよい')) {
+                                                const slot = sourceCardEl?.parentElement;
+                                                const under = slot ? Array.from(slot.querySelectorAll('.card')).filter(c => c !== sourceCardEl && c.classList.contains('is-flipped')) : [];
+                                                if (!under.length) { showSysMsg('下方無裏向卡片！'); next(); return; }
+                                                this.moveCardToZone(under[0], outsideArea);
+                                                this.executeAbilityActions(sourceCardEl, act.thenActions, 0, taskContext, next);
+                                            } else {
+                                                this.executeAbilityActions(sourceCardEl, act.thenActions, 0, taskContext, next);
+                                            }
                                         }
                                     }
                                 },
@@ -3520,7 +3627,13 @@ injectEngineUI() {
                         } else {
                             const targets = act.target === 'SELECTED' ? taskContext.selectedTargets : [sourceCardEl];
                             targets.forEach(t => {
-                                if (t && t.parentElement) this.addSlotBp(t.parentElement, act.amount);
+                                if (t && t.parentElement) {
+                                    this.addSlotBp(t.parentElement, act.amount);
+                                    if (act.duration === 'NEXT_MY_TURN') {
+                                        const trt = this.getRuntime(t);
+                                        if (trt) trt.persistentBp = (trt.persistentBp || 0) + act.amount;
+                                    }
+                                }
                             });
                         }
                         next();
