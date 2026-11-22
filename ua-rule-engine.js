@@ -33,6 +33,7 @@ constructor() {
             this.bouncedCharThisTurn = false;
             this.playedFromDeckThisTurn = false;
             this.usedEventThisTurn = false;
+            this.usedEventCountThisTurn = 0;
             this.pendingApDiscounts = [];
             this.usedNamedAbilityThisTurn = new Set();
             this.waitingForOppTrigger = false;
@@ -264,6 +265,7 @@ constructor() {
             this.bouncedCharThisTurn = false;
             this.playedFromDeckThisTurn = false;
             this.usedEventThisTurn = false;
+            this.usedEventCountThisTurn = 0;
             this.pendingApDiscounts = [];
             this.usedNamedAbilityThisTurn.clear();
             this.waitingForOppTrigger = false;
@@ -1184,6 +1186,18 @@ copyBugReportToClipboard(overrideCardEl = null) {
                     return;
                 }
 
+                // 未支援條件攔截：若剩餘句子仍含條件標記且無已解析條件（亦非豁免句型），改走半自動結算，避免無條件執行
+                const hasUnparsedCondMarker = /場合|なら|枚以上|枚以下|いる間|ある間/.test(body);
+                const isExemptCondPhrase = /必要エナジーを満たしている場合|戻せない場合|に代わる|に代えて|そうした場合/.test(sentence);
+                if (hasUnparsedCondMarker && sentenceConditions.length === 0 && !isExemptCondPhrase) {
+                    actions.push({
+                        type: 'INTERACTIVE_FALLBACK',
+                        rawSentence: sentence,
+                        conditions: []
+                    });
+                    return;
+                }
+
                 const sentenceAllTraitMatch = body.match(/自分の場の［特徴：([^］]+)］全て/);
                 const clauses = this.splitClausesOutsideQuotes(body);
                 let hasTargetSelectionInSentence = false;
@@ -2040,6 +2054,7 @@ injectEngineUI() {
             this.bouncedCharThisTurn = false;
             this.playedFromDeckThisTurn = false;
             this.usedEventThisTurn = false;
+            this.usedEventCountThisTurn = 0;
             this.pendingApDiscounts = [];
             this.usedNamedAbilityThisTurn.clear();
             this.triggerActivatedThisTurn = false;
@@ -2436,6 +2451,7 @@ injectEngineUI() {
                     }
                     this.payApForCard(def);
                     this.usedEventThisTurn = true;
+                    this.usedEventCountThisTurn = (this.usedEventCountThisTurn || 0) + 1;
                     const outsideArea = document.getElementById('my-outside-area');
                     defaultFinalizeFn(cards, outsideArea, 'default', originalParent, endX);
                     sendSystemChat(`[規則引擎] 對手使用了事件卡【${def.name}】！`);
@@ -4651,6 +4667,7 @@ injectEngineUI() {
 
             if (def?.type === 'EVENT') {
                 this.usedEventThisTurn = true;
+                    this.usedEventCountThisTurn = (this.usedEventCountThisTurn || 0) + 1;
                 this.moveCardToZone(cardEl, document.getElementById('my-outside-area'));
                 sendSystemChat(`[效果] 對手不支付 AP 使用了事件卡〈${def.name}〉。`);
                 this.triggerCardAbilities(cardEl, 'CONTINUOUS', onComplete);
