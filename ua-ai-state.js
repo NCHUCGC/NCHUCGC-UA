@@ -20,7 +20,7 @@
     }
 
     function parseStaticKeywords(def) {
-        const res = { impact: 0, damage: 1, snipe: false, step: false, doubleAttack: false, doubleBlock: false, impactNullify: false };
+        const res = { impact: 0, damage: 1, snipe: false, step: false, doubleAttack: false, doubleBlock: false, impactNullify: false, unblockableMinBp: 0, unblockableMaxBp: 0 };
         if (!def) return res;
         if (window.uaEngine && typeof window.uaEngine.getInnateStaticKeywords === 'function') {
             const kw = window.uaEngine.getInnateStaticKeywords(def);
@@ -31,6 +31,8 @@
             res.doubleAttack = !!kw.doubleAttack;
             res.doubleBlock = !!kw.doubleBlock;
             res.impactNullify = !!kw.impactNullify;
+            res.unblockableMinBp = kw.unblockableMinBp || 0;
+            res.unblockableMaxBp = kw.unblockableMaxBp || 0;
             return res;
         }
         const eff = def.effectText || '';
@@ -73,7 +75,7 @@
             this.front = { 'my-fl-1': [], 'my-fl-2': [], 'my-fl-3': [], 'my-fl-4': [] };
             this.energy = { 'my-en-1': [], 'my-en-2': [], 'my-en-3': [], 'my-en-4': [] };
             this.ap = [];
-            this.bpMods = { 'my-fl-1': 0, 'my-fl-2': 0, 'my-fl-3': 0, 'my-fl-4': 0 };
+            this.bpMods = { 'my-fl-1': 0, 'my-fl-2': 0, 'my-fl-3': 0, 'my-fl-4': 0, 'my-en-1': 0, 'my-en-2': 0, 'my-en-3': 0, 'my-en-4': 0 };
 
             this.playerMirror = {
                 deckCount: 50,
@@ -211,7 +213,10 @@
                 doubleAttack: base.doubleAttack || !!tk.DOUBLE_ATTACK,
                 doubleBlock: base.doubleBlock || !!tk.DOUBLE_BLOCK,
                 impactNullify: base.impactNullify,
-                unblockableMaxBp: tk.UNBLOCKABLE_MAX_BP || 0
+                unblockableMaxBp: Math.max(base.unblockableMaxBp || 0, tk.UNBLOCKABLE_MAX_BP || 0),
+                unblockableMinBp: (base.unblockableMinBp && tk.UNBLOCKABLE_MIN_BP)
+                    ? Math.min(base.unblockableMinBp, tk.UNBLOCKABLE_MIN_BP)
+                    : (base.unblockableMinBp || tk.UNBLOCKABLE_MIN_BP || 0)
             };
         }
 
@@ -427,19 +432,21 @@
                     impact: kw.impact,
                     damage: kw.damage,
                     doubleAttack: kw.doubleAttack,
-                    unblockableMaxBp: kw.unblockableMaxBp
+                    unblockableMaxBp: kw.unblockableMaxBp,
+                    unblockableMinBp: kw.unblockableMinBp
                 });
             });
             return list;
         }
 
-        getLegalBlockers(unblockableMaxBp = 0) {
+        getLegalBlockers(unblockableMaxBp = 0, unblockableMinBp = 0) {
             const list = [];
             FRONT_SLOTS.forEach(slotId => {
                 const top = this.getSlotTop(slotId);
                 if (!top || top.isRest || !top.def || top.def.type !== 'CHARACTER') return;
                 const bp = this.getEffectiveBp(slotId);
                 if (unblockableMaxBp && bp <= unblockableMaxBp) return;
+                if (unblockableMinBp && bp >= unblockableMinBp) return;
                 const kw = this.getCardKeywords(top);
                 list.push({
                     slotId,
@@ -804,7 +811,10 @@
                     }
 
                     case 'FREEZE_TARGET': {
-                        ctx.selectedTargets.forEach(t => {
+                        const targets = act.target === 'SELECTED'
+                            ? ctx.selectedTargets
+                            : [{ owner: 'MY', slotId: sourceSlotId, card: sourceCard }];
+                        targets.forEach(t => {
                             if (t.owner === 'OPP') {
                                 outgoingEvents.push({ type: 'ENGINE_EVENT', subType: 'FORCE_FREEZE_SLOT', slotId: t.slotId });
                                 logs.push(`[電腦效果] 【${sourceCard.def.name}】凍結了我方前線角色！`);
@@ -831,6 +841,21 @@
                             ? ctx.selectedTargets.filter(t => t.owner === 'MY').map(t => t.card)
                             : [sourceCard];
                         targets.forEach(c => { if (c) c.tempKeywords.UNBLOCKABLE_MAX_BP = act.maxBp || 0; });
+                        break;
+                    }
+
+                    case 'GRANT_UNBLOCKABLE_BY_HIGH_BP': {
+                        const targets = (act.target === 'SELECTED' && ctx.selectedTargets.length > 0)
+                            ? ctx.selectedTargets.filter(t => t.owner === 'MY').map(t => t.card)
+                            : [sourceCard];
+                        targets.forEach(c => { if (c) c.tempKeywords.UNBLOCKABLE_MIN_BP = act.minBp || 0; });
+                        break;
+                    }
+
+                    case 'RETRIGGER_ON_PLAY': {
+                        const sub = this.resolveCardEffects(sourceCard, sourceSlotId, 'ON_PLAY', brain, difficulty);
+                        outgoingEvents.push(...sub.outgoingEvents);
+                        logs.push(...sub.logs);
                         break;
                     }
 
@@ -1089,6 +1114,7 @@
                 impact: finalKw.impact,
                 damage: finalKw.damage,
                 unblockableMaxBp: finalKw.unblockableMaxBp,
+                unblockableMinBp: finalKw.unblockableMinBp,
                 ...effRes
             };
         }

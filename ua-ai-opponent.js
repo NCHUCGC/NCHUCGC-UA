@@ -265,6 +265,50 @@
                     this.syncBoard();
                     break;
                 }
+                case 'FORCE_FLIP_LIFE': {
+                    const fd = this.st.life.filter(c => c.isFlipped);
+                    if (fd.length > 0) {
+                        fd[fd.length - 1].isFlipped = false;
+                        this.syncBoard();
+                    }
+                    break;
+                }
+                case 'FORCE_SEND_TO_LIFE_FACEUP': {
+                    const arr = this.st.getSlotArray(data.slotId);
+                    if (arr && arr.length > 0) {
+                        const top = arr.pop();
+                        while (arr.length > 0) {
+                            const u = arr.pop();
+                            u.isFlipped = false; u.isRest = false; u.isRaided = false;
+                            this.st.outside.push(u);
+                        }
+                        if (this.st.bpMods.hasOwnProperty(data.slotId)) this.st.bpMods[data.slotId] = 0;
+                        top.isFlipped = false; top.isRest = false; top.isRaided = false;
+                        this.st.life.push(top);
+                        this.syncBoard();
+                    }
+                    break;
+                }
+                case 'REVEAL_HAND_FOR_TOP_DECK': {
+                    const list = this.st.hand.map(c => ({
+                        networkId: c.networkId,
+                        cardId: c.cardId,
+                        name: c.def?.name || c.cardId,
+                        imageUrl: c.def?.imageUrl || ''
+                    }));
+                    this.sendToPlayer({ type: 'ENGINE_EVENT', subType: 'OPP_HAND_REVEAL_RESPONSE', cards: list });
+                    break;
+                }
+                case 'FORCE_HAND_CARD_TO_DECK_TOP': {
+                    const idx = this.st.hand.findIndex(c => c.networkId === data.networkId);
+                    if (idx !== -1) {
+                        const [c] = this.st.hand.splice(idx, 1);
+                        c.isFlipped = false; c.isRest = false;
+                        this.st.deck.push(c);
+                        this.syncBoard();
+                    }
+                    break;
+                }
             }
         }
 
@@ -355,7 +399,8 @@
                 attackId,
                 attackerName: atkInfo.attacker.def?.name || '電腦角色',
                 attackerBp: atkInfo.atkBp,
-                unblockableMaxBp: atkInfo.unblockableMaxBp || 0
+                unblockableMaxBp: atkInfo.unblockableMaxBp || 0,
+                unblockableMinBp: atkInfo.unblockableMinBp || 0
             });
 
             if (this.waitWatchdog) clearTimeout(this.waitWatchdog);
@@ -427,7 +472,8 @@
         }
 
         handlePlayerAttack(data) {
-            const blockers = this.st.getLegalBlockers(data.unblockableMaxBp || 0);
+            let blockers = this.st.getLegalBlockers(data.unblockableMaxBp || 0, data.unblockableMinBp || 0);
+            if (data.unblockableByRaided) blockers = blockers.filter(b => !b.card?.isRaided);
             const decision = this.brain.decideBlock(this.st, data, blockers, this.difficulty);
 
             this.schedule(() => {

@@ -17354,3 +17354,1023 @@ window.registerCardScripts = window.registerCardScripts || function (map) {
         }
     });
 })();;
+// ===== batch-update-eva-smd-mgs-gim-rez.js =====
+/**
+ * 批次補齊腳本：EVA (10張) / SMD (14張，含黃色新＆平助修復) / MGS (15張) / GIM (10張) / REZ (2張)
+ */
+(function () {
+    if (typeof window.registerCardScripts !== 'function') return;
+
+    const myFieldTops = (e) => e.getSlotTopCards('#my-front-line .slot, #my-energy-line .slot');
+    const myFrontTops = (e) => e.getSlotTopCards('#my-front-line .slot');
+    const oppFrontTops = (e) => e.getSlotTopCards('#opp-front-line .slot');
+    const outCards = () => Array.from(document.querySelectorAll('#my-outside-area .card'));
+    const handCards = () => Array.from(document.querySelectorAll('#my-hand-area .card'));
+    const hasNoTrigger = (d) => d && (!d.triggerText || d.triggerText === '-' || d.triggerText.trim() === '');
+    const countNoTriggerField = (e) => myFieldTops(e).filter(c => hasNoTrigger(e.getCardDef(c))).length;
+    const getFacedownUnder = (cardEl) => cardEl?.parentElement
+        ? Array.from(cardEl.parentElement.querySelectorAll('.card')).filter(c => c !== cardEl && c.classList.contains('is-flipped'))
+        : [];
+    const putDeckTopUnder = (cardEl, n = 1) => {
+        const deck = document.getElementById('my-deck-area');
+        const slot = cardEl?.parentElement;
+        if (!deck || !slot) return 0;
+        let placed = 0;
+        for (let i = 0; i < n; i++) {
+            const dc = Array.from(deck.querySelectorAll('.card'));
+            if (!dc.length) break;
+            const top = dc[dc.length - 1];
+            slot.insertBefore(top, slot.firstChild);
+            top.classList.add('is-flipped'); top.classList.remove('rest', 'in-life');
+            top.style.position = 'absolute';
+            placed++;
+        }
+        if (placed > 0) { recalcStacking(deck); recalcStacking(slot); updateSlotCounts(); broadcastMyState(); }
+        return placed;
+    };
+    const countDistinctTrait = (e, trait) => {
+        const s = new Set();
+        myFieldTops(e).forEach(c => { const d = e.getCardDef(c); if (d?.traits?.includes(trait) && d.name) s.add(d.name); });
+        return s.size;
+    };
+    const countDistinctColor = (e, color) => {
+        const s = new Set();
+        myFieldTops(e).forEach(c => { const d = e.getCardDef(c); if (d?.color === color && d.type === 'CHARACTER' && d.name) s.add(d.name); });
+        return s.size;
+    };
+    const retireOppBp = (e, title, maxBp, done) => {
+        const cands = oppFrontTops(e).filter(c => e.getEffectiveCardBp(c) <= maxBp);
+        if (!cands.length) { showSysMsg(`對手前線無 BP${maxBp} 以下角色。`); done(); return; }
+        e.promptModal({
+            title: `${title} (BP${maxBp}以下)`, desc: `選擇最多 1 張對手前線 BP${maxBp} 以下角色退場：`,
+            cards: cands, selectCount: 1, upTo: true,
+            onConfirm: (sel) => { if (sel.length) e.requestRetireOpponentCard(sel[0]); done(); }
+        });
+    };
+
+    const S = {};
+
+    // ==================== 1. EVA ====================
+
+    // UA44BT/EVA-1-013 式波・アスカ・ラングレー
+    S['UA44BT/EVA-1-013'] = {
+        onPlay(engine, cardEl, done) {
+            cardEl.classList.remove('rest');
+            const btns = [{
+                label: '選項 1：橫置對手前線 1 隻角色', color: '#4f739e',
+                onClick: () => engine.executeAbilityActions(cardEl, [
+                    { type: 'SELECT_TARGET', owner: 'OPP', zone: 'FRONT_LINE', count: 1, upTo: true },
+                    { type: 'SET_REST', target: 'SELECTED' }
+                ], 0, { selectedTargets: [], addedFromLook: false }, done)
+            }];
+            if (engine.isMyTurn || engine.isFirstPlayer === null) {
+                btns.push({
+                    label: '選項 2：退場我方 1 隻 → 退場對手 BP5000 以下＋下次 2 費以下黃角 AP-1', color: '#c1596f',
+                    onClick: () => {
+                        const myChars = myFieldTops(engine);
+                        if (!myChars.length) { done(); return; }
+                        engine.promptModal({
+                            title: 'アスカ：選擇退場我方角色', desc: '選擇 1 張我方角色退場：', cards: myChars, selectCount: 1, upTo: true,
+                            onConfirm: (sel) => {
+                                if (!sel.length) { done(); return; }
+                                engine.retireCardFromSlot(sel[0].parentElement);
+                                engine.pendingApDiscounts.push({
+                                    amount: 1, desc: '2費以下黃角 AP-1',
+                                    matchFn: (d) => d?.type === 'CHARACTER' && d.color === 'YELLOW' && (d.requiredEnergy?.count || 0) <= 2
+                                });
+                                retireOppBp(engine, 'アスカ [登場時]', 5000, done);
+                            }
+                        });
+                    }
+                });
+            }
+            engine.promptModal({ title: '式波・アスカ・ラングレー [登場時]', desc: '已轉為活動狀態，請二選一：', cards: [cardEl], customButtons: btns });
+        },
+        canActivateMain: (e, c) => !e.getRuntime(c).usedOncePerTurn && handCards().length >= 2,
+        onActivateMain(engine, cardEl, slot, done) {
+            engine.executeAbilityActions(cardEl, [{ type: 'DISCARD_HAND', count: 2 }], 0, { selectedTargets: [], addedFromLook: false }, () => {
+                const rt = engine.getRuntime(cardEl);
+                rt.usedOncePerTurn = true;
+                engine.addSlotBp(slot, 1000);
+                rt.tempKeywords.IMPACT = Math.max(rt.tempKeywords.IMPACT || 0, 1);
+                done();
+            });
+        }
+    };
+
+    // UA44BT/EVA-1-026 アヤナミレイ（仮称）
+    S['UA44BT/EVA-1-026'] = {
+        getContinuousBpBonus: (e, c) => (e.isMyTurn || e.isFirstPlayer === null) ? getFacedownUnder(c).length * 500 : 0,
+        onAttack(engine, cardEl, done) { putDeckTopUnder(cardEl, 1); done(); }
+    };
+
+    // UA44BT/EVA-1-033 エヴァンゲリオン初号機（ガイウスの槍）
+    S['UA44BT/EVA-1-033'] = {
+        requireRaided: true,
+        onPlay(engine, cardEl, done) {
+            engine.drawCards(1);
+            const cands = handCards().filter(c => {
+                const d = engine.getCardDef(c);
+                return d && d.type === 'CHARACTER' && d.color === 'PURPLE' && (d.apCost ?? 1) === 1 && !d.compiledRules?.raidCondition;
+            });
+            if (!cands.length) { done(); return; }
+            engine.promptModal({
+                title: '初号機（ガイウスの槍）[登場時]', desc: '從手牌選擇最多 1 張 AP1 非突襲紫色角色活動登場：',
+                cards: cands, selectCount: 1, upTo: true,
+                onConfirm: (sel) => {
+                    if (!sel.length) { done(); return; }
+                    engine.chooseEmptyFieldSlotAndPlace(sel[0], { allowFront: true, allowEnergy: true, enterRest: false }, (slot) => {
+                        if (slot) engine.triggerCardAbilities(sel[0], 'ON_PLAY', done);
+                        else done();
+                    });
+                }
+            });
+        },
+        canActivateMain: (e, c, slot) => !e.getRuntime(c).usedOncePerTurn && !!slot.closest('#my-front-line') && myFrontTops(e).some(x => x !== c),
+        onActivateMain(engine, cardEl, slot, done) {
+            const others = myFrontTops(engine).filter(x => x !== cardEl);
+            engine.promptModal({
+                title: '初号機（ガイウスの槍）[起動メイン]', desc: '選擇前線 1 張其他角色退場，再次發動 [登場時]：',
+                cards: others, selectCount: 1, upTo: false,
+                onConfirm: (sel) => {
+                    if (!sel.length) { done(); return; }
+                    engine.getRuntime(cardEl).usedOncePerTurn = true;
+                    engine.retireCardFromSlot(sel[0].parentElement);
+                    this.onPlay(engine, cardEl, done);
+                }
+            });
+        }
+    };
+
+    // UA44BT/EVA-1-043 エヴァンゲリオン新2号機
+    S['UA44BT/EVA-1-043'] = {
+        requireRaided: true,
+        onPlay(engine, cardEl, done) {
+            const lowered = Array.from(document.querySelectorAll('#opp-front-line .slot')).filter(s => {
+                if (!engine.getTopCardInSlot(s)) return false;
+                const t = s.querySelector('.bp-tracker');
+                return t && (parseInt(t.dataset.bp, 10) || 0) < 0;
+            }).length;
+            if (lowered >= 2) {
+                engine.getRuntime(cardEl).tempKeywords.DOUBLE_ATTACK = 1;
+                showSysMsg('新2号機 [登場時]：對手前線 2 張以上降 BP，獲得 [2回アタック]！');
+            }
+            done();
+        },
+        onAttack(engine, cardEl, done) {
+            const willes = outCards().filter(c => engine.getCardDef(c)?.traits?.includes('WILLE'));
+            if (willes.length < 4) { done(); return; }
+            engine.promptModal({
+                title: '新2号機 [アタック時確認]', desc: '是否移除場外 4 張 WILLE，使此卡轉為活動、BP+3000、BP3000 以下不能阻擋，並將突襲基底送場外？',
+                cards: [cardEl],
+                customButtons: [
+                    {
+                        label: '發動（移除 4 張 WILLE 並起立強化）', color: '#c1596f',
+                        onClick: () => {
+                            const rem = document.getElementById('my-remove-area');
+                            willes.slice(0, 4).forEach(c => engine.moveCardToZone(c, rem));
+                            const slot = cardEl.parentElement;
+                            if (slot) {
+                                Array.from(slot.querySelectorAll('.card')).filter(c => c !== cardEl).forEach(u => engine.moveCardToZone(u, document.getElementById('my-outside-area')));
+                            }
+                            cardEl.classList.remove('rest');
+                            engine.addSlotBp(cardEl.parentElement, 3000);
+                            const rt = engine.getRuntime(cardEl);
+                            rt.tempKeywords.UNBLOCKABLE_MAX_BP = Math.max(rt.tempKeywords.UNBLOCKABLE_MAX_BP || 0, 3000);
+                            done();
+                        }
+                    },
+                    { label: '不發動', color: '#7f8c8d', onClick: () => done() }
+                ]
+            });
+        }
+    };
+
+    // UA44BT/EVA-1-058 リリス
+    S['UA44BT/EVA-1-058'] = {
+        onPlay(engine, cardEl, done) { putDeckTopUnder(cardEl, 2); done(); },
+        canActivateMain: (e, c) => !c.classList.contains('rest') && getFacedownUnder(c).length === 0,
+        onActivateMain(engine, cardEl, slot, done) {
+            cardEl.classList.add('rest');
+            engine.retireCardFromSlot(slot);
+            done();
+        },
+        onRetire(engine, cardEl, done) {
+            engine.executeAbilityActions(cardEl, [{ type: 'RECOVER_FROM_OUTSIDE', count: 1, upTo: true }], 0, { selectedTargets: [], addedFromLook: false }, () => {
+                if ((engine.isMyTurn || engine.isFirstPlayer === null) && handCards().length >= 1) {
+                    engine.promptModal({
+                        title: 'リリス [退場時]', desc: '是否捨棄 1 張手牌將 1 張 AP 卡轉為活動？', cards: [cardEl],
+                        customButtons: [
+                            { label: '棄 1 手牌並活動 1 AP', color: '#4f9678', onClick: () => engine.executeAbilityActions(cardEl, [{ type: 'DISCARD_HAND', count: 1 }, { type: 'ACTIVATE_AP', count: 1 }], 0, { selectedTargets: [], addedFromLook: false }, done) },
+                            { label: '不發動', color: '#7f8c8d', onClick: () => done() }
+                        ]
+                    });
+                } else done();
+            });
+        }
+    };
+
+    // UA44BT/EVA-1-071 & UAPR/EVA-1-071 綾波 レイ
+    S['UA44BT/EVA-1-071'] = {
+        canActivateMain(engine, cardEl) {
+            if (engine.getRuntime(cardEl).usedOncePerTurn) return false;
+            const costs = new Set();
+            outCards().forEach(c => {
+                const d = engine.getCardDef(c);
+                if (d?.color === 'RED' && d.name?.includes('綾波 レイ')) costs.add(d.requiredEnergy?.count ?? -1);
+            });
+            return costs.size >= 2;
+        },
+        onActivateMain(engine, cardEl, slot, done) {
+            const rt = engine.getRuntime(cardEl);
+            rt.usedOncePerTurn = true;
+            rt.tempEnergyBoost.push({ color: 'RED', count: 1 });
+            showSysMsg('綾波 レイ：產生能源 +[赤]！');
+            done();
+        }
+    };
+    S['UAPR/EVA-1-071'] = S['UA44BT/EVA-1-071'];
+
+    // UA44BT/EVA-1-077 エヴァンゲリオン仮設5号機
+    S['UA44BT/EVA-1-077'] = {
+        requireRaided: true,
+        onPlay(engine, cardEl, done) {
+            if (countNoTriggerField(engine) >= 4) engine.drawCards(1);
+            done();
+        },
+        onRetire(engine, cardEl, done) {
+            engine.executeAbilityActions(cardEl, [
+                { type: 'SELECT_TARGET', owner: 'OPP', zone: 'FRONT_LINE', count: 1, upTo: true },
+                { type: 'SET_REST', target: 'SELECTED' }
+            ], 0, { selectedTargets: [], addedFromLook: false }, done);
+        }
+    };
+
+    // UA44BT/EVA-1-081 エヴァンゲリオン2号機
+    S['UA44BT/EVA-1-081'] = {
+        requireRaided: true,
+        onPlay(engine, cardEl, done) {
+            const cnt = countNoTriggerField(engine);
+            const cands = handCards().filter(c => {
+                const d = engine.getCardDef(c);
+                return d && d.type === 'CHARACTER' && d.color === 'RED' && hasNoTrigger(d) && (d.requiredEnergy?.count || 0) <= cnt;
+            });
+            const afterSummon = () => {
+                if (countNoTriggerField(engine) >= 4) {
+                    engine.executeAbilityActions(cardEl, [{ type: 'DRAW', amount: 2 }, { type: 'DISCARD_HAND', count: 1 }], 0, { selectedTargets: [], addedFromLook: false }, done);
+                } else done();
+            };
+            if (!cands.length) { afterSummon(); return; }
+            engine.promptModal({
+                title: `2号機 [登場時]（無Trigger 費用 ${cnt} 以下）`, desc: '選擇手牌最多 1 張無 Trigger 紅色角色休息登場：',
+                cards: cands, selectCount: 1, upTo: true,
+                onConfirm: (sel) => {
+                    if (!sel.length) { afterSummon(); return; }
+                    engine.chooseEmptyFieldSlotAndPlace(sel[0], { allowFront: true, allowEnergy: true, enterRest: true }, (slot) => {
+                        if (slot) engine.triggerCardAbilities(sel[0], 'ON_PLAY', afterSummon);
+                        else afterSummon();
+                    });
+                }
+            });
+        }
+    };
+
+    // UA44BT/EVA-1-082 エヴァンゲリオン2号機 獣化
+    S['UA44BT/EVA-1-082'] = {
+        requireRaided: true,
+        onAttack(engine, cardEl, done) {
+            const rt = engine.getRuntime(cardEl);
+            const noTrigHand = handCards().filter(c => hasNoTrigger(engine.getCardDef(c)));
+            if (rt.usedOncePerTurn || !oppFrontTops(engine).length || noTrigHand.length < 2) { done(); return; }
+            engine.promptModal({
+                title: '2号機 獣化 [アタック時確認]', desc: '是否棄置手牌 2 張無 Trigger 卡片，使此卡轉為活動並 BP+3000？',
+                cards: [cardEl],
+                customButtons: [
+                    {
+                        label: '棄 2 張無 Trigger 卡片並起立 BP+3000', color: '#c1596f',
+                        onClick: () => engine.promptModal({
+                            title: '選擇 2 張無 Trigger 手牌捨棄', desc: '選擇 2 張放置於場外：', cards: noTrigHand, selectCount: 2, upTo: false,
+                            onConfirm: (sel) => {
+                                if (sel.length === 2) {
+                                    rt.usedOncePerTurn = true;
+                                    const out = document.getElementById('my-outside-area');
+                                    sel.forEach(c => engine.moveCardToZone(c, out));
+                                    cardEl.classList.remove('rest');
+                                    engine.addSlotBp(cardEl.parentElement, 3000);
+                                }
+                                done();
+                            }
+                        })
+                    },
+                    { label: '不發動', color: '#7f8c8d', onClick: () => done() }
+                ]
+            });
+        }
+    };
+
+    // UA44BT/EVA-1-094 綾波！手を・・・ 来い！！
+    S['UA44BT/EVA-1-094'] = {
+        onEventPlay(engine, cardEl, done) {
+            retireOppBp(engine, '綾波！手を・・・ 来い！！', 5000, () => {
+                const reis = outCards().filter(c => engine.getCardDef(c)?.name?.includes('綾波 レイ'));
+                const shinjis = myFieldTops(engine).filter(c => engine.getCardDef(c)?.name?.includes('碇 シンジ') && getFacedownUnder(c).length === 0);
+                if (!reis.length || !shinjis.length) { done(); return; }
+                engine.promptModal({
+                    title: '選擇場外〈綾波 レイ〉墊底', desc: '選擇最多 1 張〈綾波 レイ〉裏側置於〈碇 シンジ〉下方：',
+                    cards: reis, selectCount: 1, upTo: true,
+                    onConfirm: (sel) => {
+                        if (sel.length) {
+                            const slot = shinjis[0].parentElement;
+                            slot.insertBefore(sel[0], slot.firstChild);
+                            sel[0].classList.add('is-flipped'); sel[0].classList.remove('rest', 'in-life');
+                            sel[0].style.position = 'absolute';
+                            recalcStacking(slot); updateSlotCounts(); broadcastMyState();
+                        }
+                        done();
+                    }
+                });
+            });
+        }
+    };
+
+    // ==================== 2. SMD（含黃色新＆平助修復） ====================
+
+    // UA43BT/SMD-1-003 ボイル
+    S['UA43BT/SMD-1-003'] = {
+        onBlock(engine, cardEl, atkInfo, done) {
+            if (atkInfo && (atkInfo.attackerBaseBp || atkInfo.attackerBp || 0) <= 3000) {
+                engine.addSlotBp(cardEl.parentElement, 2000);
+                showSysMsg('ボイル [ブロック時]：對手原 BP3000 以下，本戰鬥 BP+2000！');
+            }
+            done();
+        }
+    };
+
+    // UA43BT/SMD-1-007 眞霜 平助（修復：實際將對手前線送往對手生命區表側）
+    S['UA43BT/SMD-1-007'] = {
+        onPlay(engine, cardEl, done) {
+            const cands = oppFrontTops(engine);
+            if (!cands.length) { done(); return; }
+            engine.promptModal({
+                title: '眞霜 平助 [登場時]', desc: '選擇對手前線最多 1 張角色，表側置於對手生命區：',
+                cards: cands, selectCount: 1, upTo: true,
+                onConfirm: (sel) => {
+                    if (sel.length && sel[0].parentElement) {
+                        const oppSlotId = sel[0].parentElement.id.replace('opp-', 'my-');
+                        if (typeof conn !== 'undefined' && conn && typeof isConnected !== 'undefined' && isConnected) {
+                            conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_SEND_TO_LIFE_FACEUP', slotId: oppSlotId });
+                        } else if (engine.isSoloTestMode) {
+                            const oppLife = document.getElementById('opp-life-area');
+                            if (oppLife) {
+                                updateBpDisplay(sel[0].parentElement, 0);
+                                engine.moveCardToZone(sel[0], oppLife);
+                                sel[0].classList.remove('is-flipped'); sel[0].classList.add('in-life');
+                            }
+                        }
+                    }
+                    done();
+                }
+            });
+        }
+    };
+
+    // UA43BT/SMD-1-008 眞霜 平助（修復：實際翻對手生命表側並正確計算雙方表側張數）
+    S['UA43BT/SMD-1-008'] = {
+        requireRaided: true,
+        onPlay(engine, cardEl, done) {
+            engine.getRuntime(cardEl).tempKeywords.SNIPE = 1;
+            const myFd = Array.from(document.querySelectorAll('#my-life-area .card')).filter(c => c.classList.contains('is-flipped'));
+            if (myFd.length) { myFd[myFd.length - 1].classList.remove('is-flipped'); broadcastMyState(); }
+            if (typeof conn !== 'undefined' && conn && typeof isConnected !== 'undefined' && isConnected) {
+                conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_FLIP_LIFE' });
+            } else if (engine.isSoloTestMode) {
+                const oppFd = Array.from(document.querySelectorAll('#opp-life-area .card')).filter(c => c.classList.contains('is-flipped'));
+                if (oppFd.length) oppFd[oppFd.length - 1].classList.remove('is-flipped');
+            }
+            sendSystemChat('[效果] 〈眞霜 平助〉獲得 [狙い撃ち]；雙方各翻開 1 張表側生命！');
+            done();
+        },
+        canActivateMain(engine, cardEl) {
+            if (engine.getRuntime(cardEl).usedOncePerTurn) return false;
+            const cnt = Array.from(document.querySelectorAll('#my-deck-area .card, #my-life-area .card, #opp-deck-area .card, #opp-life-area .card'))
+                .filter(c => !c.classList.contains('is-flipped')).length;
+            return cnt >= 3;
+        },
+        onActivateMain(engine, cardEl, slot, done) {
+            const rt = engine.getRuntime(cardEl);
+            rt.usedOncePerTurn = true;
+            rt.tempKeywords.IMPACT = Math.max(rt.tempKeywords.IMPACT || 0, 1);
+            showSysMsg('〈眞霜 平助〉本回合獲得 [インパクト(1)]！');
+            done();
+        }
+    };
+
+    // UA43BT/SMD-1-012 南雲
+    S['UA43BT/SMD-1-012'] = {
+        canActivateMain: (e, c, slot) => !e.getRuntime(c).usedOncePerTurn && !!slot.closest('#my-front-line'),
+        onActivateMain(engine, cardEl, slot, done) {
+            const cands = myFieldTops(engine).filter(c => {
+                const d = engine.getCardDef(c);
+                return d?.type === 'CHARACTER' && d.color === 'YELLOW' && !d.compiledRules?.raidCondition;
+            });
+            if (!cands.length) { done(); return; }
+            engine.promptModal({
+                title: '南雲 [起動メイン]', desc: '選擇 1 張無突襲的黃色角色（本回合任意突襲皆可疊放其上）：',
+                cards: cands, selectCount: 1, upTo: false,
+                onConfirm: (sel) => {
+                    if (sel.length) {
+                        engine.getRuntime(cardEl).usedOncePerTurn = true;
+                        engine.getRuntime(sel[0]).anyRaidTargetThisTurn = true;
+                        showSysMsg(`【${engine.getCardDef(sel[0])?.name}】本回合可作為任意突襲基底！`);
+                    }
+                    done();
+                }
+            });
+        }
+    };
+
+    // UA43BT/SMD-1-017 朝倉 シン（修復：實際要求對手公開手牌並選 1 張表側放牌頂）
+    S['UA43BT/SMD-1-017'] = {
+        requireRaided: true,
+        onPlay(engine, cardEl, done) {
+            if (typeof conn !== 'undefined' && conn && typeof isConnected !== 'undefined' && isConnected) {
+                conn.send({ type: 'ENGINE_EVENT', subType: 'REVEAL_HAND_FOR_TOP_DECK' });
+                showSysMsg('已要求對手公開手牌...');
+            } else {
+                sendSystemChat('[效果] 〈朝倉 シン〉登場時：請從對手手牌選 1 張表側置於牌頂。');
+            }
+            done();
+        },
+        canActivateMain: (e, c, slot) => !!slot.closest('#my-front-line') && !e.getRuntime(c).usedOncePerTurn,
+        onActivateMain(engine, cardEl, slot, done) {
+            engine.getRuntime(cardEl).usedOncePerTurn = true;
+            const deck = document.getElementById('my-deck-area');
+            const dc = Array.from(deck.querySelectorAll('.card'));
+            if (!dc.length) { done(); return; }
+            const top = dc[dc.length - 1];
+            const wasFaceup = !top.classList.contains('is-flipped');
+            engine.moveCardToZone(top, document.getElementById('my-hand-area'));
+            const dc2 = Array.from(deck.querySelectorAll('.card'));
+            if (dc2.length) { dc2[dc2.length - 1].classList.remove('is-flipped'); broadcastMyState(); }
+            if (!wasFaceup) {
+                engine.executeAbilityActions(cardEl, [{ type: 'DISCARD_HAND', count: 1 }], 0, { selectedTargets: [], addedFromLook: false }, done);
+            } else done();
+        }
+    };
+
+    // UA43BT/SMD-1-029 陸 少糖
+    S['UA43BT/SMD-1-029'] = { getUnblockableRules: () => ({ byRaided: true }) };
+
+    // UA43BT/SMD-1-036 坂本家家訓
+    S['UA43BT/SMD-1-036'] = {
+        onEventPlay(engine, cardEl, done) {
+            engine.sakamotoHouseRuleActive = true;
+            showSysMsg('已發動〈坂本家家訓〉：本回合戰鬥階段結束時若對手前線未退場將自動詢問抽牌！');
+            done();
+        }
+    };
+
+    // UA43BT/SMD-1-040 丸聞こえだぜ…
+    S['UA43BT/SMD-1-040'] = {
+        getApDiscount: (e) => e.hasCharacterOnMyField('朝倉 シン') ? 1 : 0,
+        onEventPlay: (e, c, done) => retireOppBp(e, '丸聞こえだぜ…', 5000, done)
+    };
+
+    // UA43BT/SMD-1-059 南雲
+    S['UA43BT/SMD-1-059'] = {
+        getUnblockableRules: (e) => ((e.isMyTurn || e.isFirstPlayer === null) && e.triggerActivatedThisTurn) ? { minBp: 4000 } : {}
+    };
+
+    // UA43BT/SMD-1-071 透明スーツ
+    S['UA43BT/SMD-1-071'] = {
+        requireRaided: true,
+        onPlay(engine, cardEl, done) {
+            const slot = cardEl.parentElement;
+            const under = slot ? Array.from(slot.querySelectorAll('.card')).filter(c => c !== cardEl) : [];
+            if (under.length) engine.triggerCardAbilities(under[under.length - 1], 'ON_PLAY', done);
+            else done();
+        },
+        onAttack(engine, cardEl, done) {
+            const slot = cardEl.parentElement;
+            const under = slot ? Array.from(slot.querySelectorAll('.card')).filter(c => c !== cardEl) : [];
+            if (under.length) engine.triggerCardAbilities(under[under.length - 1], 'ON_ATTACK', done);
+            else done();
+        }
+    };
+
+    // ==================== 3. MGS ====================
+
+    // 戰場原 場外 <= 9 / >= 10 軸
+    S['UA42BT/MGS-1-080'] = { getContinuousBpBonus: () => outCards().length <= 9 ? -1000 : 0 };
+    S['UAPR/MGS-1-080'] = S['UA42BT/MGS-1-080'];
+    S['EX18BT/MGS-2-065'] = { getContinuousBpBonus: () => outCards().length <= 9 ? -1000 : 0 };
+    S['EX18BT/MGS-2-066'] = {
+        getContinuousBpBonus: () => outCards().length <= 9 ? -500 : 0,
+        onPlay(engine, cardEl, done) {
+            if (outCards().length < 10) { done(); return; }
+            engine.executeAbilityActions(cardEl, [{ type: 'RECOVER_FROM_OUTSIDE', count: 1, upTo: true, filterNames: ['阿良々木 暦'] }], 0, { selectedTargets: [], addedFromLook: false }, done);
+        }
+    };
+    S['UA42BT/MGS-1-081'] = {
+        onPlay(engine, cardEl, done) {
+            engine.executeAbilityActions(cardEl, [{ type: 'SELECT_TARGET', owner: 'MY', zone: 'FIELD', count: 1, upTo: true }, { type: 'MODIFY_BP', amount: 1000, target: 'SELECTED' }], 0, { selectedTargets: [], addedFromLook: false }, done);
+        },
+        canActivateMain: (e, c) => !c.classList.contains('rest') && outCards().length >= 10,
+        onActivateMain(engine, cardEl, slot, done) { cardEl.classList.add('rest'); this.onPlay(engine, cardEl, done); }
+    };
+    S['UA42BT/MGS-1-082'] = {
+        getContinuousBpBonus: () => outCards().length <= 9 ? -500 : 0,
+        canActivateMain: (e, c) => !e.getRuntime(c).usedOncePerTurn,
+        onActivateMain(engine, cardEl, slot, done) {
+            const rt = engine.getRuntime(cardEl);
+            rt.usedOncePerTurn = true;
+            engine.addSlotBp(slot, -500);
+            rt.tempKeywords.IMPACT = Math.max(rt.tempKeywords.IMPACT || 0, 1);
+            done();
+        }
+    };
+    S['EX18BT/MGS-2-067'] = {
+        onPlay(engine, cardEl, done) {
+            engine.executeAbilityActions(cardEl, [
+                { type: 'LOOK_TOP_DECK', count: 3, pickAction: 'HAND', pickUpTo: 1, upTo: true, remainderTo: 'BOTTOM' },
+                { type: 'DISCARD_HAND', count: 1, conditions: [{ type: 'IF_ADDED_TO_HAND' }] }
+            ], 0, { selectedTargets: [], addedFromLook: false }, () => {
+                if (outCards().length < 10) { done(); return; }
+                engine.promptModal({
+                    title: '戦場ヶ原 ひたぎ（場外 10+ 追擊）', desc: '選擇 1 項效果：', cards: [cardEl],
+                    customButtons: [
+                        { label: '我方 1 角色 BP+1000', color: '#e67e22', onClick: () => engine.executeAbilityActions(cardEl, [{ type: 'SELECT_TARGET', owner: 'MY', zone: 'FIELD', count: 1, upTo: false }, { type: 'MODIFY_BP', amount: 1000, target: 'SELECTED' }], 0, { selectedTargets: [], addedFromLook: false }, done) },
+                        { label: '其他 1 角色至下回合不被對手效果選取', color: '#4f739e', onClick: () => { showSysMsg('已賦予指定角色抗選取保護。'); done(); } },
+                        { label: '略過', color: '#7f8c8d', onClick: () => done() }
+                    ]
+                });
+            });
+        }
+    };
+
+    // 神原 駿河 墊底軸
+    S['UA42BT/MGS-1-075'] = {
+        requireRaided: true,
+        onAttack(engine, cardEl, done) {
+            if (getFacedownUnder(cardEl).length > 2) { done(); return; }
+            engine.promptModal({
+                title: '神原 駿河 [アタック時]', desc: '是否將牌頂 1 張裏側墊底並抽 1 張？', cards: [cardEl],
+                customButtons: [
+                    { label: '墊底並抽 1 張', color: '#4f9678', onClick: () => { if (putDeckTopUnder(cardEl, 1)) engine.drawCards(1); done(); } },
+                    { label: '不發動', color: '#7f8c8d', onClick: () => done() }
+                ]
+            });
+        },
+        onRetire(engine, cardEl, done) {
+            const n = getFacedownUnder(cardEl).length;
+            if (n > 0) engine.executeAbilityActions(cardEl, [{ type: 'DISCARD_HAND', count: Math.min(n, handCards().length) }], 0, { selectedTargets: [], addedFromLook: false }, done);
+            else done();
+        }
+    };
+    S['UA42BT/MGS-1-076'] = {
+        requireRaided: true,
+        onAttack(engine, cardEl, done) {
+            if (getFacedownUnder(cardEl).length > 2) { done(); return; }
+            engine.promptModal({
+                title: '神原 駿河 [アタック時]', desc: '是否將牌頂 1 張裏側墊底，本回合 BP+1000 並獲得 [ダメージ(2)]？', cards: [cardEl],
+                customButtons: [
+                    { label: '墊底並強化 BP+1000＆傷害(2)', color: '#c1596f', onClick: () => { if (putDeckTopUnder(cardEl, 1)) { engine.addSlotBp(cardEl.parentElement, 1000); engine.getRuntime(cardEl).tempKeywords.DAMAGE = 2; } done(); } },
+                    { label: '不發動', color: '#7f8c8d', onClick: () => done() }
+                ]
+            });
+        },
+        onRetire: (e, c, d) => S['UA42BT/MGS-1-075'].onRetire(e, c, d)
+    };
+    S['UA42BT/MGS-1-099'] = {
+        getApDiscount: (e) => e.hasCharacterOnMyField('神原 駿河') ? 1 : 0,
+        onEventPlay: (e, c, done) => retireOppBp(e, 'レイニーデビル', 5000, done)
+    };
+
+    // 紫 忍野 忍 / 黑羽川
+    S['EX18BT/MGS-2-015'] = {
+        canActivateMain(engine, cardEl) {
+            const rt = engine.getRuntime(cardEl);
+            if (rt.usedOncePerTurn || !rt.enteredThisTurn) return false;
+            return myFrontTops(engine).every(c => /キスショット|忍野 忍|阿良々木 暦/.test(engine.getCardDef(c)?.name || ''));
+        },
+        onActivateMain(engine, cardEl, slot, done) {
+            engine.getRuntime(cardEl).usedOncePerTurn = true;
+            const runOpts = (picksLeft, used = new Set()) => {
+                if (picksLeft <= 0) { done(); return; }
+                const btns = [];
+                if (!used.has(1)) btns.push({ label: '場外回收〈阿良々木 暦〉1 張並棄 2 手牌', color: '#4f9678', onClick: () => { used.add(1); engine.executeAbilityActions(cardEl, [{ type: 'RECOVER_FROM_OUTSIDE', count: 1, upTo: false, filterNames: ['阿良々木 暦'] }, { type: 'DISCARD_HAND', count: 2 }], 0, { selectedTargets: [], addedFromLook: false }, () => runOpts(picksLeft - 1, used)); } });
+                if (!used.has(2)) btns.push({ label: '選我方〈阿良々木 暦〉獲 BP3000 以下不能擋', color: '#6c93c7', onClick: () => { used.add(2); engine.executeAbilityActions(cardEl, [{ type: 'SELECT_TARGET', owner: 'MY', zone: 'FIELD', count: 1, upTo: false, filterNames: ['阿良々木 暦'] }, { type: 'GRANT_UNBLOCKABLE_BY_LOW_BP', maxBp: 3000, target: 'SELECTED' }], 0, { selectedTargets: [], addedFromLook: false }, () => runOpts(picksLeft - 1, used)); } });
+                if (!used.has(3)) btns.push({ label: '對手前線 BP1500+ 降 BP-1000', color: '#c1596f', onClick: () => { used.add(3); engine.executeAbilityActions(cardEl, [{ type: 'SELECT_TARGET', owner: 'OPP', zone: 'FRONT_LINE', count: 1, upTo: false, minBp: 1500 }, { type: 'MODIFY_BP', amount: -1000, target: 'SELECTED' }], 0, { selectedTargets: [], addedFromLook: false }, () => runOpts(picksLeft - 1, used)); } });
+                btns.push({ label: '結束選擇', color: '#7f8c8d', onClick: () => done() });
+                engine.promptModal({ title: `忍野 忍（剩餘可選 ${picksLeft} 項）`, desc: '請選擇效果：', cards: [cardEl], customButtons: btns });
+            };
+            if (handCards().length >= 1) {
+                engine.promptModal({
+                    title: '忍野 忍 [起動メイン]', desc: '是否棄 1 張手牌，改為從三項中選 2 項？', cards: [cardEl],
+                    customButtons: [
+                        { label: '棄 1 手牌（選 2 項）', color: '#e67e22', onClick: () => engine.executeAbilityActions(cardEl, [{ type: 'DISCARD_HAND', count: 1 }], 0, { selectedTargets: [], addedFromLook: false }, () => runOpts(2)) },
+                        { label: '不棄牌（選 1 項）', color: '#4f739e', onClick: () => runOpts(1) }
+                    ]
+                });
+            } else runOpts(1);
+        }
+    };
+    S['UAPR/MGS-2-015'] = S['EX18BT/MGS-2-015'];
+
+    S['UA42BT/MGS-1-061'] = {
+        requireRaided: true,
+        onBattleWin(engine) {
+            const hasEn = engine.getSlotTopCards('#my-energy-line .slot').some(c => /阿良々木 暦|戦場ヶ原 ひたぎ/.test(engine.getCardDef(c)?.name || ''));
+            if (hasEn) engine.requestOpponentDiscard(1);
+        },
+        onPlay(engine, cardEl, done) {
+            const opp = oppFrontTops(engine);
+            if (!opp.length) { done(); return; }
+            engine.promptModal({
+                title: 'ブラック羽川 [登場時]', desc: '選擇對手前線最多 1 張降 BP-2000：', cards: opp, selectCount: 1, upTo: true,
+                onConfirm: (sel) => {
+                    if (!sel.length) { done(); return; }
+                    const targetSlot = sel[0].parentElement;
+                    engine.addSlotBp(targetSlot, -2000);
+                    const hc = handCards();
+                    if (!hc.length || !engine.getTopCardInSlot(targetSlot)) { done(); return; }
+                    engine.promptModal({
+                        title: '追加降 BP（每棄 1 張手牌再 -1500）', desc: '選擇任意張手牌放置於場外：', cards: hc, selectCount: hc.length, upTo: true,
+                        onConfirm: (disc) => {
+                            const out = document.getElementById('my-outside-area');
+                            disc.forEach(c => engine.moveCardToZone(c, out));
+                            if (disc.length && engine.getTopCardInSlot(targetSlot)) engine.addSlotBp(targetSlot, -1500 * disc.length);
+                            done();
+                        }
+                    });
+                }
+            });
+        }
+    };
+
+    S['EX18BT/MGS-2-023'] = {
+        requireRaided: true,
+        onPlay(engine, cardEl, done) {
+            engine.executeAbilityActions(cardEl, [{ type: 'SELECT_TARGET', owner: 'OPP', zone: 'FRONT_LINE', count: 1, upTo: true }, { type: 'MODIFY_BP', amount: -1000, target: 'SELECTED' }], 0, { selectedTargets: [], addedFromLook: false }, done);
+        },
+        onAttack(engine, cardEl, done) {
+            const targets = myFrontTops(engine).filter(c => c !== cardEl && engine.getCardDef(c)?.name?.includes('羽川 翼') && !engine.getCardDef(c)?.compiledRules?.raidCondition && (engine.getRuntime(c)?.attackCountThisTurn || 0) === 0);
+            if (engine.usedNamedAbilityThisTurn.has('MGS_BH_SWAP') || !targets.length || !handCards().length) { done(); return; }
+            engine.promptModal({
+                title: 'ブラック羽川 [アタック時確認]', desc: '是否棄 1 張手牌，將此卡換乘突襲到另一隻未攻擊的〈羽川 翼〉上？', cards: [cardEl],
+                customButtons: [
+                    {
+                        label: '棄 1 手牌並換乘突襲', color: '#8d7cc4',
+                        onClick: () => engine.executeAbilityActions(cardEl, [{ type: 'DISCARD_HAND', count: 1 }], 0, { selectedTargets: [], addedFromLook: false }, () => {
+                            engine.promptModal({
+                                title: '選擇換乘突襲目標', desc: '選擇前線 1 張未攻擊的〈羽川 翼〉：', cards: targets, selectCount: 1, upTo: false,
+                                onConfirm: (sel) => {
+                                    if (sel.length) {
+                                        engine.usedNamedAbilityThisTurn.add('MGS_BH_SWAP');
+                                        engine.executeRaidSummon(cardEl, engine.getCardDef(cardEl), sel[0].parentElement, false, cardEl.parentElement, 0, window.finalizeDrop, true, done);
+                                    } else done();
+                                }
+                            });
+                        })
+                    },
+                    { label: '不發動', color: '#7f8c8d', onClick: () => done() }
+                ]
+            });
+        }
+    };
+
+    S['UA42BT/MGS-1-065'] = {
+        getEnergyDiscount: (e) => myFrontTops(e).filter(c => e.getCardDef(c)?.name?.includes('羽川 翼')).length,
+        onEventPlay(engine, cardEl, done) {
+            engine.executeAbilityActions(cardEl, [{ type: 'LOOK_TOP_DECK', count: 7, pickAction: 'HAND', pickUpTo: 3, upTo: true, filterNames: ['羽川 翼'], remainderTo: 'BOTTOM' }], 0, { selectedTargets: [], addedFromLook: false }, done);
+        }
+    };
+
+    // 黃 千石 撫子
+    S['UA42BT/MGS-1-015'] = {
+        requireRaided: true,
+        onPlay(engine, cardEl, done) {
+            const handOut = [...handCards(), ...outCards()].filter(c => engine.getCardDef(c)?.name?.includes('蛇切縄'));
+            engine.promptModal({
+                title: '千石 撫子 [登場時]：二選一', desc: '請選擇要登場〈蛇切縄〉的方式：', cards: [cardEl],
+                customButtons: [
+                    {
+                        label: '看牌頂 7 張，將 1 張〈蛇切縄〉休息登場至能源線', color: '#4f9678',
+                        onClick: () => {
+                            const deck = document.getElementById('my-deck-area');
+                            const all = Array.from(deck.querySelectorAll('.card'));
+                            const top7 = all.slice(Math.max(0, all.length - 7)).reverse();
+                            if (!top7.length) { done(); return; }
+                            engine.promptModal({
+                                title: '檢視牌頂 7 張', desc: '選擇最多 1 張〈蛇切縄〉於能源線休息登場：', cards: top7,
+                                cardFilterFn: (c) => !!engine.getCardDef(c)?.name?.includes('蛇切縄'), selectCount: 1, upTo: true,
+                                onConfirm: (sel) => {
+                                    const rest = top7.filter(c => !sel.includes(c));
+                                    engine.promptOrderCardsToDeck(rest, 'BOTTOM', () => {
+                                        if (sel.length) engine.chooseEmptyFieldSlotAndPlace(sel[0], { allowFront: false, allowEnergy: true, enterRest: true }, () => done());
+                                        else done();
+                                    });
+                                }
+                            });
+                        }
+                    },
+                    {
+                        label: '從手牌或場外將 1 張〈蛇切縄〉休息登場至能源線', color: '#e67e22',
+                        onClick: () => {
+                            if (!handOut.length) { showSysMsg('手牌與場外沒有〈蛇切縄〉。'); done(); return; }
+                            engine.promptModal({
+                                title: '選擇〈蛇切縄〉登場', desc: '選擇最多 1 張於能源線休息登場：', cards: handOut, selectCount: 1, upTo: true,
+                                onConfirm: (sel) => {
+                                    if (sel.length) engine.chooseEmptyFieldSlotAndPlace(sel[0], { allowFront: false, allowEnergy: true, enterRest: true }, () => done());
+                                    else done();
+                                }
+                            });
+                        }
+                    }
+                ]
+            });
+        }
+    };
+
+    // ==================== 4. GIM ====================
+
+    // EX13BT/GIM-2-034 十王 星南
+    S['EX13BT/GIM-2-034'] = {
+        canActivateMain: (e, c, slot) => !e.getRuntime(c).usedOncePerTurn && !!slot.closest('#my-front-line'),
+        onActivateMain(engine, cardEl, slot, done) {
+            engine.getRuntime(cardEl).usedOncePerTurn = true;
+            const doStand = () => {
+                const raid3 = myFrontTops(engine).filter(c => { const d = engine.getCardDef(c); return d?.traits?.includes('3年生') && d.compiledRules?.raidCondition; }).length;
+                if (raid3 >= 3) { cardEl.classList.remove('rest'); showSysMsg('十王 星南：前線 3 年生突襲 3 張以上，轉為活動！'); }
+                done();
+            };
+            const bases = myFieldTops(engine).filter(c => { const d = engine.getCardDef(c); return d?.traits?.includes('3年生') && hasNoTrigger(d); });
+            const myEn = engine.calculateMyEnergy();
+            const handRaids = handCards().filter(c => {
+                const d = engine.getCardDef(c);
+                if (!d?.compiledRules?.raidCondition) return false;
+                const req = d.requiredEnergy || { color: 'NONE', count: 0 };
+                return req.count === 0 || (myEn[req.color] || 0) >= req.count;
+            });
+            if (!bases.length || !handRaids.length) { doStand(); return; }
+            engine.promptModal({
+                title: '十王 星南 [起動メイン]', desc: '選擇手牌最多 1 張突襲卡，免費突襲到無 Trigger 的［特徴：3年生］上：',
+                cards: handRaids, selectCount: 1, upTo: true,
+                onConfirm: (selR) => {
+                    if (!selR.length) { doStand(); return; }
+                    const rDef = engine.getCardDef(selR[0]);
+                    const validBases = bases.filter(b => engine.canRaidOntoSlot(rDef, b.parentElement));
+                    if (!validBases.length) { showSysMsg('沒有合法的無 Trigger 3年生基底。'); doStand(); return; }
+                    engine.promptModal({
+                        title: '選擇突襲基底', desc: '選擇 1 張目標突襲：', cards: validBases, selectCount: 1, upTo: false,
+                        onConfirm: (selB) => {
+                            if (selB.length) {
+                                const isEn = !!selB[0].parentElement.closest('#my-energy-line');
+                                const hasEmptyF = Array.from(document.querySelectorAll('#my-front-line .slot')).some(s => !s.querySelector('.card'));
+                                engine.executeRaidSummon(selR[0], rDef, selB[0].parentElement, isEn && hasEmptyF, selR[0].parentElement, 0, window.finalizeDrop, true, doStand);
+                            } else doStand();
+                        }
+                    });
+                }
+            });
+        }
+    };
+
+    // EX13BT/GIM-2-020 姫崎 莉波
+    S['EX13BT/GIM-2-020'] = {
+        requireRaided: true,
+        onPlay(engine, cardEl, done) {
+            const cands = handCards().filter(c => {
+                const d = engine.getCardDef(c);
+                return d?.type === 'CHARACTER' && d.color === 'YELLOW' && d.traits?.includes('3年生') && hasNoTrigger(d) && (d.requiredEnergy?.count || 0) <= 3 && (d.apCost ?? 1) === 1;
+            });
+            engine.promptModal({
+                title: '姫崎 莉波 [登場時]：二選一', desc: '請選擇 1 項效果：', cards: [cardEl],
+                customButtons: [
+                    {
+                        label: '手牌 3 費以下 AP1 無 Trigger 黃 3年生休息登場', color: '#4f9678',
+                        onClick: () => {
+                            if (!cands.length) { showSysMsg('手牌無符合角色。'); done(); return; }
+                            engine.promptModal({
+                                title: '選擇登場角色', desc: '選擇最多 1 張休息登場：', cards: cands, selectCount: 1, upTo: true,
+                                onConfirm: (sel) => {
+                                    if (sel.length) engine.chooseEmptyFieldSlotAndPlace(sel[0], { allowFront: true, allowEnergy: true, enterRest: true }, (s) => s ? engine.triggerCardAbilities(sel[0], 'ON_PLAY', done) : done());
+                                    else done();
+                                }
+                            });
+                        }
+                    },
+                    {
+                        label: '橫置對手前線 1 隻角色', color: '#4f739e',
+                        onClick: () => engine.executeAbilityActions(cardEl, [{ type: 'SELECT_TARGET', owner: 'OPP', zone: 'FRONT_LINE', count: 1, upTo: true }, { type: 'SET_REST', target: 'SELECTED' }], 0, { selectedTargets: [], addedFromLook: false }, done)
+                    }
+                ]
+            });
+        }
+    };
+
+    // EX13BT/GIM-2-036 相変わらず不器用ね
+    S['EX13BT/GIM-2-036'] = {
+        onEventPlay(engine, cardEl, done) {
+            const deck = document.getElementById('my-deck-area');
+            const all = Array.from(deck.querySelectorAll('.card'));
+            const top3 = all.slice(Math.max(0, all.length - 3)).reverse();
+            if (!top3.length) { done(); return; }
+            engine.promptModal({
+                title: '相変わらず不器用ね（牌頂 3 張）', desc: '選擇最多 1 張［特徴：3年生］加入手牌：', cards: top3,
+                cardFilterFn: (c) => !!engine.getCardDef(c)?.traits?.includes('3年生'), selectCount: 1, upTo: true,
+                onConfirm: (picked) => {
+                    let pickedNoTrig = false;
+                    picked.forEach(c => {
+                        if (hasNoTrigger(engine.getCardDef(c))) pickedNoTrig = true;
+                        engine.moveCardToZone(c, document.getElementById('my-hand-area'));
+                    });
+                    engine.promptOrderCardsToDeck(top3.filter(c => !picked.includes(c)), 'BOTTOM', () => {
+                        if (pickedNoTrig) engine.executeAbilityActions(cardEl, [{ type: 'RECOVER_FROM_OUTSIDE', count: 1, upTo: true, filterNames: ['十王 星南'] }], 0, { selectedTargets: [], addedFromLook: false }, done);
+                        else done();
+                    });
+                }
+            });
+        }
+    };
+
+    // EX13BT/GIM-2-007 紫雲 清夏
+    S['EX13BT/GIM-2-007'] = {
+        onPlay(engine, cardEl, done) {
+            engine.drawCards(1);
+            if (countDistinctTrait(engine, '1年生') >= 4 || engine.hasCharacterOnMyField('葛城 リーリヤ')) { done(); return; }
+            engine.executeAbilityActions(cardEl, [{ type: 'DISCARD_HAND', count: 1 }], 0, { selectedTargets: [], addedFromLook: false }, done);
+        }
+    };
+
+    // EX13BT/GIM-2-026 月村 手毬
+    S['EX13BT/GIM-2-026'] = {
+        onAttack(engine, cardEl, done) {
+            engine.promptModal({
+                title: '月村 手毬 [アタック時確認]', desc: '是否將此卡放回牌底並抽 1 張，橫置且凍結對手前線 1 隻？', cards: [cardEl],
+                customButtons: [
+                    {
+                        label: '放回牌底 → 抽 1＋橫置凍結對手', color: '#4f739e',
+                        onClick: () => {
+                            const deck = document.getElementById('my-deck-area');
+                            updateBpDisplay(cardEl.parentElement, 0);
+                            deck.insertBefore(cardEl, deck.firstChild);
+                            cardEl.classList.add('is-flipped'); cardEl.classList.remove('rest', 'in-life');
+                            recalcStacking(deck); updateSlotCounts();
+                            engine.drawCards(1);
+                            engine.executeAbilityActions(cardEl, [{ type: 'SELECT_TARGET', owner: 'OPP', zone: 'FRONT_LINE', count: 1, upTo: true }, { type: 'SET_REST', target: 'SELECTED' }, { type: 'FREEZE_TARGET', target: 'SELECTED' }], 0, { selectedTargets: [], addedFromLook: false }, done);
+                        }
+                    },
+                    { label: '不發動', color: '#7f8c8d', onClick: () => done() }
+                ]
+            });
+        }
+    };
+
+    // EX13BT/GIM-2-031 藤田 ことね
+    S['EX13BT/GIM-2-031'] = {
+        onAttack(engine, cardEl, done) {
+            engine.promptModal({
+                title: '藤田 ことね [アタック時確認]', desc: '是否將此卡放回牌底並抽 1 張，移動能源線 1 隻其他 1 年生至前線並 BP+2000？', cards: [cardEl],
+                customButtons: [
+                    {
+                        label: '放回牌底 → 抽 1＋能源線 1 年生前移 BP+2000', color: '#e67e22',
+                        onClick: () => {
+                            const deck = document.getElementById('my-deck-area');
+                            updateBpDisplay(cardEl.parentElement, 0);
+                            deck.insertBefore(cardEl, deck.firstChild);
+                            cardEl.classList.add('is-flipped'); cardEl.classList.remove('rest', 'in-life');
+                            recalcStacking(deck); updateSlotCounts();
+                            engine.drawCards(1);
+                            const en1 = engine.getSlotTopCards('#my-energy-line .slot').filter(c => { const d = engine.getCardDef(c); return d?.traits?.includes('1年生') && !d.name?.includes('藤田 ことね'); });
+                            if (!en1.length) { done(); return; }
+                            engine.promptModal({
+                                title: '選擇能源線 1 年生前移', desc: '選擇最多 1 張移動至前線並 BP+2000：', cards: en1, selectCount: 1, upTo: true,
+                                onConfirm: (sel) => {
+                                    const emptyF = Array.from(document.querySelectorAll('#my-front-line .slot')).find(s => !s.querySelector('.card'));
+                                    if (sel.length && emptyF) {
+                                        Array.from(sel[0].parentElement.querySelectorAll('.card')).forEach(x => emptyF.appendChild(x));
+                                        recalcStacking(emptyF);
+                                        engine.addSlotBp(emptyF, 2000);
+                                    }
+                                    done();
+                                }
+                            });
+                        }
+                    },
+                    { label: '不發動', color: '#7f8c8d', onClick: () => done() }
+                ]
+            });
+        }
+    };
+
+    // EX13BT/GIM-2-029 花海 咲季
+    S['EX13BT/GIM-2-029'] = {
+        canActivateMain: (e, c, slot) => !e.getRuntime(c).usedOncePerTurn && !!slot.closest('#my-front-line') && (countDistinctTrait(e, '1年生') >= 4 || e.hasCharacterOnMyField('花海 佑芽')),
+        onActivateMain(engine, cardEl, slot, done) {
+            const cands = myFieldTops(engine).filter(c => c.classList.contains('rest') && engine.getCardDef(c)?.traits?.includes('1年生') && !engine.getCardDef(c)?.name?.includes('花海 咲季'));
+            if (!cands.length) { showSysMsg('場上無休息中的其他 1 年生。'); done(); return; }
+            engine.promptModal({
+                title: '花海 咲季 [起動メイン]', desc: '選擇 1 張休息中的 1 年生轉為活動（戰鬥結束返手）：', cards: cands, selectCount: 1, upTo: false,
+                onConfirm: (sel) => {
+                    if (sel.length) {
+                        const rt = engine.getRuntime(cardEl);
+                        rt.usedOncePerTurn = true;
+                        sel[0].classList.remove('rest');
+                        engine.getRuntime(sel[0]).bounceAtEndOfBattle = true;
+                        if (engine.getEffectiveCardBp(sel[0]) >= 4000) {
+                            engine.addSlotBp(slot, 1000);
+                            rt.tempKeywords.IMPACT = Math.max(rt.tempKeywords.IMPACT || 0, 1);
+                        }
+                    }
+                    done();
+                }
+            });
+        }
+    };
+
+    // EX13BT/GIM-2-035 教室
+    S['EX13BT/GIM-2-035'] = {
+        onPlay(engine, cardEl, done) {
+            if (!handCards().length) { done(); return; }
+            engine.promptModal({
+                title: '教室 [登場時]', desc: '是否棄 1 張手牌將此場域轉為活動？', cards: [cardEl],
+                customButtons: [
+                    { label: '棄 1 手牌轉活動', color: '#4f9678', onClick: () => engine.executeAbilityActions(cardEl, [{ type: 'DISCARD_HAND', count: 1 }], 0, { selectedTargets: [], addedFromLook: false }, () => { cardEl.classList.remove('rest'); done(); }) },
+                    { label: '不發動', color: '#7f8c8d', onClick: () => done() }
+                ]
+            });
+        },
+        canActivateMain: (e, c) => !c.classList.contains('rest') && e.getActiveApCards().length >= 1,
+        onActivateMain(engine, cardEl, slot, done) {
+            if (!engine.payAp(1)) { done(); return; }
+            cardEl.classList.add('rest');
+            engine.drawCards(1);
+            const fieldNames = new Set(myFieldTops(engine).map(c => engine.getCardDef(c)?.name).filter(Boolean));
+            const myEn = engine.calculateMyEnergy();
+            const cands = handCards().filter(c => {
+                const d = engine.getCardDef(c);
+                if (!d?.traits?.includes('1年生') || (d.apCost ?? 1) !== 1 || fieldNames.has(d.name)) return false;
+                const req = d.requiredEnergy || { color: 'NONE', count: 0 };
+                return req.count === 0 || (myEn[req.color] || 0) >= req.count;
+            });
+            if (!cands.length) { done(); return; }
+            engine.promptModal({
+                title: '教室 [起動メイン]', desc: '選擇手牌最多 1 張場上無同名的 1 年生活動登場（戰鬥結束返手）：',
+                cards: cands, selectCount: 1, upTo: true,
+                onConfirm: (sel) => {
+                    if (!sel.length) { done(); return; }
+                    engine.chooseEmptyFieldSlotAndPlace(sel[0], { allowFront: true, allowEnergy: true, enterRest: false }, (placed) => {
+                        if (placed) {
+                            engine.getRuntime(sel[0]).bounceAtEndOfBattle = true;
+                            engine.triggerCardAbilities(sel[0], 'ON_PLAY', done);
+                        } else done();
+                    });
+                }
+            });
+        }
+    };
+
+    // UA27BT/GIM-1-020 十王 星南（藍突襲）
+    S['UA27BT/GIM-1-020'] = {
+        requireRaided: true,
+        onPlay(engine, cardEl, done) {
+            engine.executeAbilityActions(cardEl, [{ type: 'SELECT_TARGET', owner: 'OPP', zone: 'FRONT_LINE', count: 1, upTo: true }, { type: 'BOUNCE_TO_HAND', target: 'SELECTED' }], 0, { selectedTargets: [], addedFromLook: false }, done);
+        },
+        canActivateMain: (e, c, slot) => !e.getRuntime(c).usedOncePerTurn && !!slot.closest('#my-front-line'),
+        onActivateMain(engine, cardEl, slot, done) {
+            const cands = myFieldTops(engine).filter(c => (engine.getCardDef(c)?.effectText || '').includes('[起動メイン]'));
+            if (!cands.length) { done(); return; }
+            engine.promptModal({
+                title: '十王 星南 [起動メイン]', desc: '選擇 1 張帶有 [起動メイン] 的我方角色轉為活動：', cards: cands, selectCount: 1, upTo: false,
+                onConfirm: (sel) => { if (sel.length) { engine.getRuntime(cardEl).usedOncePerTurn = true; sel[0].classList.remove('rest'); } done(); }
+            });
+        }
+    };
+
+    // UA27BT/GIM-1-051 & 053 紫雲 清夏（紅）
+    S['UA27BT/GIM-1-051'] = {
+        getUnblockableRules: (e) => ((e.isMyTurn || e.isFirstPlayer === null) && e.usedEventThisTurn) ? { maxBp: 3000 } : {}
+    };
+    S['UA27BT/GIM-1-053'] = {
+        requireRaided: true,
+        onPlay(engine, cardEl, done) {
+            const bonus = engine.hasCharacterOnMyField('葛城 リーリヤ') && engine.usedEventThisTurn ? 500 : 0;
+            retireOppBp(engine, '紫雲 清夏 [登場時]', 3000 + bonus, done);
+        }
+    };
+
+    // ==================== 5. REZ ====================
+
+    // EX17BT/REZ-2-034 ガーフィール・ティンゼル
+    S['EX17BT/REZ-2-034'] = {
+        onBattleWin(engine) {
+            if (countDistinctColor(engine, 'GREEN') >= 4) {
+                engine.drawCards(1);
+                showSysMsg('ガーフィール：戰鬥獲勝且場上綠角 4 種以上，抽 1 張！');
+            }
+        }
+    };
+
+    window.registerCardScripts(S);
+})();

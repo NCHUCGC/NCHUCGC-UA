@@ -1148,6 +1148,27 @@ window.appScale = 1;
             isConnected = false;
             setupConnection();
         };
+
+        window.disconnectPeer = function () {
+            const inGame = document.getElementById('game-scene')?.style.display !== 'none';
+            if (inGame && !confirm('確定要中斷與對手的連線並返回大廳嗎？')) return;
+            if (conn) {
+                try { conn.close(); } catch (e) {}
+                conn = null;
+            }
+            isConnected = false;
+            const matchBar = document.getElementById('global-match-bar');
+            if (matchBar) matchBar.style.display = 'none';
+            const startBtn = document.getElementById('start-game-btn');
+            if (startBtn) {
+                startBtn.disabled = true;
+                startBtn.innerText = '雙方就緒，進入對戰';
+                startBtn.style.background = '';
+                startBtn.style.boxShadow = '';
+            }
+            if (inGame) resetBoard();
+            showSysMsg('已斷開與對手的連線。');
+        };
         document.getElementById('btn-back-builder').addEventListener('click', () => {
             if (window.uaTestMode && window.uaTestMode.isActive()) {
                 window.uaTestMode.exit();
@@ -1440,7 +1461,7 @@ window.appScale = 1;
             stateData.forEach(d => {
                 let el = oppCardsElements.find(c => c.dataset.networkId === d.id);
                 if(el) {
-                    if (d.parent === 'none') { el.style.opacity = '0'; return; }
+                    if (d.parent === 'none') { return; }
                     el.style.opacity = '1';
 
                     let targetParentId = d.parent.replace('my-', 'opp-');
@@ -1845,6 +1866,7 @@ function createCardDOM(cardData, networkId, isMine) {
                 function onEnd(event) {
                     document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onEnd);
                     document.removeEventListener('touchmove', onMove); document.removeEventListener('touchend', onEnd);
+                    document.removeEventListener('touchcancel', onCancelDrag); window.removeEventListener('blur', onCancelDrag);
                     if(typeof longPressTimer !== 'undefined') clearTimeout(longPressTimer);
 
                     if (isTouch && event.cancelable) event.preventDefault();
@@ -1914,8 +1936,19 @@ function createCardDOM(cardData, networkId, isMine) {
                         } else finalizeDrop(cardsToDrop, dropZone, 'default', originalParent, endX);
                     }
                 }
+                function onCancelDrag() {
+                    document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onEnd);
+                    document.removeEventListener('touchmove', onMove); document.removeEventListener('touchend', onEnd);
+                    document.removeEventListener('touchcancel', onCancelDrag); window.removeEventListener('blur', onCancelDrag);
+                    if (typeof longPressTimer !== 'undefined') clearTimeout(longPressTimer);
+                    if (isDragging) {
+                        let cardsToReturn = isStackDrag ? stackCardsData.map(item => item.el) : [cardElement];
+                        finalizeDrop(cardsToReturn, null, 'cancel', originalParent, startClientX);
+                    }
+                }
                 document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onEnd);
                 document.addEventListener('touchmove', onMove, {passive: false}); document.addEventListener('touchend', onEnd);
+                document.addEventListener('touchcancel', onCancelDrag); window.addEventListener('blur', onCancelDrag);
             }
             cardElement.onmousedown = dragStart; cardElement.ontouchstart = dragStart; cardElement.ondragstart = function() { return false; };
         }
@@ -1923,8 +1956,16 @@ function createCardDOM(cardData, networkId, isMine) {
         function finalizeDrop(cards, dropZone, action, originalParent, endX) {
             let processCards = (action.startsWith('bottom')) ? [...cards].reverse() : cards;
 
+            const safeFallbackParent = (originalParent && originalParent.id !== 'board-viewport' && document.body.contains(originalParent))
+                ? originalParent
+                : document.getElementById('my-hand-area');
+
             processCards.forEach(c => {
                 c.classList.remove('dragging', 'stack-glowing');
+                c.style.display = '';
+                c.style.opacity = '1';
+                c.style.visibility = 'visible';
+                c.style.transform = '';
                 delete c.dataset.isSecretDrag; 
 
                 if (dropZone && action !== 'cancel') {
@@ -1970,14 +2011,14 @@ function createCardDOM(cardData, networkId, isMine) {
                         c.classList.remove('is-flipped', 'rest'); 
                     } 
                     else c.style.position = 'absolute'; 
-                } else if (originalParent) {
-                    originalParent.appendChild(c);
-                    if(originalParent.id.includes('hand') || originalParent.id.includes('look')) { c.style.position = 'relative'; c.style.left = '0'; c.style.top = '0'; } 
+                } else if (safeFallbackParent) {
+                    safeFallbackParent.appendChild(c);
+                    if(safeFallbackParent.id.includes('hand') || safeFallbackParent.id.includes('look')) { c.style.position = 'relative'; c.style.left = '0'; c.style.top = '0'; } 
                     else c.style.position = 'absolute';
                 }
             });
             if (dropZone && action !== 'cancel' && !dropZone.id.includes('modal-')) recalcStacking(dropZone); 
-            else if (originalParent && !originalParent.id.includes('modal-')) recalcStacking(originalParent);
+            else if (safeFallbackParent && !safeFallbackParent.id.includes('modal-')) recalcStacking(safeFallbackParent);
             updateSlotCounts(); broadcastMyState();
             
             if (action !== 'cancel' && typeof playSound === 'function') {

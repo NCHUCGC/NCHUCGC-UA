@@ -38,6 +38,11 @@ constructor() {
             this.waitingForOppTrigger = false;
             this.oppTriggerTimeoutId = null;
             this.oppSyncedKeywords = {};
+            this.oppSyncedEffectiveBp = {};
+            this.triggerActivatedThisTurn = false;
+            this.oppFrontRetiredThisTurn = false;
+            this.sakamotoHouseRuleActive = false;
+            this.currentAttackInfo = null;
             this.isSoloTestMode = false;
             this.soloTestBypass = false;
         }
@@ -46,19 +51,29 @@ constructor() {
         exportMyKeywordBadgesMap() {
             const map = {};
             if (!this.enabled) return map;
+            const effBpMap = {};
             document.querySelectorAll('#my-front-line .slot, #my-energy-line .slot').forEach(slot => {
                 const topCard = this.getTopCardInSlot(slot);
                 if (!topCard || topCard.classList.contains('is-flipped')) return;
                 const badges = this.computeBadgesForCard(topCard);
                 if (badges.length > 0) map[slot.id] = badges;
+                effBpMap[slot.id] = this.getEffectiveCardBp(topCard);
             });
+            map.__effBp = effBpMap;
             return map;
         }
 
         applyOpponentKeywordBadgesMap(kwStates) {
             this.oppSyncedKeywords = {};
+            this.oppSyncedEffectiveBp = {};
             if (!kwStates || typeof kwStates !== 'object') return;
             for (const [mySlotId, badges] of Object.entries(kwStates)) {
+                if (mySlotId === '__effBp' && badges && typeof badges === 'object') {
+                    for (const [sId, bpVal] of Object.entries(badges)) {
+                        this.oppSyncedEffectiveBp[sId.replace('my-', 'opp-')] = bpVal;
+                    }
+                    continue;
+                }
                 const oppSlotId = mySlotId.replace('my-', 'opp-');
                 this.oppSyncedKeywords[oppSlotId] = badges;
             }
@@ -89,7 +104,7 @@ constructor() {
 
         // 精準解析卡片「常駐自帶關鍵字」，排除「給予他人」「條件獲得」「衝擊無效被誤判為衝擊」等誤判
         getInnateStaticKeywords(def) {
-            const res = { impact: 0, damage: 0, snipe: false, step: false, doubleAttack: false, doubleBlock: false, impactNullify: false };
+            const res = { impact: 0, damage: 0, snipe: false, step: false, doubleAttack: false, doubleBlock: false, impactNullify: false, unblockableMinBp: 0, unblockableMaxBp: 0 };
             if (!def || !def.effectText || def.effectText === '-') return res;
             const lines = def.effectText.split('\n').map(l => l.trim()).filter(Boolean);
             for (const line of lines) {
@@ -98,6 +113,19 @@ constructor() {
                     .replace(/\]（[^）]*）/g, ']')
                     .replace(/(?<!\[[^\]]*)（[^）]*）/g, '')
                     .trim();
+                // 常駐「BP N 以上／以下不能阻擋」（排除帶時機標籤或「を得る」「を与える」的條件句）
+                if (!/\[(登場時|アタック時|ブロック時|退場時|起動メイン)\]/.test(clean) && !clean.includes('を得る') && !clean.includes('を与える')) {
+                    const minM = clean.match(/このキャラはBP(\d+)以上のキャラにブロックされない/);
+                    if (minM) {
+                        const v = parseInt(minM[1], 10) || 0;
+                        if (v > 0) res.unblockableMinBp = res.unblockableMinBp ? Math.min(res.unblockableMinBp, v) : v;
+                    }
+                    const maxM = clean.match(/このキャラはBP(\d+)以下のキャラにブロックされない/);
+                    if (maxM) {
+                        const v = parseInt(maxM[1], 10) || 0;
+                        if (v > 0) res.unblockableMaxBp = Math.max(res.unblockableMaxBp, v);
+                    }
+                }
                 // 僅承認整行都是純靜態關鍵字標籤的行（不含條件句、不含「与える」「を得る」）
                 if (!/^(\[[^\]]+\]\s*)+$/.test(clean)) continue;
                 const tags = clean.match(/\[[^\]]+\]/g) || [];
@@ -176,7 +204,12 @@ constructor() {
 
         getEffectiveApCost(cardDef) {
             let cost = cardDef?.apCost !== undefined ? cardDef.apCost : 1;
-            if (!cardDef || !this.pendingApDiscounts || this.pendingApDiscounts.length === 0) return cost;
+            if (!cardDef) return cost;
+            const script = this.getCardScriptById(cardDef.id);
+            if (script && typeof script.getApDiscount === 'function') {
+                cost = Math.max(0, cost - (script.getApDiscount(this, cardDef) || 0));
+            }
+            if (!this.pendingApDiscounts || this.pendingApDiscounts.length === 0) return cost;
             for (const disc of this.pendingApDiscounts) {
                 if (disc.matchFn && disc.matchFn(cardDef)) {
                     cost = Math.max(0, cost - (disc.amount || 1));
@@ -189,6 +222,16 @@ constructor() {
         payApForCard(cardDef) {
             if (this.isSoloTestMode && this.soloTestBypass) return true;
             let cost = cardDef?.apCost !== undefined ? cardDef.apCost : 1;
+            if (cardDef) {
+                const script = this.getCardScriptById(cardDef.id);
+                if (script && typeof script.getApDiscount === 'function') {
+                    const sd = script.getApDiscount(this, cardDef) || 0;
+                    if (sd > 0) {
+                        cost = Math.max(0, cost - sd);
+                        showSysMsg(`已套用卡片常駐 AP 減免（-${sd}），實際支付 ${cost} AP！`);
+                    }
+                }
+            }
             if (cardDef && this.pendingApDiscounts && this.pendingApDiscounts.length > 0) {
                 const idx = this.pendingApDiscounts.findIndex(d => d.matchFn && d.matchFn(cardDef));
                 if (idx !== -1) {
@@ -226,6 +269,11 @@ constructor() {
             this.waitingForOppTrigger = false;
             if (this.oppTriggerTimeoutId) { clearTimeout(this.oppTriggerTimeoutId); this.oppTriggerTimeoutId = null; }
             this.oppSyncedKeywords = {};
+            this.oppSyncedEffectiveBp = {};
+            this.triggerActivatedThisTurn = false;
+            this.oppFrontRetiredThisTurn = false;
+            this.sakamotoHouseRuleActive = false;
+            this.currentAttackInfo = null;
             this.cardRuntime.clear();
             this.deckDominantColor = null;
             this.resolvedDefCache.clear();
@@ -1386,6 +1434,27 @@ copyBugReportToClipboard(overrideCardEl = null) {
                         return;
                     }
 
+                    const unblockHighM = clause.match(/BP(\d+)以上のキャラにブロックされない/);
+                    if (unblockHighM) {
+                        parsedAnyClauseInSentence = true;
+                        actions.push({
+                            type: 'GRANT_UNBLOCKABLE_BY_HIGH_BP',
+                            minBp: parseInt(unblockHighM[1], 10),
+                            target: hasTargetSelectionInSentence ? 'SELECTED' : 'SELF',
+                            conditions: sentenceConditions
+                        });
+                        return;
+                    }
+
+                    if (/このキャラの\[登場時\]を発動する/.test(clause)) {
+                        parsedAnyClauseInSentence = true;
+                        actions.push({
+                            type: 'RETRIGGER_ON_PLAY',
+                            conditions: sentenceConditions
+                        });
+                        return;
+                    }
+
                     // 14. 場外回收手牌
                     if (clause.includes('自分の場外から') && clause.includes('手札に加える')) {
                         parsedAnyClauseInSentence = true;
@@ -1863,9 +1932,11 @@ injectEngineUI() {
                 }
             }
 
+            const hasFreeExtraDraw = this.getSlotTopCards('#my-front-line .slot').some(c => this.getBaseCardId(c.dataset?.cardId) === 'UA43BT/SMD-1-045');
             const extraDrawBtn = document.getElementById('btn-extra-draw');
             if (extraDrawBtn) {
-                extraDrawBtn.style.display = (this.isMyTurn && this.currentPhase === '起始' && !this.usedExtraDraw && activeAp >= 1) ? 'block' : 'none';
+                extraDrawBtn.innerText = hasFreeExtraDraw ? '💎 額外抽卡(0AP)' : '💎 額外抽卡(1AP)';
+                extraDrawBtn.style.display = (this.isMyTurn && this.currentPhase === '起始' && !this.usedExtraDraw && (activeAp >= 1 || hasFreeExtraDraw)) ? 'block' : 'none';
             }
 
             this.renderFieldActionOverlayButtons();
@@ -1971,6 +2042,9 @@ injectEngineUI() {
             this.usedEventThisTurn = false;
             this.pendingApDiscounts = [];
             this.usedNamedAbilityThisTurn.clear();
+            this.triggerActivatedThisTurn = false;
+            this.oppFrontRetiredThisTurn = false;
+            this.sakamotoHouseRuleActive = false;
 
             this.cardRuntime.forEach(rt => {
                 rt.enteredThisTurn = false;
@@ -2024,13 +2098,14 @@ injectEngineUI() {
 
         executeExtraDraw() {
             if (!this.isMyTurn || this.currentPhase !== '起始' || this.usedExtraDraw) return;
-            if (!this.payAp(1)) {
+            const hasFree = this.getSlotTopCards('#my-front-line .slot').some(c => this.getBaseCardId(c.dataset?.cardId) === 'UA43BT/SMD-1-045');
+            if (!hasFree && !this.payAp(1)) {
                 showSysMsg('AP 不足，無法進行額外抽卡！');
                 return;
             }
             this.usedExtraDraw = true;
             this.drawCards(1);
-            sendSystemChat('[規則引擎] 對手支付 1 AP 進行了「額外抽卡 (Extra Draw)」。');
+            sendSystemChat(hasFree ? '[規則引擎] 對手藉由〈大佛〉效果免費進行了「額外抽卡 (0 AP)」。' : '[規則引擎] 對手支付 1 AP 進行了「額外抽卡 (Extra Draw)」。');
             this.updateEnergyHUD();
         }
 
@@ -2051,6 +2126,34 @@ injectEngineUI() {
                         }
                     }
                 });
+            }
+            if (oldPhase === '戰鬥' && newPhase !== '戰鬥') {
+                document.querySelectorAll('#my-front-line .slot, #my-energy-line .slot').forEach(slot => {
+                    const topCard = this.getTopCardInSlot(slot);
+                    if (topCard) {
+                        const rt = this.getRuntime(topCard);
+                        if (rt && rt.bounceAtEndOfBattle) {
+                            rt.bounceAtEndOfBattle = false;
+                            showSysMsg(`【戰鬥階段結束】${this.getCardDef(topCard)?.name || ''} 返回手牌！`);
+                            this.bounceSlotTopCardToHand(slot);
+                        }
+                    }
+                });
+                if (this.sakamotoHouseRuleActive) {
+                    this.sakamotoHouseRuleActive = false;
+                    if (!this.oppFrontRetiredThisTurn) {
+                        this.promptModal({
+                            title: '坂本家家訓（戰鬥階段結束）',
+                            desc: '本回合對手前線角色未退場！請選擇要抽取的張數（最多 4 張）：',
+                            cards: [],
+                            customButtons: [4, 3, 2, 1, 0].map(n => ({
+                                label: n === 0 ? '不抽牌' : `抽 ${n} 張`,
+                                color: n === 0 ? '#7f8c8d' : '#4f9678',
+                                onClick: () => { if (n > 0) this.drawCards(n); }
+                            }))
+                        });
+                    }
+                }
             }
             this.updateEnergyHUD();
         }
@@ -2215,6 +2318,7 @@ injectEngineUI() {
             if (!baseDef || baseDef.type !== 'CHARACTER') return false;
 
             if (baseRt && baseRt.isRaided && targetSlot.querySelectorAll('.card').length > 1) return false;
+            if (baseRt && baseRt.anyRaidTargetThisTurn) return true;
 
             if (raidCond.type === 'NAME') {
                 return baseDef.name.replace(/\s+/g, '') === raidCond.target.replace(/\s+/g, '') || baseDef.name.includes(raidCond.target);
@@ -2835,6 +2939,10 @@ injectEngineUI() {
                     script.onAttack(this, cardEl, () => { this.updateEnergyHUD(); broadcastMyState(); if (onComplete) onComplete(); });
                     return;
                 }
+                if (timing === 'ON_BLOCK' && typeof script.onBlock === 'function') {
+                    script.onBlock(this, cardEl, this.currentAttackInfo, () => { this.updateEnergyHUD(); broadcastMyState(); if (onComplete) onComplete(); });
+                    return;
+                }
                 if (timing === 'ON_RETIRE' && typeof script.onRetire === 'function') {
                     script.onRetire(this, cardEl, () => { this.updateEnergyHUD(); broadcastMyState(); if (onComplete) onComplete(); });
                     return;
@@ -3433,6 +3541,26 @@ injectEngineUI() {
                         break;
                     }
 
+                    case 'GRANT_UNBLOCKABLE_BY_HIGH_BP': {
+                        const targets = act.target === 'SELECTED' && taskContext.selectedTargets.length > 0
+                            ? taskContext.selectedTargets
+                            : [sourceCardEl];
+                        targets.forEach(t => {
+                            const trt = this.getRuntime(t);
+                            if (trt) {
+                                trt.tempKeywords.UNBLOCKABLE_MIN_BP = act.minBp;
+                                showSysMsg(`【${this.getCardDef(t)?.name}】本回合不會被 BP ${act.minBp} 以上的角色防禦！`);
+                            }
+                        });
+                        next();
+                        break;
+                    }
+
+                    case 'RETRIGGER_ON_PLAY': {
+                        this.triggerCardAbilities(sourceCardEl, 'ON_PLAY', next);
+                        break;
+                    }
+
                     case 'BOOST_GENERATED_ENERGY': {
                         if (act.duration === 'TURN' && rt) {
                             rt.tempEnergyBoost.push({ color: act.color, count: act.count });
@@ -3849,8 +3977,13 @@ injectEngineUI() {
             const def = this.getCardDef(cardEl);
             if (!def || !def.bp) return 0;
             const slot = cardEl.parentElement;
+            const isOpp = !!(slot && slot.id && slot.id.startsWith('opp-'));
+            if (isOpp && this.oppSyncedEffectiveBp && typeof this.oppSyncedEffectiveBp[slot.id] === 'number') {
+                return Math.max(0, this.oppSyncedEffectiveBp[slot.id]);
+            }
             const tracker = slot ? slot.querySelector('.bp-tracker') : null;
             const mod = tracker ? (parseInt(tracker.dataset.bp, 10) || 0) : 0;
+            if (isOpp) return Math.max(0, def.bp + mod);
             const script = this.getCardScript(cardEl);
             const rtBp = this.getRuntime(cardEl);
             const raidBpOk = !script?.requireRaided || !!rtBp?.isRaided;
@@ -3864,6 +3997,9 @@ injectEngineUI() {
             if (!tracker) return;
             const newBp = (parseInt(tracker.dataset.bp, 10) || 0) + delta;
             updateBpDisplay(slot, newBp);
+            if (slot.id.startsWith('opp-') && this.oppSyncedEffectiveBp && typeof this.oppSyncedEffectiveBp[slot.id] === 'number') {
+                this.oppSyncedEffectiveBp[slot.id] = Math.max(0, this.oppSyncedEffectiveBp[slot.id] + delta);
+            }
 
             const topCard = this.getTopCardInSlot(slot);
             if (topCard && this.getEffectiveCardBp(topCard) <= 0) {
@@ -3975,20 +4111,35 @@ injectEngineUI() {
                         }
                     }, 25000);
 
+                    const atkScript = this.getCardScript(attackerCard);
+                    const scriptUnb = (atkScript && typeof atkScript.getUnblockableRules === 'function') ? (atkScript.getUnblockableRules(this, attackerCard) || {}) : {};
+                    const effUnblockMax = Math.max(innateAtkKw.unblockableMaxBp || 0, rt.tempKeywords.UNBLOCKABLE_MAX_BP || 0, scriptUnb.maxBp || 0);
+                    const minCands = [innateAtkKw.unblockableMinBp, rt.tempKeywords.UNBLOCKABLE_MIN_BP, scriptUnb.minBp].filter(v => v && v > 0);
+                    const effUnblockMin = minCands.length > 0 ? Math.min(...minCands) : 0;
+                    const effUnblockRaided = !!(rt.tempKeywords.UNBLOCKABLE_BY_RAIDED || scriptUnb.byRaided || (def.effectText || '').includes('レイド状態のキャラにブロックされない'));
                     conn.send({
                         type: 'ENGINE_EVENT',
                         subType: 'ATTACK_DECLARED',
                         attackId,
                         attackerName: def.name,
                         attackerBp: atkBp,
-                        unblockableMaxBp: rt.tempKeywords.UNBLOCKABLE_MAX_BP || 0
+                        attackerBaseBp: def.bp || 0,
+                        attackerIsRaided: !!rt.isRaided,
+                        unblockableMaxBp: effUnblockMax,
+                        unblockableMinBp: effUnblockMin,
+                        unblockableByRaided: effUnblockRaided
                     });
                     showSysMsg('等待對手選擇是否進行防禦 (Block)...');
                 } else if (this.isSoloTestMode) {
-                    const unblockMax = rt.tempKeywords.UNBLOCKABLE_MAX_BP || 0;
+                    const unblockMax = Math.max(innateAtkKw.unblockableMaxBp || 0, rt.tempKeywords.UNBLOCKABLE_MAX_BP || 0);
+                    const unblockMin = (innateAtkKw.unblockableMinBp && rt.tempKeywords.UNBLOCKABLE_MIN_BP)
+                        ? Math.min(innateAtkKw.unblockableMinBp, rt.tempKeywords.UNBLOCKABLE_MIN_BP)
+                        : (innateAtkKw.unblockableMinBp || rt.tempKeywords.UNBLOCKABLE_MIN_BP || 0);
                     const oppBlockers = this.getSlotTopCards('#opp-front-line .slot').filter(c => {
                         if (c.classList.contains('rest')) return false;
-                        if (unblockMax && this.getEffectiveCardBp(c) <= unblockMax) return false;
+                        const bp = this.getEffectiveCardBp(c);
+                        if (unblockMax && bp <= unblockMax) return false;
+                        if (unblockMin && bp >= unblockMin) return false;
                         return true;
                     });
                     if (oppBlockers.length === 0) {
@@ -4026,10 +4177,14 @@ injectEngineUI() {
 
         onOpponentAttackDeclared(data) {
             if (!this.enabled) return;
+            this.currentAttackInfo = data;
 
             const blockers = this.getSlotTopCards('#my-front-line .slot').filter(c => {
                 if (c.classList.contains('rest')) return false;
-                if (data.unblockableMaxBp && this.getEffectiveCardBp(c) <= data.unblockableMaxBp) return false;
+                const bp = this.getEffectiveCardBp(c);
+                if (data.unblockableMaxBp && bp <= data.unblockableMaxBp) return false;
+                if (data.unblockableMinBp && bp >= data.unblockableMinBp) return false;
+                if (data.unblockableByRaided && this.getRuntime(c)?.isRaided) return false;
                 return true;
             });
 
@@ -4117,6 +4272,16 @@ injectEngineUI() {
             if (atkBp >= defBp) {
                 showCenterAlert('⚔️', '對戰獲勝！', `${atkBp} vs ${defBp}`, '#6fb897');
                 this.requestRetireOpponentCard(defenderCard);
+                const atkScr = this.getCardScript(attackerCard);
+                if (atkScr && typeof atkScr.onBattleWin === 'function') {
+                    atkScr.onBattleWin(this, attackerCard);
+                }
+                if (!this.usedNamedAbilityThisTurn.has('SMD_034_WIN_DRAW') &&
+                    this.getSlotTopCards('#my-energy-line .slot').some(c => this.getBaseCardId(c.dataset?.cardId) === 'UA43BT/SMD-1-034')) {
+                    this.usedNamedAbilityThisTurn.add('SMD_034_WIN_DRAW');
+                    this.drawCards(1);
+                    showSysMsg('憩来坂商店街大サバゲ―大会：戰鬥獲勝，抽 1 張牌！');
+                }
 
                 const defenderNullifiesImpact = this.getInnateStaticKeywords(defDef).impactNullify;
                 if (!defenderNullifiesImpact) {
@@ -4291,8 +4456,22 @@ injectEngineUI() {
         executeTriggerEffect(cardEl, def, trig, callback) {
             const outsideArea = document.getElementById('my-outside-area');
             const handArea = document.getElementById('my-hand-area');
+            this.triggerActivatedThisTurn = true;
 
             if (trig.type === 'GET' || def.triggerText?.includes('[ゲット]')) {
+                if (this.getBaseCardId(def.id) === 'UA43BT/SMD-1-060') {
+                    this.promptModal({
+                        title: '南雲 [ゲット] 替代效果',
+                        desc: '可將此卡的 [ゲット] 改為 [ドロー] 或 [アクティブ]：',
+                        cards: [cardEl],
+                        customButtons: [
+                            { label: '原本 [ゲット]（加入手牌）', color: '#4f9678', onClick: () => { this.moveCardToZone(cardEl, handArea); callback(); } },
+                            { label: '改為 [ドロー]（抽 1 張）', color: '#6c93c7', onClick: () => { this.moveCardToZone(cardEl, outsideArea); this.drawCards(1); callback(); } },
+                            { label: '改為 [アクティブ]（活動 1 角色 BP+3000）', color: '#e67e22', onClick: () => { this.moveCardToZone(cardEl, outsideArea); this.executeAbilityActions(cardEl, [{ type: 'SELECT_TARGET', owner: 'MY', zone: 'FRONT_LINE', count: 1, upTo: true }, { type: 'SET_ACTIVE', target: 'SELECTED' }, { type: 'MODIFY_BP', amount: 3000, target: 'SELECTED' }], 0, { selectedTargets: [], addedFromLook: false }, callback); } }
+                        ]
+                    });
+                    return;
+                }
                 this.moveCardToZone(cardEl, handArea);
                 sendSystemChat(`[Trigger: GET] 對手將生命區的【${def.name}】加入手牌！`);
                 callback();
@@ -4329,7 +4508,10 @@ injectEngineUI() {
                 const raidTargets = [];
                 if (energyOk) {
                     document.querySelectorAll('#my-front-line .slot, #my-energy-line .slot').forEach(s => {
-                        if (this.canRaidOntoSlot(def, s)) raidTargets.push(this.getTopCardInSlot(s));
+                        const top = this.getTopCardInSlot(s);
+                        if (!top) return;
+                        const isTrigNagumo = this.getBaseCardId(top.dataset?.cardId) === 'UA43BT/SMD-1-058' || this.getBaseCardId(top.dataset?.cardId) === 'UAPR/SMD-1-058';
+                        if (this.canRaidOntoSlot(def, s) || isTrigNagumo) raidTargets.push(top);
                     });
                 }
 
@@ -4553,6 +4735,7 @@ injectEngineUI() {
         requestRetireOpponentCard(oppCardEl) {
             const oppSlot = oppCardEl.parentElement;
             if (!oppSlot) return;
+            if (oppSlot.id.startsWith('opp-fl-')) this.oppFrontRetiredThisTurn = true;
             const def = this.getCardDef(oppCardEl);
             sendSystemChat(`[規則引擎] 對手的【${def?.name || '角色'}】退場！`);
             if (conn && isConnected) {
@@ -4996,7 +5179,109 @@ handleNetworkEvent(data) {
                     this.executeAbilityActions(null, [{ type: 'DISCARD_HAND', count: cnt }], 0, { selectedTargets: [], addedFromLook: false });
                     break;
                 }
+                case 'FORCE_FLIP_LIFE': {
+                    const facedown = Array.from(document.querySelectorAll('#my-life-area .card')).filter(c => c.classList.contains('is-flipped'));
+                    if (facedown.length > 0) {
+                        facedown[facedown.length - 1].classList.remove('is-flipped');
+                        broadcastMyState();
+                        showSysMsg('對手效果：我方 1 張生命卡已翻為表側！');
+                    }
+                    break;
+                }
+                case 'FORCE_SEND_TO_LIFE_FACEUP': {
+                    if (!this.isValidMySlotId(data.slotId)) return;
+                    const slot = document.getElementById(data.slotId);
+                    const lifeArea = document.getElementById('my-life-area');
+                    const cards = slot ? Array.from(slot.querySelectorAll('.card')) : [];
+                    if (cards.length > 0 && lifeArea) {
+                        const top = cards[cards.length - 1];
+                        const under = cards.slice(0, cards.length - 1);
+                        updateBpDisplay(slot, 0);
+                        under.forEach(uc => this.moveCardToZone(uc, document.getElementById('my-outside-area')));
+                        lifeArea.appendChild(top);
+                        top.classList.remove('is-flipped', 'rest');
+                        top.classList.add('in-life');
+                        top.style.position = 'absolute';
+                        recalcStacking(lifeArea);
+                        recalcStacking(slot);
+                        updateSlotCounts();
+                        this.updateEnergyHUD();
+                        broadcastMyState();
+                    }
+                    break;
+                }
+                case 'REVEAL_HAND_FOR_TOP_DECK': {
+                    const handCards = Array.from(document.querySelectorAll('#my-hand-area .card')).map(c => ({
+                        networkId: c.dataset.networkId,
+                        cardId: c.dataset.cardId,
+                        name: this.getCardDef(c)?.name || c.dataset.cardId,
+                        imageUrl: c.querySelector('.card-front img')?.src || this.getCardDef(c)?.imageUrl || ''
+                    }));
+                    if (conn && isConnected) {
+                        conn.send({ type: 'ENGINE_EVENT', subType: 'OPP_HAND_REVEAL_RESPONSE', cards: handCards });
+                    }
+                    break;
+                }
+                case 'OPP_HAND_REVEAL_RESPONSE': {
+                    const list = data.cards || [];
+                    if (list.length === 0) { showSysMsg('對手手牌為 0 張。'); break; }
+                    const modal = document.getElementById('ua-prompt-modal');
+                    const titleEl = document.getElementById('ua-prompt-title');
+                    const descEl = document.getElementById('ua-prompt-desc');
+                    const cardsBox = document.getElementById('ua-prompt-cards');
+                    const actionsBox = document.getElementById('ua-prompt-actions');
+                    if (!modal || !cardsBox || !actionsBox) break;
+                    titleEl.innerText = '朝倉 シン：檢視對手手牌';
+                    descEl.innerText = '請點選最多 1 張對手手牌，以表側置於對手牌組頂端：';
+                    cardsBox.innerHTML = '';
+                    actionsBox.innerHTML = '';
+                    let pickedId = null;
+                    list.forEach(item => {
+                        const w = document.createElement('div');
+                        w.style.cssText = 'width:110px; height:154px; border-radius:8px; overflow:hidden; border:3px solid rgba(255,255,255,0.25); cursor:pointer;';
+                        w.innerHTML = `<img src="${item.imageUrl}" style="width:100%; height:100%; object-fit:cover;">`;
+                        w.onclick = () => {
+                            pickedId = item.networkId;
+                            Array.from(cardsBox.children).forEach(ch => ch.style.borderColor = 'rgba(255,255,255,0.25)');
+                            w.style.borderColor = '#00ffcc';
+                        };
+                        cardsBox.appendChild(w);
+                    });
+                    const okBtn = document.createElement('button');
+                    okBtn.className = 'start-btn';
+                    okBtn.innerText = '確認置於對手牌頂（表側）';
+                    okBtn.onclick = () => {
+                        modal.style.display = 'none';
+                        if (pickedId && conn && isConnected) {
+                            conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_HAND_CARD_TO_DECK_TOP', networkId: pickedId });
+                        }
+                    };
+                    const skipBtn = document.createElement('button');
+                    skipBtn.className = 'ctrl-btn';
+                    skipBtn.innerText = '不選擇';
+                    skipBtn.onclick = () => { modal.style.display = 'none'; };
+                    actionsBox.appendChild(okBtn);
+                    actionsBox.appendChild(skipBtn);
+                    modal.style.display = 'block';
+                    break;
+                }
+                case 'FORCE_HAND_CARD_TO_DECK_TOP': {
+                    const target = Array.from(document.querySelectorAll('#my-hand-area .card')).find(c => c.dataset.networkId === data.networkId);
+                    const deckArea = document.getElementById('my-deck-area');
+                    if (target && deckArea) {
+                        deckArea.appendChild(target);
+                        target.classList.remove('is-flipped', 'rest', 'in-life');
+                        target.style.position = 'absolute';
+                        recalcStacking(deckArea);
+                        recalcStacking(document.getElementById('my-hand-area'));
+                        updateSlotCounts();
+                        broadcastMyState();
+                        showSysMsg('對手效果：我方 1 張手牌已以表側置於牌組頂端！');
+                    }
+                    break;
+                }
                 case 'OPP_TRIGGER_REVEAL': {
+                    if (data.activated === true) this.triggerActivatedThisTurn = true;
                     const statusTxt = data.activated === true ? '⚡ 對手已發動觸發效果！' : (data.activated === false ? '🛡️ 未發動 / 無觸發' : '⏳ 對手正在處理觸發效果中...');
                     let overlay = document.getElementById('opp-trigger-img-overlay');
                     if (!overlay) {

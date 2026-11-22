@@ -64,6 +64,7 @@
                     <option value="sandbox">手動模式</option>
                 </select>
                 <button class="start-btn" id="start-game-btn" disabled>雙方就緒，進入對戰</button>
+                <button class="ctrl-btn danger" id="btn-disconnect-peer" onclick="window.disconnectPeer && window.disconnectPeer()" style="padding:8px 12px; font-size:13px;">斷開連線</button>
             </div>
         </div>
 
@@ -383,7 +384,7 @@
             </div>
         </div>
 
-        <div id="card-magnifier"><img src="" id="magnifier-img"></div>
+        <div id="card-magnifier" style="margin-top: -60px;"><img src="" id="magnifier-img"></div>
 
         <div id="game-scene">
             <div id="hotkey-guide" class="is-collapsed" style="pointer-events: auto;">
