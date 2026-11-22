@@ -11,5 +11,7 @@ window.NCHUCGC_FIREBASE_CONFIG = {
 window.NCHUCGC_ADMIN_UIDS = [
     "xv0SxnDZZbeT9NHQgnRiTQv8xHu2",
     "P1wurKFT1HOtYre3MNEc4PfhYCA2",
+    "DvhOlJHyNmRnS46Z0YlXOqr59D43"
+    "UNg7f7WKy4RctKj8SXwNzOp9d5X2"
     "n2FXtZtIyiVKUkwjhlKeC7APHC63"
 ];
