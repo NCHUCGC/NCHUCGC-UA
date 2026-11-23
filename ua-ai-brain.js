@@ -208,17 +208,107 @@
             if (difficulty === 'random') return pickRandom(legalAttackers);
 
             const activeOppBlockers = getPlayerFrontList(state).filter(p => !p.isRest);
-            const sorted = [...legalAttackers].sort((a, b) => {
-                const finA = (a.impact > 0 ? 1 : 0) + (a.damage > 1 ? 1 : 0);
-                const finB = (b.impact > 0 ? 1 : 0) + (b.damage > 1 ? 1 : 0);
-                if (activeOppBlockers.length === 0) {
+            const oppLife = state.playerMirror?.lifeCount ?? 7;
+
+            if (activeOppBlockers.length === 0) {
+                const sorted = [...legalAttackers].sort((a, b) => {
+                    if (b.damage !== a.damage) return b.damage - a.damage;
+                    if (b.effectiveBp !== a.effectiveBp) return b.effectiveBp - a.effectiveBp;
+                    return (b.impact || 0) - (a.impact || 0);
+                });
+                return sorted[0];
+            }
+
+            const totalSwings = legalAttackers.reduce(
+                (s, a) => s + (a.doubleAttack && (a.card?.attackCountThisTurn || 0) === 0 ? 2 : 1),
+                0
+            );
+            const totalBlocks = activeOppBlockers.reduce(
+                (s, b) => s + (state.getCardKeywords({ def: b.def }).doubleBlock ? 2 : 1),
+                0
+            );
+
+            const evaluated = legalAttackers.map(a => {
+                const validBlockers = activeOppBlockers.filter(b => {
+                    const bBp = b.effectiveBp || 0;
+                    if (a.unblockableMaxBp && bBp <= a.unblockableMaxBp) return false;
+                    if (a.unblockableMinBp && bBp >= a.unblockableMinBp) return false;
+                    return true;
+                });
+                const unblockable = validBlockers.length === 0;
+                const maxBlockerBp = unblockable ? 0 : Math.max(...validBlockers.map(b => b.effectiveBp || 0));
+                const minBlockerBp = unblockable ? 0 : Math.min(...validBlockers.map(b => b.effectiveBp || 0));
+                const beatsAll = unblockable || (a.effectiveBp >= maxBlockerBp);
+                const impactKill = !unblockable && (a.impact || 0) > 0 && (a.effectiveBp >= minBlockerBp);
+
+                let onAttackVal = 0;
+                if (a.card?.def && typeof state.parseAbilities === 'function') {
+                    const onAtkAbs = state.parseAbilities(a.card.def).filter(ab =>
+                        ab.timings.includes('ON_ATTACK') && (!ab.requireRaided || a.card.isRaided)
+                    );
+                    onAtkAbs.forEach(ab => {
+                        onAttackVal += this.estimateActionsValue(state, state.compileActions(ab.rawText));
+                    });
+                }
+
+                return { attacker: a, unblockable, maxBlockerBp, beatsAll, impactKill, onAttackVal };
+            });
+
+            const anyEffective = evaluated.some(x => x.beatsAll || x.impactKill || x.onAttackVal > 0);
+            if (!anyEffective && totalSwings <= totalBlocks) return null;
+
+            const hasNumbersAdvantage = totalSwings > totalBlocks;
+
+            evaluated.sort((x, y) => {
+                const a = x.attacker, b = y.attacker;
+
+                // 1. 高價值 [アタック時]（退場／橫置／減 BP／抽牌）優先觸發，讓後續攻擊受惠
+                const highAtkA = x.onAttackVal >= 800 ? 1 : 0;
+                const highAtkB = y.onAttackVal >= 800 ? 1 : 0;
+                if (highAtkA !== highAtkB) return highAtkB - highAtkA;
+                if (highAtkA && x.onAttackVal !== y.onAttackVal) return y.onAttackVal - x.onAttackVal;
+
+                // 2. 無法被阻擋的直擊優先
+                if (x.unblockable !== y.unblockable) return x.unblockable ? -1 : 1;
+                if (x.unblockable) {
                     if (b.damage !== a.damage) return b.damage - a.damage;
                     return b.effectiveBp - a.effectiveBp;
                 }
-                if (finA !== finB) return finA - finB;
-                return a.effectiveBp - b.effectiveBp;
+
+                // 3. 對方殘血（生命 <= 2，被迫以最弱角色擋下）：優先派 [インパクト] 與能擊破阻擋者的高 BP
+                if (oppLife <= 2) {
+                    const tierX = (x.beatsAll && a.impact > 0) ? 4 : (x.beatsAll ? 3 : (x.impactKill ? 2 : 1));
+                    const tierY = (y.beatsAll && b.impact > 0) ? 4 : (y.beatsAll ? 3 : (y.impactKill ? 2 : 1));
+                    if (tierX !== tierY) return tierY - tierX;
+                    if (tierX === 4 || tierX === 2) {
+                        if ((b.impact || 0) !== (a.impact || 0)) return (b.impact || 0) - (a.impact || 0);
+                    }
+                    if (tierX === 1 && hasNumbersAdvantage) return a.effectiveBp - b.effectiveBp;
+                    return b.effectiveBp - a.effectiveBp;
+                }
+
+                // 4. 對方生命 > 2：先派不會輸的主力趁對方不擋搶血（保留 [インパクト] 留到殘血收頭）
+                if (x.beatsAll !== y.beatsAll) return x.beatsAll ? -1 : 1;
+                if (x.beatsAll) {
+                    const saveImpA = (a.impact || 0) > 0 ? 1 : 0;
+                    const saveImpB = (b.impact || 0) > 0 ? 1 : 0;
+                    if (saveImpA !== saveImpB) return saveImpA - saveImpB;
+                    if (b.damage !== a.damage) return b.damage - a.damage;
+                    return b.effectiveBp - a.effectiveBp;
+                }
+
+                // 5. 無法直接打穿時：若有人數優勢，派最弱角色釣魚騙掉阻擋者
+                if (hasNumbersAdvantage) {
+                    if ((a.impact || 0) !== (b.impact || 0)) return (a.impact || 0) - (b.impact || 0);
+                    if (a.damage !== b.damage) return a.damage - b.damage;
+                    return a.effectiveBp - b.effectiveBp;
+                }
+
+                if (x.impactKill !== y.impactKill) return x.impactKill ? -1 : 1;
+                return b.effectiveBp - a.effectiveBp;
             });
-            return sorted[0];
+
+            return evaluated[0].attacker;
         },
 
         decideBlock(state, attackInfo, legalBlockers, difficulty = 'normal') {
