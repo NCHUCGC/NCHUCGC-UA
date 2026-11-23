@@ -1080,9 +1080,10 @@ compileSequentialClauses(rawLine) {
                 return actions;
             }
 
-            // 套餐 2 & 3 整合升級：全方位「牌頂檢視 / 公開 / 檢索 / 排序」跨句複合效果擷取（含動態張數「～分カードを見て」）
+            // 套餐 2 & 3 整合升級：全方位「牌頂檢視 / 公開 / 檢索 / 排序」跨句複合效果擷取（排除對手與雙方同時操作，避免誤看我方牌頂）
+            const isOppOrBothDeckTop = /(?:相手は自身の|相手の|自分と相手は自身の)山札の上から/.test(cleanText);
             const deckLookRegex = /(?:(自分の場に〈[^〉]+〉がある場合、|自分の場に(?:他の)?［特徴：[^］]+］(?:が\d+枚以上)?ある場合、))?(?:自分の)?山札の上から(?:『?(\d+)枚』?(?:を)?|[^。、]*?分(?:の)?カードを)(?:見る。|見て、|公開する。|公開し、?)([\s\S]*)/;
-            const deckLookMatch = cleanText.match(deckLookRegex);
+            const deckLookMatch = isOppOrBothDeckTop ? null : cleanText.match(deckLookRegex);
             if (deckLookMatch) {
                 const preCondText = deckLookMatch[1] || '';
                 const lookCount = deckLookMatch[2] ? parseInt(deckLookMatch[2], 10) : 4;
@@ -1327,7 +1328,7 @@ compileSequentialClauses(rawLine) {
 
                 // 未支援條件攔截：若剩餘句子仍含條件標記且無已解析條件（亦非豁免句型），改走半自動結算，避免無條件執行
                 const hasUnparsedCondMarker = /場合|なら|枚以上|枚以下|いる間|ある間/.test(body);
-                const isExemptCondPhrase = /必要エナジーを満たしている場合|戻せない場合|に代わる|に代えて|そうした場合/.test(sentence);
+                const isExemptCondPhrase = /必要エナジーを満たしている場合|戻せない場合|に代わる|に代えて|そうした場合|それが裏向きの場合/.test(sentence);
                 if (hasUnparsedCondMarker && sentenceConditions.length === 0 && !isExemptCondPhrase) {
                     actions.push({
                         type: 'INTERACTIVE_FALLBACK',
@@ -1345,7 +1346,7 @@ compileSequentialClauses(rawLine) {
 
                 clauses.forEach(clause => {
                     // 0. 牌頂檢視/檢索子句（處理「・自分の山札の上からN枚見て...」或「その中から...手札に加える」）
-                    const subLookM = clause.match(/(?:自分の)?山札の上から『?(\d+)枚』?(?:を)?(?:見て|公開し)/);
+                    const subLookM = !clause.includes('相手') ? clause.match(/(?:自分の)?山札の上から『?(\d+)枚』?(?:を)?(?:見て|公開し)/) : null;
                     if (subLookM) {
                         parsedAnyClauseInSentence = true;
                         const cnt = parseInt(subLookM[1], 10);
@@ -1361,8 +1362,13 @@ compileSequentialClauses(rawLine) {
                         return;
                     }
 
-                    // 1. 選擇目標（「～を選び」/「～を選ぶ」）
-                    if ((clause.includes('選び') || clause.includes('選ぶ')) && !clause.includes('以下から') && !clause.includes('効果は選べない')) {
+                    // 1. 選擇目標（「～を選び」/「～を選ぶ」，排除手牌／生命／牌組與多選一）
+                    if ((clause.includes('選び') || clause.includes('選ぶ'))
+                        && !clause.includes('以下から')
+                        && !clause.includes('効果は選べない')
+                        && !clause.includes('手札')
+                        && !clause.includes('ライフ')
+                        && !clause.includes('山札')) {
                         parsedAnyClauseInSentence = true;
                         if (clause.includes('APカード')) {
                             const m = clause.match(/(\d+)枚(まで)?/);
@@ -1393,7 +1399,21 @@ compileSequentialClauses(rawLine) {
                         return;
                     }
 
-                    // 2. 抽牌（「カードをX枚引き」/「カードをX枚引く」/「X枚まで引く」）
+                    // 2. 抽牌（嚴格區分「自分と相手は」「相手は」「自分は／無主詞」）
+                    const bothDrawM = clause.match(/自分と相手はカードを『?(\d+)枚』?(?:まで)?引[きく]/);
+                    if (bothDrawM) {
+                        parsedAnyClauseInSentence = true;
+                        const amt = parseInt(bothDrawM[1], 10);
+                        actions.push({ type: 'DRAW', amount: amt, conditions: sentenceConditions });
+                        actions.push({ type: 'OPP_DRAW', amount: amt, conditions: sentenceConditions });
+                        return;
+                    }
+                    const oppDrawM = clause.match(/相手はカードを『?(\d+)枚』?(?:まで)?引[きく]/);
+                    if (oppDrawM) {
+                        parsedAnyClauseInSentence = true;
+                        actions.push({ type: 'OPP_DRAW', amount: parseInt(oppDrawM[1], 10), conditions: sentenceConditions });
+                        return;
+                    }
                     const drawM = clause.match(/カードを『?(\d+)枚』?(?:まで)?引[きく]/);
                     if (drawM) {
                         parsedAnyClauseInSentence = true;
@@ -1401,7 +1421,13 @@ compileSequentialClauses(rawLine) {
                         return;
                     }
 
-                    // 3. 盲堆墓（「自分の山札の上からX枚(まで)を場外に置く」）
+                    // 3. 盲堆墓（區分對手與我方）
+                    const oppMillM = clause.match(/相手(?:は自身の?|の)山札の上から『?(\d+)枚』?(?:まで)?を?場外に置[きく]/);
+                    if (oppMillM) {
+                        parsedAnyClauseInSentence = true;
+                        actions.push({ type: 'OPP_MILL_DECK', count: parseInt(oppMillM[1], 10), conditions: sentenceConditions });
+                        return;
+                    }
                     const millM = clause.match(/自分の山札の上から(\d+)枚(?:まで)?を?(?:自分の)?場外に置[きく]/);
                     if (millM) {
                         parsedAnyClauseInSentence = true;
@@ -1417,16 +1443,36 @@ compileSequentialClauses(rawLine) {
                         return;
                     }
 
-                    // 3.6 對手棄牌（「相手は自身の手札をX枚場外に置く」）
-                    const oppDiscM = clause.match(/相手は自身の手札を『?(\d+)枚』?(?:まで)?場外に置[きく]/);
+                    // 3.6 對手棄牌（「相手は(自身の)手札をX枚(選び、)場外に置く」）
+                    const oppDiscM = clause.match(/相手は(?:自身の)?手札を『?(\d+)枚』?(?:まで)?(?:選び、?)?場外に置[きく]/);
                     if (oppDiscM) {
                         parsedAnyClauseInSentence = true;
                         actions.push({ type: 'OPP_DISCARD_HAND', count: parseInt(oppDiscM[1], 10), conditions: sentenceConditions });
                         return;
                     }
 
-                    // 4. 捨棄手牌（「自分の手札をX枚場外に置く」）
-                    const discM = clause.match(/自分の手札を『?(\d+)枚』?(?:まで)?場外に置[きく]/);
+                    // 3.7 對手生命操作：直接傷害／生命送場外／翻為表側
+                    const oppDmgM = clause.match(/相手(?:プレイヤー)?に『?(\d+)』?ダメージ/);
+                    if (oppDmgM) {
+                        parsedAnyClauseInSentence = true;
+                        actions.push({ type: 'DAMAGE_OPP_LIFE', count: parseInt(oppDmgM[1], 10), conditions: sentenceConditions });
+                        return;
+                    }
+                    const oppTrashLifeM = clause.match(/相手(?:は自身の?|の)ライフ(?:エリア(?:にある|の)カード)?を『?(\d+)枚』?(?:まで)?(?:選び、?)?場外に置[きく]/);
+                    if (oppTrashLifeM) {
+                        parsedAnyClauseInSentence = true;
+                        actions.push({ type: 'OPP_TRASH_LIFE', count: parseInt(oppTrashLifeM[1], 10), conditions: sentenceConditions });
+                        return;
+                    }
+                    if (/相手(?:は自身の?|の)ライフ/.test(sentence) && clause.includes('表向きにする')) {
+                        parsedAnyClauseInSentence = true;
+                        const cntM = sentence.match(/ライフを『?(\d+)枚』?/);
+                        actions.push({ type: 'OPP_FLIP_LIFE', count: cntM ? parseInt(cntM[1], 10) : 1, conditions: sentenceConditions });
+                        return;
+                    }
+
+                    // 4. 捨棄手牌（「自分の手札をX枚(選び、)場外に置く」）
+                    const discM = clause.match(/自分の手札を『?(\d+)枚』?(?:まで)?(?:選び、?)?場外に置[きく]/);
                     if (discM) {
                         parsedAnyClauseInSentence = true;
                         actions.push({ type: 'DISCARD_HAND', count: parseInt(discM[1], 10), conditions: sentenceConditions });
@@ -1646,6 +1692,11 @@ compileSequentialClauses(rawLine) {
                     if (clause.includes('リムーブエリアに置く') && hasTargetSelectionInSentence) {
                         parsedAnyClauseInSentence = true;
                         actions.push({ type: 'SEND_TARGET_TO_REMOVE', conditions: sentenceConditions });
+                        return;
+                    }
+                    if (clause.includes('相手のライフエリアに表向きで置く') && hasTargetSelectionInSentence) {
+                        parsedAnyClauseInSentence = true;
+                        actions.push({ type: 'SEND_TARGET_TO_OPP_LIFE_FACEUP', conditions: sentenceConditions });
                         return;
                     }
                 });
@@ -3809,6 +3860,36 @@ executeAbilityActions(sourceCardEl, actions, index = 0, taskContext = { selected
                         break;
                     }
 
+                    case 'OPP_DRAW': {
+                        this.requestOpponentDraw(act.amount || 1);
+                        next();
+                        break;
+                    }
+
+                    case 'OPP_MILL_DECK': {
+                        this.requestOpponentMillDeck(act.count || 1);
+                        next();
+                        break;
+                    }
+
+                    case 'DAMAGE_OPP_LIFE': {
+                        this.sendDamageToOpponent(act.count || 1);
+                        next();
+                        break;
+                    }
+
+                    case 'OPP_TRASH_LIFE': {
+                        this.requestOpponentTrashLife(act.count || 1);
+                        next();
+                        break;
+                    }
+
+                    case 'OPP_FLIP_LIFE': {
+                        this.requestOpponentFlipLife(act.count || 1);
+                        next();
+                        break;
+                    }
+
                     case 'PUT_HAND_TO_DECK_TOP': {
                         const handCards = Array.from(document.querySelectorAll('#my-hand-area .card'));
                         if (handCards.length === 0) { next(); break; }
@@ -3972,12 +4053,55 @@ executeAbilityActions(sourceCardEl, actions, index = 0, taskContext = { selected
                     }
 
                     case 'RETIRE_TARGET': {
+                        if (act.target === 'OPP_FRONT_SELECT') {
+                            const oppFront = this.getSlotTopCards('#opp-front-line .slot');
+                            if (oppFront.length === 0) {
+                                showSysMsg('ℹ️ 對手前線沒有可退場的角色。');
+                                next();
+                                break;
+                            }
+                            this.promptModal({
+                                title: `選擇退場目標：【${sourceDef?.name || '效果'}】`,
+                                desc: '請選擇 1 張對手前線角色退場：',
+                                cards: oppFront,
+                                selectCount: 1,
+                                upTo: true,
+                                onConfirm: (sel) => {
+                                    sel.forEach(t => this.requestRetireOpponentCard(t));
+                                    next();
+                                }
+                            });
+                            break;
+                        }
                         const targets = act.target === 'SELECTED' ? taskContext.selectedTargets : [];
                         targets.forEach(t => {
                             if (t.parentElement && t.parentElement.id.startsWith('opp-')) {
                                 this.requestRetireOpponentCard(t);
                             } else if (t.parentElement) {
                                 this.retireCardFromSlot(t.parentElement);
+                            }
+                        });
+                        next();
+                        break;
+                    }
+
+                    case 'SEND_TARGET_TO_OPP_LIFE_FACEUP': {
+                        taskContext.selectedTargets.forEach(t => {
+                            if (t.parentElement && t.parentElement.id.startsWith('opp-')) {
+                                if (conn && isConnected) {
+                                    conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_SEND_TO_LIFE_FACEUP', slotId: t.parentElement.id.replace('opp-', 'my-') });
+                                } else if (this.isSoloTestMode) {
+                                    const oppLife = document.getElementById('opp-life-area');
+                                    if (oppLife) {
+                                        updateBpDisplay(t.parentElement, 0);
+                                        oppLife.appendChild(t);
+                                        t.classList.remove('is-flipped', 'rest');
+                                        t.classList.add('in-life');
+                                        t.style.position = 'absolute';
+                                        recalcStacking(oppLife);
+                                        updateSlotCounts();
+                                    }
+                                }
                             }
                         });
                         next();
@@ -5430,6 +5554,70 @@ executeAbilityActions(sourceCardEl, actions, index = 0, taskContext = { selected
             }
         }
 
+        requestOpponentDraw(count = 1) {
+            const n = Math.max(1, parseInt(count, 10) || 1);
+            sendSystemChat(`[規則引擎] 效果讓對手抽取 ${n} 張卡片！`);
+            if (conn && isConnected) {
+                conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_DRAW', count: n });
+            } else if (this.isSoloTestMode) {
+                const oppDeck = document.getElementById('opp-deck-area');
+                const oppHand = document.getElementById('opp-hand-area');
+                if (oppDeck && oppHand) {
+                    const cards = Array.from(oppDeck.querySelectorAll('.card'));
+                    const take = Math.min(n, cards.length);
+                    for (let i = 0; i < take; i++) this.moveCardToZone(cards.pop(), oppHand);
+                    showSysMsg(`[測試] 假敵人已抽 ${take} 張牌`);
+                }
+            }
+        }
+
+        requestOpponentMillDeck(count = 1) {
+            const n = Math.max(1, parseInt(count, 10) || 1);
+            sendSystemChat(`[規則引擎] 要求對手將牌組頂端 ${n} 張放置於場外！`);
+            if (conn && isConnected) {
+                conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_MILL_DECK', count: n });
+            } else if (this.isSoloTestMode) {
+                const oppDeck = document.getElementById('opp-deck-area');
+                const oppOut = document.getElementById('opp-outside-area');
+                if (oppDeck && oppOut) {
+                    const cards = Array.from(oppDeck.querySelectorAll('.card'));
+                    const drop = Math.min(n, cards.length);
+                    for (let i = 0; i < drop; i++) this.moveCardToZone(cards.pop(), oppOut);
+                    showSysMsg(`[測試] 假敵人已將牌頂 ${drop} 張置於場外`);
+                }
+            }
+        }
+
+        requestOpponentTrashLife(count = 1) {
+            const n = Math.max(1, parseInt(count, 10) || 1);
+            sendSystemChat(`[規則引擎] 要求對手將 ${n} 張生命卡直接放置於場外（不觸發 Trigger）！`);
+            if (conn && isConnected) {
+                conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_TRASH_LIFE', count: n });
+            } else if (this.isSoloTestMode) {
+                const oppLife = document.getElementById('opp-life-area');
+                const oppOut = document.getElementById('opp-outside-area');
+                if (oppLife && oppOut) {
+                    const cards = Array.from(oppLife.querySelectorAll('.card'));
+                    const drop = Math.min(n, cards.length);
+                    for (let i = 0; i < drop; i++) this.moveCardToZone(cards.pop(), oppOut);
+                    showSysMsg(`[測試] 假敵人已將 ${drop} 張生命卡直接置於場外`);
+                }
+            }
+        }
+
+        requestOpponentFlipLife(count = 1) {
+            const n = Math.max(1, parseInt(count, 10) || 1);
+            sendSystemChat(`[規則引擎] 要求對手將 ${n} 張生命卡翻為表側！`);
+            if (conn && isConnected) {
+                conn.send({ type: 'ENGINE_EVENT', subType: 'FORCE_FLIP_LIFE', count: n });
+            } else if (this.isSoloTestMode) {
+                const facedown = Array.from(document.querySelectorAll('#opp-life-area .card')).filter(c => c.classList.contains('is-flipped'));
+                const flipN = Math.min(n, facedown.length);
+                for (let i = 0; i < flipN; i++) facedown[facedown.length - 1 - i].classList.remove('is-flipped');
+                showSysMsg(`[測試] 假敵人已將 ${flipN} 張生命卡翻為表側`);
+            }
+        }
+
         promptModal({ title, desc, cards = [], cardFilterFn = null, selectCount = 1, upTo = false, showOrderNumbers = false, customButtons = [], onConfirm = null }) {
             const modal = document.getElementById('ua-prompt-modal');
             const titleEl = document.getElementById('ua-prompt-title');
@@ -5717,12 +5905,42 @@ handleNetworkEvent(data) {
                     this.executeAbilityActions(null, [{ type: 'DISCARD_HAND', count: cnt }], 0, { selectedTargets: [], addedFromLook: false });
                     break;
                 }
+                case 'FORCE_DRAW': {
+                    const cnt = Math.max(1, parseInt(data.count, 10) || 1);
+                    this.drawCards(cnt);
+                    showSysMsg(`對手效果：我方抽取了 ${cnt} 張卡片！`);
+                    break;
+                }
+                case 'FORCE_MILL_DECK': {
+                    const cnt = Math.max(1, parseInt(data.count, 10) || 1);
+                    this.millDeckCards(cnt);
+                    showSysMsg(`對手效果：我方牌組頂端 ${cnt} 張已置於場外！`);
+                    break;
+                }
+                case 'FORCE_TRASH_LIFE': {
+                    const cnt = Math.max(1, parseInt(data.count, 10) || 1);
+                    const lifeArea = document.getElementById('my-life-area');
+                    const outsideArea = document.getElementById('my-outside-area');
+                    if (lifeArea && outsideArea) {
+                        const cards = Array.from(lifeArea.querySelectorAll('.card'));
+                        const drop = Math.min(cnt, cards.length);
+                        for (let i = 0; i < drop; i++) this.moveCardToZone(cards.pop(), outsideArea);
+                        showSysMsg(`對手效果：我方 ${drop} 張生命卡已直接置於場外！`);
+                        if (lifeArea.querySelectorAll('.card').length === 0) {
+                            alert('💀 我方生命區已歸零，本局對戰落敗！');
+                            sendSystemChat('[規則引擎] 對手生命區歸零，恭喜你獲得對戰勝利！');
+                        }
+                    }
+                    break;
+                }
                 case 'FORCE_FLIP_LIFE': {
+                    const cnt = Math.max(1, parseInt(data.count, 10) || 1);
                     const facedown = Array.from(document.querySelectorAll('#my-life-area .card')).filter(c => c.classList.contains('is-flipped'));
-                    if (facedown.length > 0) {
-                        facedown[facedown.length - 1].classList.remove('is-flipped');
+                    const flipN = Math.min(cnt, facedown.length);
+                    if (flipN > 0) {
+                        for (let i = 0; i < flipN; i++) facedown[facedown.length - 1 - i].classList.remove('is-flipped');
                         broadcastMyState();
-                        showSysMsg('對手效果：我方 1 張生命卡已翻為表側！');
+                        showSysMsg(`對手效果：我方 ${flipN} 張生命卡已翻為表側！`);
                     }
                     break;
                 }
