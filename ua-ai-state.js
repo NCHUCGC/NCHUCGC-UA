@@ -268,6 +268,18 @@
                 case 'SELF_IS_RAIDED': return !!(card && card.isRaided);
                 case 'SELF_BP_GTE': return (currentBp !== undefined ? currentBp : (card?.def?.bp || 0)) >= cond.value;
                 case 'SELF_BP_LTE': return (currentBp !== undefined ? currentBp : (card?.def?.bp || 0)) <= cond.value;
+                case 'GENERATED_ENERGY_GTE': {
+                    if (this._inCalcEnergy) return false;
+                    const en = this.calculateEnergy();
+                    const val = cond.color ? (en[cond.color] || 0) : (en.ALL || 0);
+                    return val >= (cond.count ?? 0);
+                }
+                case 'GENERATED_ENERGY_LTE': {
+                    if (this._inCalcEnergy) return false;
+                    const en = this.calculateEnergy();
+                    const val = cond.color ? (en[cond.color] || 0) : (en.ALL || 0);
+                    return val <= (cond.count ?? 0);
+                }
                 case 'COUNT_ZONE': {
                     const cnt = this.countV3Zone(cond, card);
                     if (cond.op === 'LTE') return cnt <= cond.count;
@@ -387,17 +399,31 @@
 
         calculateEnergy() {
             const totals = { RED: 0, BLUE: 0, GREEN: 0, YELLOW: 0, PURPLE: 0, ALL: 0 };
-            ENERGY_SLOTS.forEach(slotId => {
-                const top = this.getSlotTop(slotId);
-                if (!top || !top.def) return;
-                const col = (top.def.generatedEnergy?.color && top.def.generatedEnergy.color !== 'NONE')
-                    ? top.def.generatedEnergy.color
-                    : (top.def.color || 'NONE');
-                let cnt = Math.max(0, top.def.generatedEnergy?.count ?? 1);
-                (top.tempEnergyBoost || []).forEach(b => { cnt += b.count || 0; });
-                if (totals[col] !== undefined) totals[col] += cnt;
-                totals.ALL += cnt;
-            });
+            const prevGuard = this._inCalcEnergy;
+            this._inCalcEnergy = true;
+            try {
+                const addSlot = (slotId, isFront) => {
+                    const top = this.getSlotTop(slotId);
+                    if (!top || !top.def) return;
+                    const ir = this.getV3IR(top.def);
+                    if (isFront && !(ir && ir.generateEnergyInFront)) return;
+                    const col = (top.def.generatedEnergy?.color && top.def.generatedEnergy.color !== 'NONE')
+                        ? top.def.generatedEnergy.color
+                        : (top.def.color || 'NONE');
+                    let cnt = Math.max(0, top.def.generatedEnergy?.count ?? 1);
+                    (top.tempEnergyBoost || []).forEach(b => { cnt += b.count || 0; });
+                    if (!prevGuard && ir) {
+                        const v3 = this.evalV3Continuous(top, slotId);
+                        if (v3.genEnergyBonus) cnt += v3.genEnergyBonus;
+                    }
+                    if (totals[col] !== undefined) totals[col] += cnt;
+                    totals.ALL += cnt;
+                };
+                ENERGY_SLOTS.forEach(slotId => addSlot(slotId, false));
+                FRONT_SLOTS.forEach(slotId => addSlot(slotId, true));
+            } finally {
+                this._inCalcEnergy = prevGuard;
+            }
             return totals;
         }
 
@@ -474,9 +500,11 @@
             const moves = [];
             ENERGY_SLOTS.forEach(fromSlot => {
                 const top = this.getSlotTop(fromSlot);
-                if (top && top.def && top.def.type === 'CHARACTER') {
-                    moves.push({ fromSlot, toSlot: emptyFront[0], card: top });
-                }
+                if (!top || !top.def || top.def.type !== 'CHARACTER') return;
+                const ir = this.getV3IR(top.def);
+                if (ir && (ir.staticKeywords?.cannotMove || ir.staticKeywords?.cannotMoveToFront)) return;
+                if (ir && (ir.continuous || []).some(r => r.cannotMoveToFront && this.evalV3Cond(r.when, top, fromSlot))) return;
+                moves.push({ fromSlot, toSlot: emptyFront[0], card: top });
             });
             return moves;
         }

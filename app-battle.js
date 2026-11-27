@@ -640,12 +640,28 @@ window.appScale = 1;
         window.clearDeck = function() { if(confirm("清空當前牌組與AP卡？")) { myDeckData = []; myApData = []; renderDeck(); } };
         
         let sysMsgTimer = null;
+        function pushBattleFeed(msg) {
+            const feed = document.getElementById('battle-action-feed');
+            if (!feed || !msg) return;
+            const item = document.createElement('div');
+            item.className = 'baf-item';
+            item.textContent = String(msg).slice(0, 72);
+            feed.appendChild(item);
+            while (feed.children.length > 4) feed.firstChild.remove();
+            setTimeout(() => {
+                item.classList.add('baf-fade');
+                setTimeout(() => { if (item.parentNode) item.remove(); }, 450);
+            }, 7500);
+        }
+        window.pushBattleFeed = pushBattleFeed;
+
         function showSysMsg(msg) { 
             let box = document.getElementById('sys-msg'); 
             box.innerText = msg; 
             box.style.display = 'block'; 
             clearTimeout(sysMsgTimer);
             sysMsgTimer = setTimeout(() => { box.style.display = 'none'; }, 4000); 
+            pushBattleFeed(msg);
         }
 
         function showCenterAlert(icon, title, value, color) {
@@ -2146,7 +2162,94 @@ function createCardDOM(cardData, networkId, isMine) {
             }
         }
 
-        function updateSlotCounts() { document.querySelectorAll('.slot').forEach(slot => { slot.setAttribute('data-count', slot.querySelectorAll('.card').length); }); }
+        window.advanceNextPhase = function() {
+            const steps = Array.from(document.querySelectorAll('.phase-step'));
+            if (steps.length === 0) return;
+            const curIdx = steps.findIndex(s => s.classList.contains('active'));
+            if (curIdx >= 0 && curIdx < steps.length - 1) {
+                steps[curIdx + 1].click();
+            } else {
+                const endBtn = document.getElementById('btn-end-turn');
+                if (endBtn) endBtn.click();
+                else if (typeof window.endTurn === 'function') window.endTurn();
+            }
+        };
+
+        window.refreshBattleTacticalBar = function(info) {
+            const bar = document.getElementById('battle-tactical-bar');
+            if (!bar) return;
+            const turnEl = document.getElementById('btb-turn');
+            const myLifeEl = document.getElementById('btb-my-life');
+            const oppLifeEl = document.getElementById('btb-opp-life');
+            const enEl = document.getElementById('btb-energy');
+            const apEl = document.getElementById('btb-ap');
+            const nextBtn = document.getElementById('btn-next-phase');
+
+            const myLife = document.querySelectorAll('#my-life-area .card').length;
+            const oppLife = document.querySelectorAll('#opp-life-area .card').length;
+            if (myLifeEl) {
+                myLifeEl.textContent = `我 ♥ ${myLife}`;
+                myLifeEl.classList.toggle('danger', myLife > 0 && myLife <= 2);
+            }
+            if (oppLifeEl) {
+                oppLifeEl.textContent = `敵 ♥ ${oppLife}`;
+                oppLifeEl.classList.toggle('danger', oppLife > 0 && oppLife <= 2);
+            }
+
+            if (info && info.enabled) {
+                if (turnEl) {
+                    if (info.isFirstPlayer === null) {
+                        turnEl.textContent = `自由模式｜${info.phase || '起始'}`;
+                        turnEl.className = 'btb-seg btb-turn neutral';
+                    } else if (info.isMyTurn) {
+                        turnEl.textContent = `● 我方 T${info.turnNumber} · ${info.phase || '起始'}`;
+                        turnEl.className = 'btb-seg btb-turn mine';
+                    } else {
+                        turnEl.textContent = `● 對手回合 T${info.turnNumber}`;
+                        turnEl.className = 'btb-seg btb-turn opp';
+                    }
+                }
+                if (enEl) {
+                    const en = info.energy || {};
+                    const colorMap = [
+                        ['RED', '#e74c3c', '紅'], ['BLUE', '#3498db', '藍'],
+                        ['GREEN', '#2ecc71', '綠'], ['YELLOW', '#f1c40f', '黃'], ['PURPLE', '#b37feb', '紫']
+                    ];
+                    const cleanChips = colorMap.filter(([k]) => (en[k] || 0) > 0)
+                        .map(([k, hex, zh]) => `<span class="btb-en-chip" style="border-color:${hex};color:${hex};">${zh}${en[k]}</span>`);
+                    enEl.innerHTML = cleanChips.length ? cleanChips.join('') : '<span style="color:#8c95b0;">能源 0</span>';
+                }
+                if (apEl) {
+                    const act = info.activeAp || 0;
+                    const max = Math.max(act, info.maxAp || 0);
+                    let dots = '';
+                    for (let i = 0; i < Math.max(max, 3); i++) {
+                        if (i < act) dots += '<span class="btb-ap-dot on"></span>';
+                        else if (i < max) dots += '<span class="btb-ap-dot used"></span>';
+                        else dots += '<span class="btb-ap-dot locked"></span>';
+                    }
+                    apEl.innerHTML = `<span class="btb-ap-label">AP</span>${dots}`;
+                }
+                if (nextBtn) {
+                    const labels = { '起始': '進入移動 →', '移動': '進入主要 →', '主要': '進入戰鬥 →', '戰鬥': '結束回合 ⏎' };
+                    nextBtn.textContent = info.isMyTurn ? (labels[info.phase] || '下一階段 →') : '等待對手...';
+                    nextBtn.disabled = (info.isFirstPlayer !== null && !info.isMyTurn);
+                }
+            } else {
+                const activeStep = document.querySelector('.phase-step.active');
+                const phaseTxt = activeStep ? activeStep.textContent.trim() : '手動模式';
+                if (turnEl) {
+                    turnEl.textContent = `手動 · ${phaseTxt}`;
+                    turnEl.className = 'btb-seg btb-turn neutral';
+                }
+                if (nextBtn) {
+                    nextBtn.textContent = '下一階段 →';
+                    nextBtn.disabled = false;
+                }
+            }
+        };
+
+        function updateSlotCounts() { document.querySelectorAll('.slot').forEach(slot => { slot.setAttribute('data-count', slot.querySelectorAll('.card').length); }); if (window.uaEngine && window.uaEngine.enabled) return; if (typeof window.refreshBattleTacticalBar === 'function') window.refreshBattleTacticalBar(); }
 
         function populateCardMagnifier(card, previewCard) {
             let imgSrc = "";

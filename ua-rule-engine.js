@@ -2126,6 +2126,10 @@ injectEngineUI() {
                 if (inlineEn) inlineEn.innerHTML = '';
                 if (inlineAp) inlineAp.innerHTML = '';
                 document.querySelectorAll('.eng-card-btn, .eng-slot-en-badge').forEach(b => b.remove());
+                document.querySelectorAll('.ua-hint-playable, .ua-hint-raidable, .ua-hint-can-attack').forEach(c => {
+                    c.classList.remove('ua-hint-playable', 'ua-hint-raidable', 'ua-hint-can-attack');
+                });
+                if (typeof window.refreshBattleTacticalBar === 'function') window.refreshBattleTacticalBar();
                 return;
             }
 
@@ -2166,6 +2170,78 @@ injectEngineUI() {
 
             this.renderFieldActionOverlayButtons();
             this.updatePublicInfoHUD();
+            this.updateBattleVisualHints(en, activeAp, maxAp);
+        }
+
+        updateBattleVisualHints(en, activeAp, maxAp) {
+            // 1. 清除舊高亮
+            document.querySelectorAll('.ua-hint-playable, .ua-hint-raidable, .ua-hint-can-attack').forEach(c => {
+                c.classList.remove('ua-hint-playable', 'ua-hint-raidable', 'ua-hint-can-attack');
+            });
+
+            // 2. 更新頂部即時戰況資訊列
+            if (typeof window.refreshBattleTacticalBar === 'function') {
+                window.refreshBattleTacticalBar({
+                    enabled: this.enabled,
+                    isFirstPlayer: this.isFirstPlayer,
+                    isMyTurn: this.isMyTurn,
+                    turnNumber: this.turnNumber,
+                    phase: this.currentPhase,
+                    energy: en,
+                    activeAp,
+                    maxAp
+                });
+            }
+
+            if (!this.enabled || !this.isMyTurn) return;
+
+            // 3. 主要階段：標記手牌可登場 / 可突襲
+            if (this.currentPhase === '主要' && activeAp >= 0) {
+                const handCards = document.querySelectorAll('#my-hand-area .card');
+                const allSlots = Array.from(document.querySelectorAll('#my-front-line .slot, #my-energy-line .slot'));
+                const hasEmptySlot = allSlots.some(s => s.querySelectorAll('.card').length === 0);
+
+                handCards.forEach(cardEl => {
+                    const def = this.getCardDef(cardEl);
+                    if (!def || def.type === 'AP') return;
+                    const apNeed = this.getEffectiveApCost(def);
+                    if (apNeed > activeAp) return;
+
+                    const reqCol = def.requiredEnergy?.color || 'NONE';
+                    let reqCnt = Math.max(0, (def.requiredEnergy?.count || 0) - this.computeAutoEnergyDiscount(def));
+                    const isAllColor = !!(def.allColor || (window.UAV3Bridge && window.UAV3Bridge.getIR(def)?.allColor));
+                    const haveEn = (isAllColor || reqCol === 'NONE' || reqCol === 'ANY') ? (en.ALL || 0) : (en[reqCol] || 0);
+                    if (haveEn < reqCnt) return;
+
+                    const canRaid = !!(def.compiledRules?.raidCondition && allSlots.some(s => this.canRaidOntoSlot(def, s)));
+                    if (canRaid) {
+                        cardEl.classList.add('ua-hint-raidable');
+                    } else if (def.type === 'EVENT' || hasEmptySlot) {
+                        const ir = window.UAV3Bridge ? window.UAV3Bridge.getIR(def) : null;
+                        if (!(ir && ir.raidOnly)) cardEl.classList.add('ua-hint-playable');
+                    }
+                });
+            }
+
+            // 4. 戰鬥階段：標記前線可發動攻擊之角色
+            if (this.currentPhase === '戰鬥') {
+                const isFirstTurnNoAtk = (this.isFirstPlayer === true && this.turnNumber === 1);
+                if (!isFirstTurnNoAtk) {
+                    const frontTops = this.getSlotTopCards('#my-front-line .slot');
+                    frontTops.forEach(cardEl => {
+                        if (cardEl.classList.contains('rest')) return;
+                        const def = this.getCardDef(cardEl);
+                        if (!def || def.type !== 'CHARACTER') return;
+                        const rt = this.getRuntime(cardEl);
+                        if (rt?.tempKeywords?.CANNOT_ATTACK) return;
+                        if (window.UAV3Bridge) {
+                            const v3 = window.UAV3Bridge.evalContinuousView(this, cardEl);
+                            if (v3 && v3.cannotAttack) return;
+                        }
+                        cardEl.classList.add('ua-hint-can-attack');
+                    });
+                }
+            }
         }
 
         updatePublicInfoHUD() {

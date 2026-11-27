@@ -188,6 +188,24 @@
       }
       case 'SELF_HAS_UNDER_GTE':
         return getFacedownUnderCount(sourceCardEl, cond.facedownOnly !== false) >= (cond.count ?? 1);
+      case 'GENERATED_ENERGY_GTE': {
+        if (engine._v3InEnergyEval) return false;
+        engine._v3InEnergyEval = true;
+        try {
+          const en = typeof engine.calculateMyEnergy === 'function' ? engine.calculateMyEnergy() : { ALL: 0 };
+          const val = cond.color ? (en[cond.color] || 0) : (en.ALL || 0);
+          return val >= (cond.count ?? 0);
+        } finally { engine._v3InEnergyEval = false; }
+      }
+      case 'GENERATED_ENERGY_LTE': {
+        if (engine._v3InEnergyEval) return false;
+        engine._v3InEnergyEval = true;
+        try {
+          const en = typeof engine.calculateMyEnergy === 'function' ? engine.calculateMyEnergy() : { ALL: 0 };
+          const val = cond.color ? (en[cond.color] || 0) : (en.ALL || 0);
+          return val <= (cond.count ?? 0);
+        } finally { engine._v3InEnergyEval = false; }
+      }
       case 'COUNT_ZONE': {
         const cnt = countZone(engine, cond, sourceCardEl);
         const op = cond.op || 'GTE';

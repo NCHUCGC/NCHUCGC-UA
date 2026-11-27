@@ -344,7 +344,8 @@
                     <div class="lobby-form">
                         <select id="ai-deck-selector"></select>
                         <select id="ai-difficulty-selector">
-                            <option value="normal">難度：一般 AI（規則策略）</option>
+                            <option value="hard">難度：困難 AI（進階戰術）</option>
+                            <option value="normal" selected>難度：一般 AI（規則策略）</option>
                             <option value="random">難度：隨機 AI（第一版）</option>
                         </select>
                         <button class="start-btn" id="btn-start-ai-match" style="padding:10px;">開始人機對戰</button>
@@ -493,6 +494,21 @@
                             <button id="btn-chat-send" style="background: #8d7cc4; border: none; color: white; cursor: pointer; padding: 0 15px; font-weight: bold; border-radius: 0 0 10px 0; transition: 0.2s;">送出</button>
                         </div>
                     </div>
+                    <div id="battle-action-feed" aria-live="polite"></div>
+                </div>
+
+                <div id="battle-tactical-bar" aria-label="即時戰況資訊列">
+                    <div id="btb-turn" class="btb-seg btb-turn">準備中</div>
+                    <div class="btb-sep"></div>
+                    <div class="btb-seg btb-life-wrap" title="我方生命 vs 對手生命">
+                        <span class="btb-life my" id="btb-my-life">♥ 7</span>
+                        <span class="btb-vs">vs</span>
+                        <span class="btb-life opp" id="btb-opp-life">♥ 7</span>
+                    </div>
+                    <div class="btb-sep"></div>
+                    <div class="btb-seg btb-energy-wrap" id="btb-energy" title="我方場上產生能源">能源 0</div>
+                    <div class="btb-sep"></div>
+                    <div class="btb-seg btb-ap-wrap" id="btb-ap" title="可用行動點 (AP)">AP ○○○</div>
                 </div>
 
                 <div class="cam-ctrl-box">
@@ -523,6 +539,7 @@
                             <div class="phase-step" onclick="setPhase(this, '主要')">主要階段</div>
                             <div class="phase-step" onclick="setPhase(this, '戰鬥')">戰鬥階段</div>
                         </div>
+                        <button id="btn-next-phase" type="button" onclick="window.advanceNextPhase && window.advanceNextPhase()" class="ctrl-btn btb-next-btn">下一階段 →</button>
                         <button id="btn-end-turn" onclick="endTurn()" class="start-btn" style="padding: 12px; font-size: 16px; width: 100%;">結束回合</button>
                     </div>
                 </div>

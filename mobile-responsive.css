@@ -913,3 +913,152 @@ body.mobile-flow #home-disclaimer-footer {
     align-items: flex-start;
     padding: 10px 6px 16px;
 }
+
+
+/* ---------- 6. 對戰介面進階升級：即時戰況列、行動流、可出牌/可攻擊發光 ---------- */
+#battle-tactical-bar {
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10005;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 14px;
+    border-radius: 999px;
+    background: rgba(13, 17, 32, 0.86);
+    border: 1px solid rgba(138, 162, 214, 0.32);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(8px);
+    pointer-events: none;
+    white-space: nowrap;
+    font-size: 12px;
+    font-weight: 700;
+    color: #e6ecf8;
+}
+.btb-seg {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+.btb-sep {
+    width: 1px;
+    height: 14px;
+    background: rgba(255, 255, 255, 0.16);
+}
+.btb-turn.mine { color: #5ef2a6; }
+.btb-turn.opp { color: #ff7a90; }
+.btb-turn.neutral { color: #a7b8de; }
+.btb-life.my { color: #7ae5b5; }
+.btb-life.opp { color: #ff8ca0; }
+.btb-vs { color: #727b96; font-size: 10px; font-weight: 600; }
+.btb-life.danger {
+    color: #ff4d6d !important;
+    text-shadow: 0 0 8px rgba(255, 77, 109, 0.75);
+    animation: btbPulse 1.1s ease-in-out infinite;
+}
+.btb-en-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 6px;
+    border-radius: 999px;
+    border: 1px solid currentColor;
+    background: rgba(0, 0, 0, 0.35);
+    font-size: 11px;
+    font-weight: 800;
+}
+.btb-ap-label {
+    color: #c7b8f5;
+    font-size: 11px;
+    margin-right: 2px;
+}
+.btb-ap-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    display: inline-block;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+}
+.btb-ap-dot.on {
+    background: #b388ff;
+    border-color: #e1ccff;
+    box-shadow: 0 0 6px rgba(179, 136, 255, 0.85);
+}
+.btb-ap-dot.used {
+    background: rgba(255, 255, 255, 0.14);
+}
+.btb-ap-dot.locked {
+    background: transparent;
+    border-style: dashed;
+    border-color: rgba(255, 255, 255, 0.2);
+}
+.btb-next-btn {
+    width: 100%;
+    padding: 8px 6px !important;
+    font-size: 13px !important;
+    font-weight: 800 !important;
+    background: linear-gradient(135deg, #2b4c7e, #3d6cb9) !important;
+    border: 1px solid #6c93c7 !important;
+    color: #ffffff !important;
+}
+.btb-next-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+/* 即時對戰事件流（左上聊天鈕下方，不阻擋點擊） */
+#battle-action-feed {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-width: 270px;
+    pointer-events: none;
+}
+.baf-item {
+    background: rgba(12, 16, 30, 0.78);
+    border-left: 3px solid #6fb897;
+    color: #dce6fa;
+    padding: 4px 8px;
+    border-radius: 0 6px 6px 0;
+    font-size: 11px;
+    line-height: 1.35;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    transition: opacity 0.4s ease, transform 0.4s ease;
+}
+.baf-item.baf-fade {
+    opacity: 0;
+    transform: translateX(-8px);
+}
+
+/* 合法行動視覺發光提示（手牌可登場 / 可突襲 / 前線可攻擊） */
+#my-hand-area .card.ua-hint-playable .card-front {
+    box-shadow: 0 0 0 2px #4be39a, 0 0 14px rgba(75, 227, 154, 0.55);
+}
+#my-hand-area .card.ua-hint-raidable .card-front {
+    box-shadow: 0 0 0 2.5px #ffd166, 0 0 18px rgba(255, 209, 102, 0.85);
+}
+#my-front-line .card.ua-hint-can-attack .card-front {
+    box-shadow: 0 0 0 2.5px #ff7b54, 0 0 16px rgba(255, 123, 84, 0.72);
+    animation: uaAtkGlow 1.5s ease-in-out infinite;
+}
+
+@keyframes btbPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+}
+@keyframes uaAtkGlow {
+    0%, 100% { box-shadow: 0 0 0 2px #ff7b54, 0 0 12px rgba(255, 123, 84, 0.6); }
+    50% { box-shadow: 0 0 0 3px #ff9f68, 0 0 20px rgba(255, 123, 84, 0.95); }
+}
+
+/* 手機橫向壓縮頂部戰況列 */
+body.mobile-battle #battle-tactical-bar {
+    top: 4px;
+    padding: 3px 10px;
+    gap: 6px;
+    font-size: 11px;
+}
+body.mobile-battle #battle-action-feed {
+    display: none;
+}
