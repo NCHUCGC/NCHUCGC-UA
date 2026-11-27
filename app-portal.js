@@ -240,9 +240,10 @@
             function coverThumbHtml(deck) {
                 const ids = getDeckCoverIds(deck);
                 if (ids.length >= 2) {
-                    return `<div class="tier-deck-cover-dual">${ids.map(id => `<img src="${esc(getCoverUrl(id, deck.series, deck.color))}" loading="lazy" alt="">`).join('')}</div>`;
+                    return `<div class="tier-deck-cover-dual">${ids.map(id => `<img src="${esc(getCoverUrl(id, deck.series, deck.color))}" loading="lazy" alt="" onerror="window.UA_IMG_HELPER&&window.UA_IMG_HELPER.handleImgError(this,'${esc(id)}')">`).join('')}</div>`;
                 }
-                return `<img class="tier-deck-cover" src="${esc(getCoverUrl(ids[0] || '', deck.series, deck.color))}" loading="lazy" alt="${esc(deck.name)}">`;
+                const cid = ids[0] || '';
+                return `<img class="tier-deck-cover" src="${esc(getCoverUrl(cid, deck.series, deck.color))}" loading="lazy" alt="${esc(deck.name)}" onerror="window.UA_IMG_HELPER&&window.UA_IMG_HELPER.handleImgError(this,'${esc(cid)}')">`;
             }
 
             function fillCardDatalist(series) {

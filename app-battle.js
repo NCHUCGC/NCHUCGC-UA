@@ -470,7 +470,7 @@ window.appScale = 1;
         function createCatalogCardEl(card) {
             let el = document.createElement('div'); el.className = 'preview-card';
             el.dataset.cardId = card.id;
-            el.innerHTML = `<img src="${card.imageUrl}" loading="lazy" onerror="this.closest('.preview-card').style.display='none'; window.markCardInvalid('${card.id}');">`;
+            el.innerHTML = `<img src="${card.imageUrl}" loading="lazy" onerror="window.UA_IMG_HELPER&&window.UA_IMG_HELPER.handleImgError(this,'${card.id.replace(/'/g, "\\'")}')">`;
 
             let count = getCurrentDeckCount(card.id);
             if (count > 0) {
@@ -1700,7 +1700,9 @@ function createCardDOM(cardData, networkId, isMine) {
                 }
             }
             if (!safeImgUrl && cardId && !cardId.startsWith('CUSTOM_')) {
-                safeImgUrl = `https://rugiacreation.com/ua/cardlist/small/${cardId.replace(/\//g, '_')}.jpg`;
+                safeImgUrl = window.UA_IMG_HELPER
+                    ? window.UA_IMG_HELPER.resolveCardImageUrl(cardId)
+                    : `https://rugiacreation.com/ua/cardlist/small/${cardId.replace(/\//g, '_')}.jpg`;
             }
 
             let el = document.createElement("div");
@@ -1716,6 +1718,9 @@ function createCardDOM(cardData, networkId, isMine) {
 
             let img = document.createElement("img");
             img.src = safeImgUrl; // 透過 DOM 屬性賦值，徹底根絕 XSS 注入
+            img.onerror = () => {
+                if (window.UA_IMG_HELPER) window.UA_IMG_HELPER.handleImgError(img, localDef || cardId);
+            };
 
             let back = document.createElement("div");
             back.className = "card-back";

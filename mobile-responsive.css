@@ -807,3 +807,109 @@ body.mobile-battle #magnifier-close {
     height: 46px;
     font-size: 22px;
 }
+
+
+/* ---------- 5. 版權與非營利免責聲明頁尾與彈窗 ---------- */
+#home-disclaimer-footer {
+    margin-top: 14px;
+    padding: 10px 14px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 11px;
+    line-height: 1.5;
+    color: #8c95b0;
+    flex-shrink: 0;
+}
+.disclaimer-open-btn {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    color: #d8e1f5;
+    padding: 5px 11px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.disclaimer-open-btn:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: #ffffff;
+}
+#disclaimer-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(6, 8, 16, 0.82);
+    z-index: 250000;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    box-sizing: border-box;
+    backdrop-filter: blur(4px);
+}
+.disclaimer-box {
+    width: min(640px, 100%);
+    max-height: 85dvh;
+    background: #131729;
+    border: 1px solid #353f69;
+    border-radius: 12px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.75);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    color: #e6ecf8;
+}
+.disclaimer-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.disclaimer-head h3 {
+    margin: 0;
+    font-size: 16px;
+    color: #ffffff;
+}
+.disclaimer-close-btn {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+    font-size: 14px;
+    cursor: pointer;
+}
+.disclaimer-body {
+    padding: 14px 18px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    font-size: 13px;
+    line-height: 1.7;
+    color: #c8d2ea;
+}
+.disclaimer-body p {
+    margin: 0 0 12px 0;
+}
+.disclaimer-body p:last-child {
+    margin-bottom: 0;
+}
+.disclaimer-body b {
+    color: #f4d284;
+}
+.disclaimer-actions {
+    padding: 12px 18px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    display: flex;
+    justify-content: flex-end;
+}
+body.mobile-flow #home-disclaimer-footer {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 10px 6px 16px;
+}

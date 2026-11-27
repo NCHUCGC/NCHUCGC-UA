@@ -11,7 +11,7 @@ return _ROWS.map(([id, si, bi, img]) => {
         id,
         name: d.name,
         series: _SERIES[si],
-        imageUrl: img.startsWith('http') ? img : _IMG + img,
+        imageUrl: (typeof window !== 'undefined' && window.UA_IMG_HELPER) ? window.UA_IMG_HELPER.resolveCardImageUrl(img) : (img.startsWith('http') ? img : _IMG + img),
         type: d.type,
         color: d.color,
         rarity: d.rarity,

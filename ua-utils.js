@@ -94,6 +94,7 @@
         if (cardId) {
             const found = catalogById.get(cardId);
             if (found && found.imageUrl) return found.imageUrl;
+            if (window.UA_IMG_HELPER) return window.UA_IMG_HELPER.resolveCardImageUrl(cardId);
             return `https://rugiacreation.com/ua/cardlist/small/${cardId.replace(/\//g, '_')}.jpg`;
         }
         if (typeof masterCardCatalog !== 'undefined' && series) {

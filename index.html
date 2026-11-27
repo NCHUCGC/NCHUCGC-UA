@@ -122,7 +122,43 @@
                     <div id="home-announcements" class="home-ann-list"></div>
                 </div>
             </div>
+
+            <footer id="home-disclaimer-footer">
+                <span>本網站為非官方、非營利之玩家社團交流與規則測試工具（興大卡研 NCHUCGC），與 BANDAI 及各參戰作品官方無任何關聯。所有卡片圖像、角色名稱、商標與規則資料之智慧財產權均歸原版權方所有。</span>
+                <button type="button" class="disclaimer-open-btn" onclick="document.getElementById('disclaimer-modal').style.display='flex'">查看完整免責聲明</button>
+            </footer>
         </section>
+
+        <div id="disclaimer-modal" onclick="if(event.target===this)this.style.display='none'">
+            <div class="disclaimer-box">
+                <div class="disclaimer-head">
+                    <h3>版權聲明與免責條款</h3>
+                    <button type="button" class="disclaimer-close-btn" onclick="document.getElementById('disclaimer-modal').style.display='none'" aria-label="關閉">✕</button>
+                </div>
+                <div class="disclaimer-body">
+                    <p><b>一、非官方與非營利性質</b><br>
+                    本系統（興大卡研 NCHUCGC Union Arena 模擬器）係由玩家社團基於興趣開發與維護之非官方線上規則研究、牌組構築與同好交流工具。本網站不涉及任何商業營利、廣告投放、付費課金或實體商品販售，亦與株式會社萬代（BANDAI CO., LTD.）、萬代南夢宮集團或任何參戰動畫／遊戲原作版權方無任何官方合作、代理或背書關係。</p>
+
+                    <p><b>二、智慧財產權歸屬</b><br>
+                    《UNION ARENA》遊戲名稱、標誌、卡片設計、卡片圖像、角色名稱、世界觀設定與相關商標之著作權及其他智慧財產權，均完全歸屬於 BANDAI 及各參戰作品原著作權人／授權方所有。本系統僅於合理交流與教學研究範圍內引用相關資訊以利牌局辨識，絕不主張任何上述素材之所有權。</p>
+
+                    <p><b>三、卡片資料與翻譯正確性</b><br>
+                    本系統之自動規則引擎、AI 對戰邏輯、環境排表與中文效果翻譯皆為社群整理與輔助參考用途，可能存在翻譯誤差、規則裁定差異或程式錯誤。正式賽事之規則判定與卡片效果一律以《UNION ARENA》官方網站公告、官方綜合規則書及現場裁判裁定為準。</p>
+
+                    <p><b>四、使用者自製內容責任</b><br>
+                    若使用者透過本系統之「自製卡圖」或聊天室等功能上傳自訂圖片或文字，該內容僅供當次對戰室雙方瀏覽，使用者須自行確保內容合法且不侵害第三方權益，本網站不對使用者自行輸入或傳輸之內容負法律責任。</p>
+
+                    <p><b>五、服務穩定性與免責</b><br>
+                    本系統依「現況」免費提供，不保證服務永不中斷、無錯誤或牌組雲端資料永久保存，亦不對使用本系統所衍生之任何直接或間接損失承擔責任。建議使用者定期自行匯出備份牌組代碼。</p>
+
+                    <p><b>六、權利人通知與下架機制</b><br>
+                    我們高度尊重所有原創作者與版權方之權益。若原著作權人或合法授權代表認為本網站之任何圖像、文字或功能有侵權疑慮，請透過興大卡研社團官方聯絡管道通知管理員，我們將於收到確認通知後第一時間配合移除相關內容或關閉對應功能。</p>
+                </div>
+                <div class="disclaimer-actions">
+                    <button type="button" class="ctrl-btn" onclick="document.getElementById('disclaimer-modal').style.display='none'">我已了解</button>
+                </div>
+            </div>
+        </div>
 
         <div id="home-ann-modal">
             <div class="tier-detail-box" style="width:580px;">
@@ -635,6 +671,7 @@
 
     <div id="print-area" style="display: none;"></div>
 
+    <script src="img-config.js"></script>
     <script src="cards.js"></script>
     <script src="cards-zh.js" onerror="window.UA_ZH_MAP=window.UA_ZH_MAP||{}"></script>
     <script src="tier-data.js"></script>
