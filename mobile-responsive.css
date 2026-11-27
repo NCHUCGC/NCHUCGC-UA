@@ -1062,3 +1062,145 @@ body.mobile-battle #battle-tactical-bar {
 body.mobile-battle #battle-action-feed {
     display: none;
 }
+
+
+/* ---------- 7. 嚴格競技模式區隔 & 技能發動特效動畫系統 ---------- */
+body.ua-mode-strict .strict-hidden,
+body.ua-mode-strict .sandbox-only {
+    display: none !important;
+}
+body.ua-mode-strict #battle-tactical-bar {
+    border-color: rgba(255, 209, 102, 0.55);
+}
+
+#ua-fx-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 100400;
+    overflow: hidden;
+}
+
+.ua-fx-cutin {
+    position: absolute;
+    left: 24px;
+    top: 42%;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 20px 8px 10px;
+    border-radius: 12px;
+    background: linear-gradient(105deg, rgba(14, 18, 36, 0.96) 0%, rgba(28, 34, 64, 0.92) 72%, rgba(14, 18, 36, 0.25) 100%);
+    border-left: 5px solid var(--fx-accent, #00ffcc);
+    box-shadow: 0 12px 34px rgba(0, 0, 0, 0.72), 0 0 22px color-mix(in srgb, var(--fx-accent, #00ffcc) 45%, transparent);
+    backdrop-filter: blur(6px);
+    animation: uaCutinIn 0.95s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    max-width: min(420px, 82vw);
+}
+.ua-fx-cutin.opp {
+    left: auto;
+    right: 24px;
+    top: 28%;
+    flex-direction: row-reverse;
+    padding: 8px 10px 8px 20px;
+    border-left: none;
+    border-right: 5px solid var(--fx-accent, #ff6b81);
+    text-align: right;
+    background: linear-gradient(255deg, rgba(24, 14, 30, 0.96) 0%, rgba(48, 22, 42, 0.92) 72%, rgba(24, 14, 30, 0.25) 100%);
+    animation-name: uaCutinInOpp;
+}
+.ua-fx-cutin-art {
+    width: 58px;
+    height: 82px;
+    border-radius: 6px;
+    object-fit: cover;
+    border: 2px solid var(--fx-accent, #00ffcc);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.7);
+    flex-shrink: 0;
+}
+.ua-fx-cutin-body {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+.ua-fx-cutin-badge {
+    display: inline-block;
+    align-self: flex-start;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--fx-accent, #00ffcc);
+    color: #0b0e18;
+    text-transform: uppercase;
+}
+.ua-fx-cutin.opp .ua-fx-cutin-badge {
+    align-self: flex-end;
+}
+.ua-fx-cutin-name {
+    font-size: 16px;
+    font-weight: 900;
+    color: #ffffff;
+    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.85);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.ua-fx-cutin-sub {
+    font-size: 12px;
+    color: #cfd9f2;
+    font-weight: 600;
+}
+
+@keyframes uaCutinIn {
+    0%   { opacity: 0; transform: translate(-60px, -50%) skewX(-6deg) scale(0.92); }
+    16%  { opacity: 1; transform: translate(0, -50%) skewX(-3deg) scale(1.02); }
+    78%  { opacity: 1; transform: translate(6px, -50%) skewX(-2deg) scale(1); }
+    100% { opacity: 0; transform: translate(34px, -50%) skewX(0deg) scale(0.96); }
+}
+@keyframes uaCutinInOpp {
+    0%   { opacity: 0; transform: translate(60px, -50%) skewX(6deg) scale(0.92); }
+    16%  { opacity: 1; transform: translate(0, -50%) skewX(3deg) scale(1.02); }
+    78%  { opacity: 1; transform: translate(-6px, -50%) skewX(2deg) scale(1); }
+    100% { opacity: 0; transform: translate(-34px, -50%) skewX(0deg) scale(0.96); }
+}
+
+/* 場上發動效果卡片脈衝光環 */
+.card.ua-fx-pulse::after {
+    content: '';
+    position: absolute;
+    inset: -6px;
+    border-radius: 10px;
+    border: 3px solid var(--fx-pulse-color, #00ffcc);
+    box-shadow: 0 0 22px var(--fx-pulse-color, #00ffcc);
+    pointer-events: none;
+    animation: uaCardPulseRing 0.72s ease-out forwards;
+}
+@keyframes uaCardPulseRing {
+    0%   { opacity: 0.95; transform: scale(0.96); }
+    100% { opacity: 0; transform: scale(1.24); }
+}
+
+/* 卡槽 BP 變動動態浮字 */
+.ua-bp-float {
+    position: absolute;
+    left: 50%;
+    top: 12px;
+    transform: translateX(-50%);
+    z-index: 2500;
+    font-size: 16px;
+    font-weight: 900;
+    pointer-events: none;
+    white-space: nowrap;
+    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.95);
+    animation: uaBpFloatUp 0.95s ease-out forwards;
+}
+.ua-bp-float.plus { color: #5ef2a6; }
+.ua-bp-float.minus { color: #ff5c7a; }
+@keyframes uaBpFloatUp {
+    0%   { opacity: 0; transform: translate(-50%, 10px) scale(0.8); }
+    20%  { opacity: 1; transform: translate(-50%, -6px) scale(1.15); }
+    100% { opacity: 0; transform: translate(-50%, -40px) scale(1); }
+}

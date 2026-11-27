@@ -1767,13 +1767,25 @@ injectEngineUI() {
             }
 
             const modeSelect = document.getElementById('game-mode-selector');
+            const applyModeFromVal = (val) => {
+                this.enabled = (val === 'auto' || val === 'strict');
+                this.strictMode = (val === 'strict');
+                if (document.body) {
+                    document.body.classList.toggle('ua-mode-strict', this.strictMode);
+                    document.body.classList.toggle('ua-mode-auto', this.enabled && !this.strictMode);
+                    document.body.classList.toggle('ua-mode-sandbox', !this.enabled);
+                }
+            };
             if (modeSelect) {
                 modeSelect.style.display = 'inline-block';
-                modeSelect.value = 'auto';
-                this.enabled = true;
+                if (!modeSelect.value) modeSelect.value = 'auto';
+                applyModeFromVal(modeSelect.value);
                 modeSelect.addEventListener('change', (e) => {
-                    this.enabled = (e.target.value === 'auto');
-                    showSysMsg(this.enabled ? '⚡ 已切換為【全自動規則引擎模式】' : '🛠️ 已切換為【沙盒手動模式】');
+                    applyModeFromVal(e.target.value);
+                    const msg = this.strictMode
+                        ? '已切換為【嚴格競技全自動模式】（禁止反悔、鎖定手動干擾）'
+                        : (this.enabled ? '已切換為【標準全自動規則引擎模式】' : '已切換為【沙盒手動模式】');
+                    showSysMsg(msg);
                     this.updateEnergyHUD();
                 });
             }
@@ -1799,9 +1811,9 @@ injectEngineUI() {
                     border-radius: 8px; padding: 8px; text-align: center;
                 `;
                 engPanel.innerHTML = `
-                    <div id="eng-turn-badge" style="background:#313456; color:#00ffcc; padding:3px 6px; border-radius:4px; font-size:12px; font-weight:bold;">⚡ 自由/未定先攻</div>
-                    <button id="btn-claim-first" class="ctrl-btn" style="background:#8d7cc4; padding:6px 4px; font-size:12px; width:100%;">🎲 設我方先攻</button>
-                    <button id="btn-extra-draw" class="ctrl-btn" style="background:#4f9678; padding:6px 4px; font-size:12px; width:100%; display:none;">💎 額外抽卡(1AP)</button>
+                    <div id="eng-turn-badge" style="background:#313456; color:#00ffcc; padding:3px 6px; border-radius:4px; font-size:12px; font-weight:bold;">自由/未定先攻</div>
+                    <button id="btn-claim-first" class="ctrl-btn" style="background:#8d7cc4; padding:6px 4px; font-size:12px; width:100%;">設我方先攻</button>
+                    <button id="btn-extra-draw" class="ctrl-btn" style="background:#4f9678; padding:6px 4px; font-size:12px; width:100%; display:none;">額外抽卡 (1AP)</button>
                 `;
                 sidebar.insertBefore(engPanel, sidebar.firstChild);
 
@@ -2170,7 +2182,7 @@ injectEngineUI() {
             const badge = document.getElementById('eng-turn-badge');
             if (badge) {
                 if (this.isFirstPlayer === null) {
-                    badge.innerText = '⚡ 自由/未定先攻';
+                    badge.innerText = '自由/未定先攻';
                     badge.style.background = '#313456';
                     badge.style.color = '#00ffcc';
                 } else {
@@ -2183,7 +2195,7 @@ injectEngineUI() {
             const hasFreeExtraDraw = this.getSlotTopCards('#my-front-line .slot').some(c => this.getBaseCardId(c.dataset?.cardId) === 'UA43BT/SMD-1-045');
             const extraDrawBtn = document.getElementById('btn-extra-draw');
             if (extraDrawBtn) {
-                extraDrawBtn.innerText = hasFreeExtraDraw ? '💎 額外抽卡(0AP)' : '💎 額外抽卡(1AP)';
+                extraDrawBtn.innerText = hasFreeExtraDraw ? '額外抽卡 (0AP)' : '額外抽卡 (1AP)';
                 extraDrawBtn.style.display = (this.isMyTurn && this.currentPhase === '起始' && !this.usedExtraDraw && (activeAp >= 1 || hasFreeExtraDraw)) ? 'block' : 'none';
             }
 
@@ -2680,6 +2692,31 @@ injectEngineUI() {
             const toOutside = dropZone.id === 'my-outside-area';
             const toRemove = dropZone.id === 'my-remove-area';
 
+            // 嚴格競技模式防護：禁止從牌組／場外／生命區／移除區手動拉牌，並禁止非移動階段手動移動場上角色
+            if (this.strictMode) {
+                const fromRestricted = originalParent && (
+                    originalParent.id === 'my-deck-area' ||
+                    originalParent.id === 'my-outside-area' ||
+                    originalParent.id === 'my-life-area' ||
+                    originalParent.id === 'my-remove-area'
+                );
+                if (fromRestricted) {
+                    showSysMsg('嚴格競技模式：禁止直接從牌組／場外／生命／移除區手動拉牌');
+                    defaultFinalizeFn(cards, null, 'cancel', originalParent, endX);
+                    return;
+                }
+                if ((fromFront || fromEnergy) && (toFront || toEnergy) && originalParent !== dropZone && this.currentPhase !== '移動') {
+                    showSysMsg('嚴格競技模式：只能在【移動階段】移動場上角色');
+                    defaultFinalizeFn(cards, null, 'cancel', originalParent, endX);
+                    return;
+                }
+                if ((fromFront || fromEnergy) && !toFront && !toEnergy) {
+                    showSysMsg('嚴格競技模式：禁止手動將場上角色拖離場地（請由規則效果處理）');
+                    defaultFinalizeFn(cards, null, 'cancel', originalParent, endX);
+                    return;
+                }
+            }
+
             // A. 場上移動（解除階段硬鎖，確保主要/戰鬥階段的移動效果與手動換位皆可順利操作）
             if ((fromFront || fromEnergy) && (toFront || toEnergy) && originalParent !== dropZone) {
                 const existingCards = Array.from(dropZone.querySelectorAll('.card'));
@@ -3011,6 +3048,17 @@ injectEngineUI() {
             }
 
             sendSystemChat(`[規則引擎] 對手發動了【${def.name}】的突襲（レイド）！`);
+            if (typeof window.playCardEffectAnim === 'function') {
+                const displayName = window.UAUtils ? window.UAUtils.getDisplayName(def) : def.name;
+                window.playCardEffectAnim({
+                    cardEl,
+                    cardName: displayName,
+                    badgeText: 'RAID 突襲',
+                    subText: moveToFront ? '直立登場並進駐前線' : '直立突襲登場',
+                    accentColor: '#ffd166',
+                    isOpponent: false
+                });
+            }
             this.updateEnergyHUD();
             broadcastMyState();
             this.triggerCardAbilities(cardEl, 'ON_PLAY', onComplete);
@@ -3287,6 +3335,27 @@ injectEngineUI() {
             if (!def) {
                 if (onComplete) onComplete();
                 return;
+            }
+
+            if (typeof window.playCardEffectAnim === 'function' && def.effectText && def.effectText !== '-') {
+                const tagMap = {
+                    ON_PLAY: ['登場時發動', '#00ffcc'],
+                    ON_ATTACK: ['攻擊時發動', '#ff7b54'],
+                    ON_BLOCK: ['防禦時發動', '#6c93c7'],
+                    ON_RETIRE: ['退場時發動', '#b388ff'],
+                    CONTINUOUS: [def.type === 'EVENT' ? '事件卡發動' : '效果發動', '#f1c40f']
+                };
+                const hasTimingText =
+                    (timing === 'CONTINUOUS' && def.type === 'EVENT') ||
+                    (timing === 'ON_PLAY' && def.effectText.includes('[登場時]')) ||
+                    (timing === 'ON_ATTACK' && def.effectText.includes('[アタック時]')) ||
+                    (timing === 'ON_BLOCK' && def.effectText.includes('[ブロック時]')) ||
+                    (timing === 'ON_RETIRE' && def.effectText.includes('[退場時]'));
+                if (hasTimingText && tagMap[timing]) {
+                    const [badgeText, accentColor] = tagMap[timing];
+                    const displayName = window.UAUtils ? window.UAUtils.getDisplayName(def) : def.name;
+                    window.playCardEffectAnim({ cardEl, cardName: displayName, badgeText, accentColor, isOpponent: false });
+                }
             }
 
             const script = this.getCardScript(cardEl);
@@ -4830,6 +4899,9 @@ injectEngineUI() {
             if (!tracker) return;
             const newBp = (parseInt(tracker.dataset.bp, 10) || 0) + delta;
             updateBpDisplay(slot, newBp);
+            if (delta !== 0 && typeof window.playBpFloatAnim === 'function') {
+                window.playBpFloatAnim(slot, delta);
+            }
             if (slot.id.startsWith('opp-') && this.oppSyncedEffectiveBp && typeof this.oppSyncedEffectiveBp[slot.id] === 'number') {
                 this.oppSyncedEffectiveBp[slot.id] = Math.max(0, this.oppSyncedEffectiveBp[slot.id] + delta);
             }
@@ -6234,7 +6306,24 @@ handleNetworkEvent(data) {
                 }
                 case 'OPP_TRIGGER_REVEAL': {
                     if (data.activated === true) this.triggerActivatedThisTurn = true;
-                    const statusTxt = data.activated === true ? '⚡ 對手已發動觸發效果！' : (data.activated === false ? '🛡️ 未發動 / 無觸發' : '⏳ 對手正在處理觸發效果中...');
+                    const trigStr = String(data.triggerText || '');
+                    if (data.activated === true && typeof window.playCardEffectAnim === 'function') {
+                        const isSp = trigStr.includes('[スペシャル]');
+                        const isCol = trigStr.includes('[カラー]');
+                        const isRaid = trigStr.includes('[レイド]');
+                        const isFin = trigStr.includes('[ファイナル]');
+                        const badge = isSp ? 'SPECIAL 觸發' : (isCol ? 'COLOR 觸發' : (isRaid ? 'RAID 觸發' : (isFin ? 'FINAL 觸發' : '生命觸發')));
+                        const accent = isSp ? '#ff4d6d' : (isCol ? '#b388ff' : (isRaid ? '#ffd166' : '#ff8c42'));
+                        window.playCardEffectAnim({
+                            cardName: data.cardName || '對手觸發',
+                            imageUrl: data.imageUrl || '',
+                            badgeText: badge,
+                            subText: '對手發動生命觸發',
+                            accentColor: accent,
+                            isOpponent: true
+                        });
+                    }
+                    const statusTxt = data.activated === true ? '對手已發動觸發效果' : (data.activated === false ? '未發動 / 無觸發' : '對手正在處理觸發效果中...');
                     let overlay = document.getElementById('opp-trigger-img-overlay');
                     if (!overlay) {
                         overlay = document.createElement('div');
@@ -6244,7 +6333,7 @@ handleNetworkEvent(data) {
                     }
                     const safeUrl = (typeof data.imageUrl === 'string' && /^(https:\/\/|data:image\/)/i.test(data.imageUrl.trim())) ? data.imageUrl.trim() : '';
                     overlay.innerHTML = `
-                        <div style="font-size:16px; font-weight:900; color:#f1c40f; margin-bottom:10px;">✨ 對手生命觸發確認</div>
+                        <div style="font-size:16px; font-weight:900; color:#f1c40f; margin-bottom:10px;">對手生命觸發確認</div>
                         ${safeUrl ? `<img src="${safeUrl}" style="width:170px; height:238px; object-fit:cover; border-radius:8px; border:2px solid #fff; margin-bottom:10px;">` : ''}
                         <div style="font-size:15px; font-weight:bold; margin-bottom:6px;">${data.cardName || ''}</div>
                         <div style="font-size:14px; color:#00ffcc; font-weight:bold;">${statusTxt}</div>
@@ -6285,6 +6374,21 @@ handleNetworkEvent(data) {
 
         const origSetPhase = window.setPhase;
         window.setPhase = function (el, phaseName) {
+            const eng = window.uaEngine;
+            if (eng && eng.strictMode) {
+                if (eng.isFirstPlayer !== null && !eng.isMyTurn) {
+                    showSysMsg('嚴格競技模式：目前是對手回合，無法切換階段');
+                    return;
+                }
+                const order = ['起始', '移動', '主要', '戰鬥'];
+                const curIdx = order.indexOf(eng.currentPhase);
+                const nextIdx = order.indexOf(phaseName);
+                // 允許「結束回合後回到起始」以外的單向推進，禁止從後階段退回前階段反悔
+                if (curIdx > 0 && nextIdx >= 0 && nextIdx < curIdx && !(curIdx === 3 && nextIdx === 0 && !eng.isMyTurn)) {
+                    showSysMsg('嚴格競技模式：階段不可逆轉（禁止退回上一階段反悔）');
+                    return;
+                }
+            }
             origSetPhase(el, phaseName);
             window.uaEngine.onPhaseChanged(phaseName);
         };

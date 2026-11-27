@@ -508,8 +508,147 @@
                 const trigTxt = c.def?.triggerText || '';
                 const trigType = c.def?.compiledRules?.trigger?.type || '';
                 let activated = false;
+                let extraNote = '';
 
-                if (trigType === 'GET' || trigTxt.includes('[ゲット]')) {
+                const getOppFrontSorted = (maxBp = Infinity, preferActive = false) => {
+                    return ['my-fl-1', 'my-fl-2', 'my-fl-3', 'my-fl-4']
+                        .map(s => ({ slotId: s, info: this.st.playerMirror?.front?.[s] }))
+                        .filter(x => x.info && (x.info.effectiveBp || 0) <= maxBp)
+                        .sort((a, b) => {
+                            if (preferActive && (!!a.info.isRest !== !!b.info.isRest)) return a.info.isRest ? 1 : -1;
+                            return (b.info.effectiveBp || 0) - (a.info.effectiveBp || 0);
+                        });
+                };
+
+                if (trigType === 'SPECIAL' || trigTxt.includes('[スペシャル]')) {
+                    c.isFlipped = false;
+                    this.st.outside.push(c);
+                    const targets = getOppFrontSorted(Infinity, false);
+                    if (targets.length > 0) {
+                        const t = targets[0];
+                        this.sendToPlayer({ type: 'ENGINE_EVENT', subType: 'FORCE_RETIRE_SLOT', slotId: t.slotId });
+                        if (this.st.playerMirror?.front) this.st.playerMirror.front[t.slotId] = null;
+                        activated = true;
+                        extraNote = `將玩家前線【${t.info.def?.name || '角色'}】退場！`;
+                        this.sendToPlayer({ type: 'CHAT_MSG', isSystem: true, text: `[電腦觸發] 發動 [スペシャル]（${c.def?.name || ''}）：${extraNote}` });
+                    }
+                } else if (trigType === 'RAID' || trigTxt.includes('[レイド]')) {
+                    // 官方規則：加入手牌，或滿足必要能源且場上有合法突襲基底時可免費突襲
+                    const en = this.st.calculateEnergy();
+                    const reqCol = c.def?.requiredEnergy?.color || 'NONE';
+                    const reqCnt = c.def?.requiredEnergy?.count || 0;
+                    const ir = typeof this.st.getV3IR === 'function' ? this.st.getV3IR(c.def) : null;
+                    const hasEn = reqCnt <= 0 || reqCol === 'NONE' || (ir?.allColor ? en.ALL : (en[reqCol] || 0)) >= reqCnt;
+                    const raidSlots = hasEn
+                        ? ['my-en-1', 'my-en-2', 'my-en-3', 'my-en-4', 'my-fl-1', 'my-fl-2', 'my-fl-3', 'my-fl-4']
+                            .filter(s => this.st.canRaidOntoSlot(c.def, s))
+                        : [];
+                    if (raidSlots.length > 0) {
+                        // 優先選能源線或最低 BP 基底突襲
+                        raidSlots.sort((a, b) => {
+                            const isEnA = a.startsWith('my-en-') ? 0 : 1;
+                            const isEnB = b.startsWith('my-en-') ? 0 : 1;
+                            if (isEnA !== isEnB) return isEnA - isEnB;
+                            return (this.st.getSlotTop(a)?.def?.bp || 0) - (this.st.getSlotTop(b)?.def?.bp || 0);
+                        });
+                        const targetSlot = raidSlots[0];
+                        const srcArr = this.st.getSlotArray(targetSlot);
+                        c.isFlipped = false;
+                        c.isRest = false;
+                        c.isRaided = true;
+                        srcArr.forEach(u => { u.isRest = false; });
+                        srcArr.push(c);
+                        if (this.st.bpMods.hasOwnProperty(targetSlot)) this.st.bpMods[targetSlot] = 0;
+
+                        let finalSlot = targetSlot;
+                        const emptyFront = ['my-fl-1', 'my-fl-2', 'my-fl-3', 'my-fl-4'].find(s => this.st.front[s].length === 0);
+                        if (targetSlot.startsWith('my-en-') && emptyFront) {
+                            this.st.front[emptyFront] = srcArr;
+                            this.st.energy[targetSlot] = [];
+                            finalSlot = emptyFront;
+                        }
+                        const effRes = this.st.resolveCardEffects(c, finalSlot, 'ON_PLAY', this.brain, this.difficulty);
+                        this.dispatchEffectOutputs(effRes);
+                        activated = true;
+                        extraNote = `免費突襲登場【${c.def?.name || ''}】！`;
+                        this.sendToPlayer({ type: 'CHAT_MSG', isSystem: true, text: `[電腦觸發] 發動 [レイド]：${extraNote}` });
+                    } else {
+                        c.isFlipped = true;
+                        this.st.hand.push(c);
+                        activated = true;
+                        extraNote = `將【${c.def?.name || ''}】加入手牌！`;
+                    }
+                } else if (trigType === 'COLOR' || trigTxt.includes('[カラー]')) {
+                    c.isFlipped = false;
+                    this.st.outside.push(c);
+                    const col = c.def?.color || 'NONE';
+                    if (col === 'RED') {
+                        const targets = getOppFrontSorted(2500, false);
+                        if (targets.length > 0) {
+                            const t = targets[0];
+                            this.sendToPlayer({ type: 'ENGINE_EVENT', subType: 'FORCE_RETIRE_SLOT', slotId: t.slotId });
+                            if (this.st.playerMirror?.front) this.st.playerMirror.front[t.slotId] = null;
+                            activated = true;
+                            extraNote = `紅 Color 將【${t.info.def?.name || '角色'}】退場！`;
+                        }
+                    } else if (col === 'BLUE') {
+                        const targets = getOppFrontSorted(3500, false);
+                        if (targets.length > 0) {
+                            const t = targets[0];
+                            this.sendToPlayer({ type: 'ENGINE_EVENT', subType: 'FORCE_BOUNCE_SLOT', slotId: t.slotId });
+                            if (this.st.playerMirror?.front) this.st.playerMirror.front[t.slotId] = null;
+                            activated = true;
+                            extraNote = `藍 Color 將【${t.info.def?.name || '角色'}】彈回手牌！`;
+                        }
+                    } else if (col === 'YELLOW') {
+                        const targets = getOppFrontSorted(Infinity, true);
+                        if (targets.length > 0) {
+                            const t = targets[0];
+                            this.sendToPlayer({ type: 'ENGINE_EVENT', subType: 'FORCE_REST_SLOT', slotId: t.slotId });
+                            this.sendToPlayer({ type: 'ENGINE_EVENT', subType: 'FORCE_FREEZE_SLOT', slotId: t.slotId });
+                            if (this.st.playerMirror?.front?.[t.slotId]) this.st.playerMirror.front[t.slotId].isRest = true;
+                            activated = true;
+                            extraNote = `黃 Color 將【${t.info.def?.name || '角色'}】橫置並凍結！`;
+                        }
+                    } else if (col === 'GREEN') {
+                        const emptySlot = ['my-en-1', 'my-en-2', 'my-en-3', 'my-en-4', 'my-fl-1', 'my-fl-2', 'my-fl-3', 'my-fl-4']
+                            .find(s => this.st.getSlotArray(s).length === 0);
+                        const cands = this.st.hand
+                            .filter(hc => hc.def?.type === 'CHARACTER' && hc.def.color === 'GREEN' && (hc.def.requiredEnergy?.count || 0) <= 2)
+                            .sort((a, b) => (b.def?.bp || 0) - (a.def?.bp || 0));
+                        if (emptySlot && cands.length > 0) {
+                            const picked = cands[0];
+                            const idx = this.st.hand.indexOf(picked);
+                            if (idx !== -1) this.st.hand.splice(idx, 1);
+                            picked.isFlipped = false; picked.isRest = false; picked.isRaided = false;
+                            this.st.getSlotArray(emptySlot).push(picked);
+                            const effRes = this.st.resolveCardEffects(picked, emptySlot, 'ON_PLAY', this.brain, this.difficulty);
+                            this.dispatchEffectOutputs(effRes);
+                            activated = true;
+                            extraNote = `綠 Color 免費直立登場【${picked.def?.name || ''}】！`;
+                        }
+                    } else if (col === 'PURPLE') {
+                        const emptySlot = ['my-en-1', 'my-en-2', 'my-en-3', 'my-en-4', 'my-fl-1', 'my-fl-2', 'my-fl-3', 'my-fl-4']
+                            .find(s => this.st.getSlotArray(s).length === 0);
+                        const cands = this.st.outside
+                            .filter(oc => oc !== c && oc.def?.type === 'CHARACTER' && oc.def.color === 'PURPLE' && (oc.def.requiredEnergy?.count || 0) <= 2 && (oc.def.apCost ?? 1) === 1)
+                            .sort((a, b) => (b.def?.bp || 0) - (a.def?.bp || 0));
+                        if (emptySlot && cands.length > 0) {
+                            const picked = cands[0];
+                            const idx = this.st.outside.indexOf(picked);
+                            if (idx !== -1) this.st.outside.splice(idx, 1);
+                            picked.isFlipped = false; picked.isRest = true; picked.isRaided = false;
+                            this.st.getSlotArray(emptySlot).push(picked);
+                            const effRes = this.st.resolveCardEffects(picked, emptySlot, 'ON_PLAY', this.brain, this.difficulty);
+                            this.dispatchEffectOutputs(effRes);
+                            activated = true;
+                            extraNote = `紫 Color 從場外復活【${picked.def?.name || ''}】！`;
+                        }
+                    }
+                    if (activated && extraNote) {
+                        this.sendToPlayer({ type: 'CHAT_MSG', isSystem: true, text: `[電腦觸發] 發動 [カラー]：${extraNote}` });
+                    }
+                } else if (trigType === 'GET' || trigTxt.includes('[ゲット]')) {
                     c.isFlipped = true;
                     this.st.hand.push(c);
                     activated = true;

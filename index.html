@@ -62,8 +62,9 @@
             </div>
             <div style="display:flex; align-items:center; gap:10px;">
                 <select id="game-mode-selector" class="tier-select">
-                    <option value="auto">全自動規則引擎（測試中）</option>
-                    <option value="sandbox">手動模式</option>
+                    <option value="auto" selected>全自動規則引擎（標準）</option>
+                    <option value="strict">全自動（嚴格競技・禁止反悔）</option>
+                    <option value="sandbox">沙盒手動模式</option>
                 </select>
                 <button class="start-btn" id="start-game-btn" disabled>雙方就緒，進入對戰</button>
                 <button class="ctrl-btn danger" id="btn-disconnect-peer" onclick="window.disconnectPeer && window.disconnectPeer()" style="padding:8px 12px; font-size:13px;">斷開連線</button>
@@ -319,8 +320,9 @@
                     <div class="lobby-form">
                         <input type="text" id="lobby-new-room-name" placeholder="房間名稱">
                         <select id="lobby-new-room-mode">
-                            <option value="auto">模式：全自動規則引擎（測試中）</option>
-                            <option value="sandbox">模式：手動模式</option>
+                            <option value="auto" selected>模式：全自動規則引擎（標準）</option>
+                            <option value="strict">模式：全自動（嚴格競技・禁止反悔）</option>
+                            <option value="sandbox">模式：沙盒手動模式</option>
                         </select>
                         <input type="text" id="lobby-new-room-pin" placeholder="房間密碼（選填，留空為公開房）">
                         <button class="start-btn" id="btn-lobby-create-room" style="padding:10px;">建立對戰房間</button>
@@ -455,9 +457,10 @@
                 </div>
                 <div style="border-top: 1px solid #313456; margin: 10px 0 8px 0;"></div>
                 <div style="display: flex; flex-direction: column; gap: 8px;">
-                    <button class="ctrl-btn" onclick="executeGlobalTouch('d')" style="font-weight: bold;"><span style="color: #6fb897; font-family: monospace; font-weight: 900; margin-right: 5px;">D</span> 抽一張牌</button>
-                    <button class="ctrl-btn" onclick="executeGlobalTouch('shuffle')" style="font-weight: bold;"><span style="color: #d1c4e9; font-family: monospace; font-weight: 900; margin-right: 5px;">R</span> 牌組洗牌</button>
-                    <button id="btn-undo" class="ctrl-btn" onclick="undoLastAction()" style="font-weight: bold;"><span style="color: #b39ddb; font-family: monospace; font-weight: 900; margin-right: 5px;">Ctrl+Z</span> 復原上一步</button>
+                    <button class="ctrl-btn sandbox-only" onclick="executeGlobalTouch('d')" style="font-weight: bold;"><span style="color: #6fb897; font-family: monospace; font-weight: 900; margin-right: 5px;">D</span> 抽一張牌</button>
+                    <button class="ctrl-btn sandbox-only" onclick="executeGlobalTouch('shuffle')" style="font-weight: bold;"><span style="color: #d1c4e9; font-family: monospace; font-weight: 900; margin-right: 5px;">R</span> 牌組洗牌</button>
+                    <button id="btn-undo" class="ctrl-btn strict-hidden" onclick="undoLastAction()" style="font-weight: bold;"><span style="color: #b39ddb; font-family: monospace; font-weight: 900; margin-right: 5px;">Ctrl+Z</span> 復原上一步</button>
+                    <div style="font-size:11px; color:#9eb8e6; text-align:center; margin-top:2px;">Space / 滑鼠側鍵：下一階段<br>雙擊手牌：快速登場／發動</div>
                 </div>
                 <button id="hotkey-drawer-toggle" type="button">快捷操作</button>
             </div>
@@ -500,9 +503,9 @@
                     <div id="btb-turn" class="btb-seg btb-turn">準備中</div>
                     <div class="btb-sep"></div>
                     <div class="btb-seg btb-life-wrap" title="我方生命 vs 對手生命">
-                        <span class="btb-life my" id="btb-my-life">♥ 7</span>
+                        <span class="btb-life my" id="btb-my-life">我方 7</span>
                         <span class="btb-vs">vs</span>
-                        <span class="btb-life opp" id="btb-opp-life">♥ 7</span>
+                        <span class="btb-life opp" id="btb-opp-life">對手 7</span>
                     </div>
                     <div class="btb-sep"></div>
                     <div class="btb-seg btb-energy-wrap" id="btb-energy" title="我方場上產生能源">能源 0</div>
@@ -510,7 +513,10 @@
                     <div class="btb-seg btb-ap-wrap" id="btb-ap" title="可用行動點 (AP)">AP ○○○</div>
                 </div>
 
+                <div id="ua-fx-layer" aria-hidden="true"></div>
+
                 <div class="cam-ctrl-box">
+                    <button class="cam-btn" onclick="window.toggleEffectAnim && window.toggleEffectAnim()" id="btn-fx-toggle" style="font-size: 12px; font-weight: 800;" title="開關技能發動動畫">FX</button>
                     <button class="cam-btn" onclick="toggle3D()" id="btn-3d" style="font-size: 13px;">3D</button>
                     <button class="cam-btn" onclick="zoomCam(0.15)" title="放大">
                         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -545,7 +551,7 @@
 
                 <div class="hud-bottom">
                     <div id="my-match-actions">
-                        <button onclick="rollDice()" class="ctrl-btn" style="padding: 8px 12px;">
+                        <button onclick="rollDice()" class="ctrl-btn strict-hidden" style="padding: 8px 12px;">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:5px;"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.2" fill="currentColor"/><circle cx="15.5" cy="8.5" r="1.2" fill="currentColor"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="8.5" cy="15.5" r="1.2" fill="currentColor"/><circle cx="15.5" cy="15.5" r="1.2" fill="currentColor"/></svg>擲骰
                         </button>
                         <button id="btn-back-builder" class="ctrl-btn danger" style="padding: 8px 12px;">

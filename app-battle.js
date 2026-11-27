@@ -1491,6 +1491,10 @@ window.appScale = 1;
         }
 
         window.undoLastAction = function() {
+            if (window.uaEngine && window.uaEngine.strictMode) {
+                showSysMsg("嚴格競技模式禁止反悔（無法復原上一步）");
+                return;
+            }
             if (undoHistory.length === 0) { showSysMsg("目前沒有可以復原的操作了"); return; }
             let snap = undoHistory.pop();
             applySnapshotToMyBoard(snap);
@@ -2162,6 +2166,111 @@ function createCardDOM(cardData, networkId, isMine) {
             }
         }
 
+        // ===== 技能發動特效系統（Cut-in 橫幅 ＋ 卡面光環 ＋ BP 動態浮字）=====
+        window.uaFxEnabled = (localStorage.getItem('ua_fx_enabled') !== '0');
+        window.toggleEffectAnim = function() {
+            window.uaFxEnabled = !window.uaFxEnabled;
+            try { localStorage.setItem('ua_fx_enabled', window.uaFxEnabled ? '1' : '0'); } catch (_) {}
+            const btn = document.getElementById('btn-fx-toggle');
+            if (btn) btn.style.opacity = window.uaFxEnabled ? '1' : '0.42';
+            showSysMsg(window.uaFxEnabled ? '已開啟技能發動動畫' : '已關閉技能發動動畫');
+        };
+
+        window.playCardEffectAnim = function(opts) {
+            if (!window.uaFxEnabled || !opts) return;
+            const layer = document.getElementById('ua-fx-layer');
+            if (opts.cardEl && opts.cardEl.classList) {
+                const col = opts.accentColor || '#00ffcc';
+                opts.cardEl.style.setProperty('--fx-pulse-color', col);
+                opts.cardEl.classList.remove('ua-fx-pulse');
+                void opts.cardEl.offsetWidth;
+                opts.cardEl.classList.add('ua-fx-pulse');
+                setTimeout(() => { if (opts.cardEl) opts.cardEl.classList.remove('ua-fx-pulse'); }, 760);
+            }
+            if (!layer) return;
+            const banner = document.createElement('div');
+            banner.className = 'ua-fx-cutin' + (opts.isOpponent ? ' opp' : '');
+            banner.style.setProperty('--fx-accent', opts.accentColor || (opts.isOpponent ? '#ff6b81' : '#00ffcc'));
+            const esc = window.UAUtils ? window.UAUtils.escapeHtml : (s => String(s || ''));
+            const rawImg = opts.imageUrl || (opts.cardEl && opts.cardEl.querySelector('.card-front img')?.src) || '';
+            const safeImg = /^(https?:\/\/|data:image\/|\.)/i.test(rawImg) ? rawImg : '';
+            banner.innerHTML = `${safeImg ? `<img class="ua-fx-cutin-art" src="${esc(safeImg)}" alt="">` : ''}`
+                + `<div class="ua-fx-cutin-body">`
+                + `<span class="ua-fx-cutin-badge">${esc(opts.badgeText || 'EFFECT')}</span>`
+                + `<div class="ua-fx-cutin-name">${esc(opts.cardName || '')}</div>`
+                + (opts.subText ? `<div class="ua-fx-cutin-sub">${esc(opts.subText)}</div>` : '')
+                + `</div>`;
+            // 避免同側疊太滿，最多保留 2 條
+            const sameSide = layer.querySelectorAll(opts.isOpponent ? '.ua-fx-cutin.opp' : '.ua-fx-cutin:not(.opp)');
+            if (sameSide.length >= 2) sameSide[0].remove();
+            layer.appendChild(banner);
+            setTimeout(() => { if (banner.parentNode) banner.remove(); }, 980);
+        };
+
+        window.playBpFloatAnim = function(slotEl, delta) {
+            if (!window.uaFxEnabled || !slotEl || !delta) return;
+            const el = document.createElement('div');
+            el.className = 'ua-bp-float ' + (delta > 0 ? 'plus' : 'minus');
+            el.textContent = (delta > 0 ? '+' : '') + delta + ' BP';
+            slotEl.appendChild(el);
+            setTimeout(() => { if (el.parentNode) el.remove(); }, 960);
+        };
+
+        // 雙擊手牌快速登場／發動（減少自動模式手動拖曳）
+        document.addEventListener('dblclick', (e) => {
+            if (!window.uaEngine || !window.uaEngine.enabled) return;
+            const cardEl = e.target.closest('#my-hand-area .card');
+            if (!cardEl) return;
+            const eng = window.uaEngine;
+            if (eng.isFirstPlayer !== null && !eng.isMyTurn) return;
+            if (eng.currentPhase !== '主要') {
+                showSysMsg('雙擊出牌請先進入【主要階段】！（按空白鍵或滑鼠側鍵即可切換）');
+                return;
+            }
+            const def = eng.getCardDef(cardEl);
+            if (!def) return;
+            const handArea = document.getElementById('my-hand-area');
+            if (def.type === 'EVENT') {
+                window.finalizeDrop([cardEl], document.getElementById('my-outside-area'), 'default', handArea, 0);
+                return;
+            }
+            const allSlots = Array.from(document.querySelectorAll('#my-energy-line .slot, #my-front-line .slot'));
+            if (def.compiledRules?.raidCondition) {
+                const raidSlot = allSlots.find(s => eng.canRaidOntoSlot(def, s));
+                if (raidSlot) {
+                    window.finalizeDrop([cardEl], raidSlot, 'default', handArea, 0);
+                    return;
+                }
+            }
+            const emptyEn = Array.from(document.querySelectorAll('#my-energy-line .slot')).find(s => s.querySelectorAll('.card').length === 0);
+            const emptyFl = Array.from(document.querySelectorAll('#my-front-line .slot')).find(s => s.querySelectorAll('.card').length === 0);
+            const en = eng.calculateMyEnergy();
+            let targetSlot = null;
+            if (def.type === 'FIELD') targetSlot = emptyEn;
+            else if ((en.ALL || 0) < 3 && emptyEn) targetSlot = emptyEn;
+            else targetSlot = emptyFl || emptyEn;
+            if (targetSlot) {
+                window.finalizeDrop([cardEl], targetSlot, 'default', handArea, 0);
+            } else {
+                showSysMsg('場上已滿，請手動拖曳至欲替換或突襲的卡槽！');
+            }
+        });
+
+        // 滑鼠側鍵（後退 Button 3 / 前進 Button 4）快速推進下一階段，並攔截瀏覽器預設上一頁
+        const handleMouseSidePhase = (e) => {
+            if (e.button !== 3 && e.button !== 4) return;
+            const gs = document.getElementById('game-scene');
+            if (!gs || gs.style.display === 'none') return;
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.type === 'mousedown') {
+                if (typeof window.advanceNextPhase === 'function') window.advanceNextPhase();
+            }
+        };
+        window.addEventListener('mousedown', handleMouseSidePhase, true);
+        window.addEventListener('mouseup', handleMouseSidePhase, true);
+        window.addEventListener('auxclick', handleMouseSidePhase, true);
+
         window.advanceNextPhase = function() {
             const steps = Array.from(document.querySelectorAll('.phase-step'));
             if (steps.length === 0) return;
@@ -2188,24 +2297,25 @@ function createCardDOM(cardData, networkId, isMine) {
             const myLife = document.querySelectorAll('#my-life-area .card').length;
             const oppLife = document.querySelectorAll('#opp-life-area .card').length;
             if (myLifeEl) {
-                myLifeEl.textContent = `我 ♥ ${myLife}`;
+                myLifeEl.textContent = `我方 ${myLife}`;
                 myLifeEl.classList.toggle('danger', myLife > 0 && myLife <= 2);
             }
             if (oppLifeEl) {
-                oppLifeEl.textContent = `敵 ♥ ${oppLife}`;
+                oppLifeEl.textContent = `對手 ${oppLife}`;
                 oppLifeEl.classList.toggle('danger', oppLife > 0 && oppLife <= 2);
             }
 
             if (info && info.enabled) {
                 if (turnEl) {
+                    const modeTag = (window.uaEngine && window.uaEngine.strictMode) ? '[嚴格] ' : '';
                     if (info.isFirstPlayer === null) {
-                        turnEl.textContent = `自由模式｜${info.phase || '起始'}`;
+                        turnEl.textContent = `${modeTag}自由模式｜${info.phase || '起始'}`;
                         turnEl.className = 'btb-seg btb-turn neutral';
                     } else if (info.isMyTurn) {
-                        turnEl.textContent = `● 我方 T${info.turnNumber} · ${info.phase || '起始'}`;
+                        turnEl.textContent = `${modeTag}我方 T${info.turnNumber} · ${info.phase || '起始'}`;
                         turnEl.className = 'btb-seg btb-turn mine';
                     } else {
-                        turnEl.textContent = `● 對手回合 T${info.turnNumber}`;
+                        turnEl.textContent = `${modeTag}對手回合 T${info.turnNumber}`;
                         turnEl.className = 'btb-seg btb-turn opp';
                     }
                 }
@@ -2416,14 +2526,24 @@ function createCardDOM(cardData, networkId, isMine) {
 
             if (e.code === 'Space') {
                 e.preventDefault();
-                if(confirm("確定要結束回合嗎？")) { 
-                    endTurn(); 
-                    playSound('turn'); 
+                if (e.shiftKey) {
+                    if (confirm("確定要直接結束回合嗎？")) {
+                        endTurn();
+                        playSound('turn');
+                    }
+                    return;
+                }
+                if (typeof window.advanceNextPhase === 'function') {
+                    window.advanceNextPhase();
                 }
                 return;
             }
 
             if (key === 'd') {
+                if (window.uaEngine && window.uaEngine.strictMode) {
+                    showSysMsg('嚴格競技模式已鎖定手動抽牌（請由規則階段或額外抽卡按鈕操作）');
+                    return;
+                }
                 let deckArea = document.getElementById('my-deck-area');
                 let cards = Array.from(deckArea.querySelectorAll('.card'));
                 if (cards.length > 0) {
@@ -2441,6 +2561,10 @@ function createCardDOM(cardData, networkId, isMine) {
             }
             
             if (key === 'r') {
+                if (window.uaEngine && window.uaEngine.strictMode) {
+                    showSysMsg('嚴格競技模式已鎖定手動洗牌與手動橫置');
+                    return;
+                }
                 let isHoveringDeck = hoveredSlot && hoveredSlot.id === 'my-deck-area';
                 if (isHoveringDeck || !hoveredCard) {
                     let deckArea = document.getElementById('my-deck-area');

@@ -93,7 +93,13 @@
         const sel = document.getElementById('game-mode-selector');
         if (sel) sel.value = mode;
         if (window.uaEngine) {
-            window.uaEngine.enabled = (mode === 'auto');
+            window.uaEngine.enabled = (mode === 'auto' || mode === 'strict');
+            window.uaEngine.strictMode = (mode === 'strict');
+            if (document.body) {
+                document.body.classList.toggle('ua-mode-strict', mode === 'strict');
+                document.body.classList.toggle('ua-mode-auto', mode === 'auto');
+                document.body.classList.toggle('ua-mode-sandbox', mode === 'sandbox');
+            }
             if (typeof window.uaEngine.updateEnergyHUD === 'function') window.uaEngine.updateEnergyHUD();
         }
     }
