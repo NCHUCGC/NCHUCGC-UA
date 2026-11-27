@@ -330,6 +330,13 @@
                 this.flowState = 'IDLE';
                 return;
             }
+            if (typeof this.brain.decideExtraDraw === 'function' && this.brain.decideExtraDraw(this.st, this.difficulty)) {
+                const ed = this.st.performExtraDraw();
+                if (ed && ed.ok) {
+                    this.sendToPlayer({ type: 'CHAT_MSG', isSystem: true, text: '[電腦] 消耗 1 AP 發動「額外抽牌」！' });
+                    this.syncBoard();
+                }
+            }
             this.schedule(() => this.runMovePhase(), getStepDelay());
         }
 

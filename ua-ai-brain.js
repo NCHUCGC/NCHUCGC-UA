@@ -243,19 +243,36 @@
             return bonus;
         },
 
+        decideExtraDraw(state, difficulty = 'normal') {
+            if (difficulty === 'random') return false;
+            if (!state || state.deck.length <= 2) return false;
+            const availAp = state.getAvailableAp();
+            if (availAp < 1) return false;
+            // 先攻第 1 回合只有 1 AP，除非手牌 0 張可打才額外抽；第 2 回合起更積極濾牌
+            const legalPlays = state.getLegalPlays().filter(a => a.type !== 'NORMAL' || !a.replaceSlot);
+            const playableNormalOrRaid = legalPlays.filter(a => a.type === 'NORMAL' || a.type === 'RAID').length;
+            if (playableNormalOrRaid === 0 && legalPlays.length === 0) return true; // 完全卡牌沒牌可打 → 必抽找能源！
+            if (state.turnNumber >= 2 && state.hand.length <= 2 && availAp >= 2) return true;
+            if (difficulty === 'hard' && state.turnNumber >= 3 && availAp >= 3 && playableNormalOrRaid < 2 && state.hand.length <= 5) {
+                return true;
+            }
+            return false;
+        },
+
         decideMulligan(handCards, difficulty = 'normal') {
             if (difficulty === 'random') return false;
             const zeroChars = handCards.filter(c =>
                 c.def && (c.def.type === 'CHARACTER' || c.def.type === 'FIELD') && (c.def.requiredEnergy?.count ?? 99) === 0
             );
             if (zeroChars.length === 0) return true;
+            const oneCostChars = handCards.filter(c =>
+                c.def && (c.def.type === 'CHARACTER' || c.def.type === 'FIELD') && (c.def.requiredEnergy?.count ?? 99) === 1
+            );
+            // 只有 1 張 0 費且完全沒有 1 費銜接 → 第 2 回合必然卡在 1 能源，重抽找順手開局
+            if (zeroChars.length === 1 && oneCostChars.length === 0) return true;
             if (difficulty === 'hard') {
-                const lowCurve = handCards.filter(c =>
-                    c.def && (c.def.type === 'CHARACTER' || c.def.type === 'FIELD') && (c.def.requiredEnergy?.count ?? 99) <= 2
-                ).length;
                 const highBricks = handCards.filter(c => (c.def?.requiredEnergy?.count ?? 0) >= 4).length;
-                // 只有 1 張 0 費且完全沒有 1-2 費銜接、手牌卡死超過 4 張高費 → 重抽找順手曲線
-                if (zeroChars.length === 1 && lowCurve === 1 && highBricks >= 4) return true;
+                if (zeroChars.length === 1 && highBricks >= 4) return true;
             }
             return false;
         },
@@ -312,7 +329,9 @@
             const isHard = difficulty === 'hard';
             const curEnergy = state.calculateEnergy().ALL;
             const targetEnergy = getTargetEnergyNeeded(state);
+            const enOccupied = getEnergyOccupiedCount(state);
             const needEnergy = curEnergy < targetEnergy;
+            const criticalEnergy = curEnergy < Math.min(targetEnergy, 3) && enOccupied < 4;
             const flOccupied = getFrontOccupiedCount(state);
             const oppFront = getPlayerFrontList(state);
             const oppLife = state.playerMirror?.lifeCount ?? 7;
@@ -342,11 +361,12 @@
                     const effVal = this.estimateOnPlayValue(state, d, true);
                     const kw = state.getCardKeywords(act.card);
                     const contBonus = this.estimateContinuousBonus(state, act.card, 'FRONT');
-                    // 突襲基底評估：優先蓋在能源線或低 BP 基底上，避免浪費已強化主力
-                    const baseTop = act.slotId ? state.getSlotTop(act.slotId) : null;
+                    // 突襲基底評估（使用正確的 act.targetSlot）：優先蓋在能源線或低 BP 基底上
+                    const baseSlot = act.targetSlot || act.slotId;
+                    const baseTop = baseSlot ? state.getSlotTop(baseSlot) : null;
                     const baseBp = baseTop?.def?.bp || 0;
                     const basePenalty = isHard
-                        ? (baseBp * 0.45 + (baseTop?.isRaided ? 2200 : 0) + (ENERGY_SLOTS.includes(act.slotId) && (baseTop?.def?.generatedEnergy?.count || 1) >= 2 && curEnergy <= targetEnergy ? 1800 : 0))
+                        ? (baseBp * 0.45 + (baseTop?.isRaided ? 2200 : 0) + (ENERGY_SLOTS.includes(baseSlot) && (baseTop?.def?.generatedEnergy?.count || 1) >= 2 && curEnergy <= targetEnergy ? 1800 : 0))
                         : (baseBp * 0.25);
                     score = 5500 + bp + effVal + contBonus
                         + (act.moveToFront ? 1000 : 0)
@@ -360,18 +380,44 @@
                     const contBonus = this.estimateContinuousBonus(state, act.card, act.line);
 
                     if (act.line === 'ENERGY') {
-                        if (needEnergy) {
-                            score = 5200 + gen * 1250 + effVal + contBonus + raidBaseBonus - req * 220;
+                        if (act.replaceSlot) {
+                            // 滿能源格覆蓋：只有真正提升產能（如 1→2 球）或下重要場域才值得移除舊卡
+                            const oldGen = act.replacedCard?.def?.generatedEnergy?.count ?? 1;
+                            if (gen > oldGen && needEnergy) {
+                                score = 4400 + (gen - oldGen) * 1600 + effVal + contBonus;
+                            } else if (d.type === 'FIELD' && effVal >= 900) {
+                                score = 2600 + effVal + contBonus;
+                            } else {
+                                score = -1000;
+                            }
+                        } else if (criticalEnergy) {
+                            // 能源嚴重不足（<3 且能源格未滿）：絕對優先蓋滿能源線，避免卡死！
+                            score = 8800 + gen * 1500 + effVal + contBonus + raidBaseBonus - req * 150;
+                        } else if (needEnergy) {
+                            score = 6200 + gen * 1350 + effVal + contBonus + raidBaseBonus - req * 200;
                         } else {
-                            score = 1600 + (gen >= 2 ? 1800 : 0) + (d.type === 'FIELD' ? 1200 : 0) + effVal + contBonus + raidBaseBonus;
+                            score = 1800 + (gen >= 2 ? 1800 : 0) + (d.type === 'FIELD' ? 1200 : 0) + effVal + contBonus + raidBaseBonus;
                         }
                     } else if (act.line === 'FRONT') {
-                        if (needEnergy && state.turnNumber === 1) {
+                        if (act.replaceSlot) {
+                            // 滿前線覆蓋：只有新卡有效 BP 顯著高於被移除角色（+1000 以上）或高價值登場解場才替換
+                            const newEffBp = bp + (contBonus > 0 ? contBonus : 0);
+                            const oldBp = act.replacedBp || 0;
+                            const bpGain = newEffBp - oldBp;
+                            if (bpGain >= 1000 || effVal >= 2000) {
+                                score = 2400 + bpGain * 1.1 + effVal + (d.compiledRules?.entersActive ? 900 : 0);
+                            } else {
+                                score = -1000;
+                            }
+                        } else if (criticalEnergy) {
+                            // 能源還沒達標就往前端丟小怪會害自己卡能量一整場，大幅壓低分數
+                            score = 400 + bp * 0.5 + effVal - 2200;
+                        } else if (needEnergy && state.turnNumber === 1) {
                             score = 900 + bp + effVal + contBonus;
                         } else {
                             const pressureBonus = (flOccupied < 2 ? 950 : 0) + (isHard && oppFront.length === 0 ? 700 : 0);
                             const activeBonus = d.compiledRules?.entersActive ? 1100 : 0;
-                            score = 3200 + bp + effVal + contBonus + pressureBonus + activeBonus - (gen >= 2 ? 1600 : 0);
+                            score = 3400 + bp + effVal + contBonus + pressureBonus + activeBonus - (gen >= 2 ? 1600 : 0);
                         }
                     }
                 }

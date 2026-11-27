@@ -64,6 +64,8 @@
             this.turnNumber = 1;
             this.hasTakenFirstTurn = false;
             this.phase = '等待中';
+            this.usedEventThisTurn = false;
+            this.usedEventCountThisTurn = 0;
 
             this.deck = [];
             this.hand = [];
@@ -289,8 +291,9 @@
                 case 'HAS_CHAR': return this.hasCharacterOnMyField(cond.name);
                 case 'HAS_CHAR_IN_FRONT': return FRONT_SLOTS.some(s => { const t = this.getSlotTop(s); return t?.def && (t.def.name || '').replace(/\s+/g, '').includes((cond.name || '').replace(/\s+/g, '')); });
                 case 'HAS_ANY_CHAR': return (cond.names || []).some(n => this.hasCharacterOnMyField(n));
-                case 'OUTSIDE_EVENTS_GTE': return (this.outside || []).filter(c => c.def?.type === 'EVENT').length >= cond.count;
+                case 'OUTSIDE_EVENTS_GTE': return (this.outside || []).filter(c => this.isCardTreatedAsEvent(c.def)).length >= cond.count;
                 case 'OUTSIDE_CARDS_GTE': return (this.outside || []).length >= cond.count;
+                case 'USED_EVENT_THIS_TURN': return !!this.usedEventThisTurn;
                 case 'FIELD_EMPTY': return [...FRONT_SLOTS, ...ENERGY_SLOTS].every(s => !this.getSlotTop(s));
                 case 'DISTINCT_TRAIT_NAMES_GTE': return this.countV3Zone({ owner: 'MY', zone: 'FIELD', filter: { traitIncludes: cond.trait }, distinctNames: true }, card) >= cond.count;
                 case 'NOT': return !this.evalV3Cond(cond.cond, card, slotId, currentBp);
@@ -509,6 +512,24 @@
             return moves;
         }
 
+        isCardTreatedAsEvent(def) {
+            if (!def) return false;
+            if (def.type === 'EVENT') return true;
+            if (def.effectText && def.effectText.includes('このカードは全ての場所でイベントカードとしても扱う')) return true;
+            const ir = this.getV3IR(def);
+            if (ir && Array.isArray(ir.treatAsTypes) && ir.treatAsTypes.includes('EVENT')) return true;
+            return false;
+        }
+
+        performExtraDraw() {
+            if (this.deck.length === 0 || this.getAvailableAp() < 1) return { ok: false };
+            if (!this.payAp(1)) return { ok: false };
+            const drawn = this.deck.pop();
+            drawn.isFlipped = true;
+            this.hand.push(drawn);
+            return { ok: true, card: drawn };
+        }
+
         getLegalPlays() {
             const availAp = this.getAvailableAp();
             const en = this.calculateEnergy();
@@ -573,7 +594,8 @@
 
                 if (d.type === 'EVENT') {
                     const compiled = this.compileActions(d.effectText);
-                    if (compiled.some(a => a.type !== 'INTERACTIVE_FALLBACK')) {
+                    const hasV3Event = !!(ir && Array.isArray(ir.onEventPlay) && ir.onEventPlay.length > 0);
+                    if (hasV3Event || compiled.some(a => a.type !== 'INTERACTIVE_FALLBACK')) {
                         actions.push({ type: 'EVENT', handIndex, card, apCost, compiledActions: compiled });
                     }
                     return;
@@ -599,9 +621,29 @@
                 if ((d.type === 'CHARACTER' || d.type === 'FIELD') && !ir?.raidOnly) {
                     if (emptyEnergy.length > 0) {
                         actions.push({ type: 'NORMAL', handIndex, card, apCost, targetSlot: emptyEnergy[0], line: 'ENERGY' });
+                    } else if ((d.generatedEnergy?.count ?? 1) >= 2 || d.type === 'FIELD') {
+                        // 能源線全滿時：允許移除產能較低（≤1）的非雙球卡換上雙球／場域卡
+                        const weakEn = ENERGY_SLOTS
+                            .map(s => ({ s, top: this.getSlotTop(s) }))
+                            .filter(x => x.top && (x.top.def?.generatedEnergy?.count ?? 1) <= 1 && !x.top.isRaided)
+                            .sort((a, b) => (a.top.def?.bp || 0) - (b.top.def?.bp || 0));
+                        if (weakEn.length > 0) {
+                            actions.push({ type: 'NORMAL', handIndex, card, apCost, targetSlot: weakEn[0].s, line: 'ENERGY', replaceSlot: true, replacedCard: weakEn[0].top });
+                        }
                     }
-                    if (d.type === 'CHARACTER' && !ir?.cannotPlayFront && emptyFront.length > 0) {
-                        actions.push({ type: 'NORMAL', handIndex, card, apCost, targetSlot: emptyFront[0], line: 'FRONT' });
+                    if (d.type === 'CHARACTER' && !ir?.cannotPlayFront) {
+                        if (emptyFront.length > 0) {
+                            actions.push({ type: 'NORMAL', handIndex, card, apCost, targetSlot: emptyFront[0], line: 'FRONT' });
+                        } else {
+                            // 前線全滿時：允許移除最弱非突襲角色換上更強主力
+                            const weakFl = FRONT_SLOTS
+                                .map(s => ({ s, top: this.getSlotTop(s), bp: this.getEffectiveBp(s) }))
+                                .filter(x => x.top && !x.top.isRaided)
+                                .sort((a, b) => a.bp - b.bp);
+                            if (weakFl.length > 0) {
+                                actions.push({ type: 'NORMAL', handIndex, card, apCost, targetSlot: weakFl[0].s, line: 'FRONT', replaceSlot: true, replacedCard: weakFl[0].top, replacedBp: weakFl[0].bp });
+                            }
+                        }
                     }
                 }
             });
@@ -1198,6 +1240,8 @@
 
         // ==================== 原子狀態變更 ====================
         beginTurn() {
+            this.usedEventThisTurn = false;
+            this.usedEventCountThisTurn = 0;
             [...FRONT_SLOTS, ...ENERGY_SLOTS].forEach(slotId => {
                 const top = this.getSlotTop(slotId);
                 if (top) {
@@ -1254,6 +1298,10 @@
             this.payAp(action.apCost);
             const [card] = this.hand.splice(action.handIndex, 1);
             card.isFlipped = false;
+            if (this.isCardTreatedAsEvent(card.def)) {
+                this.usedEventThisTurn = true;
+                this.usedEventCountThisTurn = (this.usedEventCountThisTurn || 0) + 1;
+            }
 
             if (action.type === 'EVENT') {
                 card.isRest = false;
@@ -1280,6 +1328,20 @@
                 return { playedType: 'RAID', card, finalSlot, ...effRes };
             }
 
+            if (action.replaceSlot) {
+                const targetArr = action.line === 'FRONT' ? this.front[action.targetSlot] : this.energy[action.targetSlot];
+                if (targetArr && targetArr.length > 0) {
+                    const topOld = targetArr.pop();
+                    topOld.isRest = false; topOld.isRaided = false; topOld.isFlipped = false;
+                    this.remove.push(topOld);
+                    while (targetArr.length > 0) {
+                        const under = targetArr.pop();
+                        under.isRest = false; under.isRaided = false; under.isFlipped = false;
+                        this.outside.push(under);
+                    }
+                    if (this.bpMods.hasOwnProperty(action.targetSlot)) this.bpMods[action.targetSlot] = 0;
+                }
+            }
             card.isRest = !(card.def?.compiledRules?.entersActive);
             card.isRaided = false;
             if (action.line === 'FRONT') this.front[action.targetSlot].push(card);

@@ -186,11 +186,30 @@ constructor() {
             }
         }
 
+        isCardTreatedAsEvent(def) {
+            if (!def) return false;
+            if (def.type === 'EVENT') return true;
+            if (def.effectText && def.effectText.includes('このカードは全ての場所でイベントカードとしても扱う')) return true;
+            if (window.UAV3Bridge) {
+                const ir = window.UAV3Bridge.getV3IR(def);
+                if (ir && Array.isArray(ir.treatAsTypes) && ir.treatAsTypes.includes('EVENT')) return true;
+            }
+            // 例：真紀真在自己前線時，〈マキマ〉以外的自己紫角色在所有場所皆視為事件卡
+            if (def.type === 'CHARACTER' && def.color === 'PURPLE' && !(def.name || '').includes('マキマ')) {
+                const hasFrontMakima = this.getSlotTopCards('#my-front-line .slot').some(c => {
+                    const bid = this.getBaseCardId(c.dataset?.cardId);
+                    return bid === 'UA53BT/CSM-1-022' || bid === 'UA53BT/CSM-1-024';
+                });
+                if (hasFrontMakima) return true;
+            }
+            return false;
+        }
+
         countEventsInMyOutside() {
             let cnt = 0;
             document.querySelectorAll('#my-outside-area .card').forEach(c => {
                 const d = this.getCardDef(c);
-                if (d && (d.type === 'EVENT' || (d.effectText && d.effectText.includes('イベントカードとしても扱う')))) {
+                if (this.isCardTreatedAsEvent(d)) {
                     cnt++;
                 }
             });
@@ -2897,6 +2916,10 @@ injectEngineUI() {
 
         completeNormalPlay(cards, mainCard, def, dropZone, originalParent, endX, defaultFinalizeFn) {
             this.payApForCard(def);
+            if (this.isCardTreatedAsEvent(def)) {
+                this.usedEventThisTurn = true;
+                this.usedEventCountThisTurn = (this.usedEventCountThisTurn || 0) + 1;
+            }
             defaultFinalizeFn(cards, dropZone, 'default', originalParent, endX);
 
             const rt = this.getRuntime(mainCard);
@@ -2957,7 +2980,13 @@ injectEngineUI() {
 
         executeRaidSummon(cardEl, def, targetSlot, moveToFront, originalParent, endX, defaultFinalizeFn, isFreeFromTrigger = false, onComplete = null) {
             const baseCardUnder = this.getTopCardInSlot(targetSlot);
-            if (!isFreeFromTrigger) this.payApForCard(def);
+            if (!isFreeFromTrigger) {
+                this.payApForCard(def);
+                if (this.isCardTreatedAsEvent(def)) {
+                    this.usedEventThisTurn = true;
+                    this.usedEventCountThisTurn = (this.usedEventCountThisTurn || 0) + 1;
+                }
+            }
             updateBpDisplay(targetSlot, 0);
 
             defaultFinalizeFn([cardEl], targetSlot, 'top-faceup', originalParent, endX);
