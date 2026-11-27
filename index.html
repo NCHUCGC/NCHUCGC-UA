@@ -390,7 +390,19 @@
             </div>
         </div>
 
-        <div id="card-magnifier" style="margin-top: -60px;"><img src="" id="magnifier-img"></div>
+        <div id="card-magnifier">
+            <div class="mag-art-wrap"><img src="" id="magnifier-img" alt="卡片預覽"></div>
+            <div class="mag-info" id="magnifier-info">
+                <div class="mag-head">
+                    <div class="mag-title" id="magnifier-name"></div>
+                    <button type="button" id="magnifier-close" aria-label="關閉預覽" onclick="document.getElementById('card-magnifier').style.display='none'">✕</button>
+                </div>
+                <div class="mag-meta" id="magnifier-meta"></div>
+                <div class="mag-badges" id="magnifier-badges"></div>
+                <div class="mag-effect" id="magnifier-effect"></div>
+                <div class="mag-trigger" id="magnifier-trigger"></div>
+            </div>
+        </div>
 
         <div id="game-scene">
             <div id="hotkey-guide" class="is-collapsed" style="pointer-events: auto;">
@@ -630,13 +642,12 @@
     <script src="firebase-config.js"></script>
     <script src="firebase-lobby.js"></script>
     <script src="app-battle.js"></script>
-    <script src="ua-v3-catalog.js" onerror="window.UA_V3_CATALOG=window.UA_V3_CATALOG||{}"></script>
     <script src="ua-v3-bridge.js"></script>
     <script src="ua-rule-engine.js"></script>
-    <script src="ua-ai-state.js"></script>
-    <script src="ua-ai-brain.js"></script>
-    <script src="ua-ai-opponent.js"></script>
-    <script src="admin-test-mode.js"></script>
-    <script src="app-portal.js"></script>
+    <script src="ua-ai-state.js" defer></script>
+    <script src="ua-ai-brain.js" defer></script>
+    <script src="ua-ai-opponent.js" defer></script>
+    <script src="admin-test-mode.js" defer></script>
+    <script src="app-portal.js" defer></script>
 </body>
 </html>

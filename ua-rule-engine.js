@@ -41,6 +41,7 @@ constructor() {
             this.oppSyncedKeywords = {};
             this.oppSyncedEffectiveBp = {};
             this.triggerActivatedThisTurn = false;
+            this.triggeredThisTurn = false;
             this.oppFrontRetiredThisTurn = false;
             this.sakamotoHouseRuleActive = false;
             this.currentAttackInfo = null;
@@ -282,6 +283,7 @@ constructor() {
             this.oppSyncedKeywords = {};
             this.oppSyncedEffectiveBp = {};
             this.triggerActivatedThisTurn = false;
+            this.triggeredThisTurn = false;
             this.oppFrontRetiredThisTurn = false;
             this.sakamotoHouseRuleActive = false;
             this.currentAttackInfo = null;
@@ -868,7 +870,7 @@ copyBugReportToClipboard(overrideCardEl = null) {
             });
         }
 
-compileSequentialClauses(rawLine) {
+        compileSequentialClauses(rawLine) {
             const actions = [];
             if (!rawLine || rawLine === '-') return actions;
 
@@ -2267,6 +2269,7 @@ injectEngineUI() {
             this.pendingApDiscounts = [];
             this.usedNamedAbilityThisTurn.clear();
             this.triggerActivatedThisTurn = false;
+            this.triggeredThisTurn = false;
             this.oppFrontRetiredThisTurn = false;
             this.sakamotoHouseRuleActive = false;
 
@@ -3076,7 +3079,9 @@ injectEngineUI() {
                     if (!def || def.type !== 'CHARACTER') return;
 
                     const innateKw = this.getInnateStaticKeywords(def);
-                    const hasSnipe = !!(innateKw.snipe || rt?.tempKeywords?.SNIPE);
+                    const v3Atk = window.UAV3Bridge ? window.UAV3Bridge.evalContinuousView(this, topCard) : null;
+                    if (v3Atk?.cannotAttack || rt?.tempKeywords?.CANNOT_ATTACK || rt?.persistentKeywords?.CANNOT_ATTACK) return;
+                    const hasSnipe = !!(innateKw.snipe || v3Atk?.snipe || rt?.tempKeywords?.SNIPE);
                     const atkBtn = document.createElement('button');
                     atkBtn.className = 'eng-card-btn';
                     atkBtn.innerText = '攻擊';
@@ -3260,7 +3265,7 @@ injectEngineUI() {
             });
         }
 
-executeAbilityActions(sourceCardEl, actions, index = 0, taskContext = { selectedTargets: [], addedFromLook: false }, onComplete = null) {
+        executeAbilityActions(sourceCardEl, actions, index = 0, taskContext = { selectedTargets: [], addedFromLook: false }, onComplete = null) {
             const sourceDef = this.getCardDef(sourceCardEl);
             if (!this.recentLogs) this.recentLogs = [];
 
@@ -4789,9 +4794,15 @@ executeAbilityActions(sourceCardEl, actions, index = 0, taskContext = { selected
 
             const def = this.getCardDef(attackerCard);
             const rt = this.getRuntime(attackerCard);
+            const v3AtkGuard = window.UAV3Bridge ? window.UAV3Bridge.evalContinuousView(this, attackerCard) : null;
+            if (v3AtkGuard?.cannotAttack || rt?.tempKeywords?.CANNOT_ATTACK || rt?.persistentKeywords?.CANNOT_ATTACK) {
+                showSysMsg(`【${def?.name || '角色'}】本回合無法宣告攻擊！`);
+                return;
+            }
 
             attackerCard.classList.add('rest');
             rt.attackCountThisTurn++;
+            if (rt?.tempKeywords?.ON_ATTACK_DRAW) this.drawCards(1);
 
             const innateAtkKw = this.getInnateStaticKeywords(def);
             const v3AtkView = window.UAV3Bridge ? window.UAV3Bridge.evalContinuousView(this, attackerCard) : null;

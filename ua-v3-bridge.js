@@ -618,13 +618,23 @@
         case 'MODIFY_BP': {
           targets(step.target).forEach(c => {
             if (c.parentElement) engine.addSlotBp(c.parentElement, step.amount || 0);
+            if (step.expiresAt === 'NEXT_OWNER_TURN_START') {
+              const r = engine.getRuntime(c);
+              if (r) r.persistentBp = (r.persistentBp || 0) + (step.amount || 0);
+            }
           });
           next(); return;
         }
         case 'MODIFY_BP_ALL': {
           getZoneCards(engine, step.owner || 'OPP', step.line || 'FRONT')
             .filter(c => matchesFilter(engine, c, step.filter, sourceCardEl))
-            .forEach(c => { if (c.parentElement) engine.addSlotBp(c.parentElement, step.amount || 0); });
+            .forEach(c => {
+              if (c.parentElement) engine.addSlotBp(c.parentElement, step.amount || 0);
+              if (step.expiresAt === 'NEXT_OWNER_TURN_START') {
+                const r = engine.getRuntime(c);
+                if (r) r.persistentBp = (r.persistentBp || 0) + (step.amount || 0);
+              }
+            });
           next(); return;
         }
         case 'GRANT_MODIFIER': {

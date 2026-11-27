@@ -32,22 +32,78 @@ window.appScale = 1;
         };
 
 
+        window.setMobileBuilderTab = function(tab) {
+            const showDeck = tab === 'deck';
+            document.body.classList.toggle('builder-show-deck', showDeck);
+            document.querySelectorAll('#mobile-builder-tabs .mob-builder-tab').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.tab === (showDeck ? 'deck' : 'catalog'));
+            });
+        };
+
+        function syncBattleBodyClass() {
+            const gs = document.getElementById('game-scene');
+            const inBattle = !!(gs && gs.style.display && gs.style.display !== 'none');
+            document.body.classList.toggle('in-battle', inBattle);
+            return inBattle;
+        }
+
         function resizeApp() {
             const canvas = document.getElementById('app-canvas');
-            const targetW = 1600;
+            if (!canvas) return;
+            const windowW = window.visualViewport ? Math.round(window.visualViewport.width) : window.innerWidth;
+            const windowH = window.visualViewport ? Math.round(window.visualViewport.height) : window.innerHeight;
+            if (windowW === 0 || windowH === 0) return;
+
+            const inBattle = syncBattleBodyClass();
+            const isNarrow = windowW <= 960 || (windowW < windowH && windowW <= 1024);
+            const isMobileLandscapeBattle = inBattle && (windowW <= 1180 || windowH <= 560 || window.matchMedia('(pointer: coarse)').matches);
+
+            if (!inBattle && isNarrow) {
+                // 手機非對戰頁：原生 100vw×100dvh 流式排版，不做 1600×900 縮小
+                document.body.classList.add('mobile-flow');
+                document.body.classList.remove('mobile-battle');
+                window.appScale = 1;
+                canvas.style.width = '';
+                canvas.style.height = '';
+                canvas.style.marginLeft = '';
+                canvas.style.marginTop = '';
+                canvas.style.transform = 'none';
+                return;
+            }
+
+            document.body.classList.remove('mobile-flow');
+            document.body.classList.toggle('mobile-battle', isMobileLandscapeBattle);
+
             const targetH = 900;
-            const windowW = window.innerWidth;
-            const windowH = window.innerHeight;
-            
-            if(windowW === 0 || windowH === 0) return; 
-            
+            let targetW = 1600;
+            if (isMobileLandscapeBattle && windowW > windowH) {
+                // 手機橫向對戰：依實際寬高比撐滿 19.5:9 / 20:9 螢幕，消除左右大黑邊
+                targetW = Math.max(1450, Math.min(2100, Math.round(targetH * (windowW / windowH))));
+            }
+            canvas.style.width = `${targetW}px`;
+            canvas.style.height = `${targetH}px`;
+            canvas.style.marginLeft = `${-targetW / 2}px`;
+            canvas.style.marginTop = `${-targetH / 2}px`;
+
             window.appScale = Math.min(windowW / targetW, windowH / targetH);
             canvas.style.transform = `scale(${window.appScale})`;
         }
+        window.resizeApp = resizeApp;
         window.addEventListener('resize', resizeApp);
+        window.addEventListener('orientationchange', () => setTimeout(() => { resizeApp(); if (typeof resetCam === 'function') resetCam(); }, 180));
+        if (window.visualViewport) window.visualViewport.addEventListener('resize', resizeApp);
         setTimeout(resizeApp, 100);
         setTimeout(resizeApp, 500);
         resizeApp();
+        document.addEventListener('DOMContentLoaded', () => {
+            const gs = document.getElementById('game-scene');
+            if (gs && typeof MutationObserver !== 'undefined') {
+                new MutationObserver(() => {
+                    resizeApp();
+                    if (syncBattleBodyClass() && typeof resetCam === 'function') setTimeout(resetCam, 60);
+                }).observe(gs, { attributes: true, attributeFilter: ['style'] });
+            }
+        });
 
         function requestFullScreen() {
             let elem = document.documentElement;
@@ -574,6 +630,8 @@ window.appScale = 1;
 
             document.getElementById('deck-counter').innerText = `${myDeckData.length} / 50`;
             document.getElementById('ap-counter').innerText = `${myApData.length} / 3`;
+            const mobBadge = document.getElementById('mob-deck-tab-badge');
+            if (mobBadge) mobBadge.innerText = `${myDeckData.length}/50`;
             saveAllDecks();
             updateLobbyDeckStatus();
             updateBuilderBadges(); 
@@ -724,13 +782,48 @@ window.appScale = 1;
             resetCam();
         };
 
+        let isPinching = false;
+        let pinchStartDist = 0, pinchStartScale = 1, pinchMidX = 0, pinchMidY = 0, pinchStartCamX = 0, pinchStartCamY = 0;
+        let lastBoardBgTap = 0;
+
+        function getTouchDist(t1, t2) {
+            return Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+        }
+
         function startPan(e) {
+            // 雙指捏合縮放（即使手指落在卡片上也能順暢縮放盤面）
+            if (e.type === 'touchstart' && e.touches && e.touches.length === 2) {
+                if (e.cancelable) e.preventDefault();
+                isCamDragging = false;
+                isPinching = true;
+                const scale = window.appScale || 1;
+                const wrapperRect = document.getElementById('board-viewport').getBoundingClientRect();
+                pinchStartDist = Math.max(10, getTouchDist(e.touches[0], e.touches[1]));
+                pinchStartScale = window.boardScale || 1;
+                pinchMidX = (((e.touches[0].clientX + e.touches[1].clientX) / 2) - wrapperRect.left) / scale;
+                pinchMidY = (((e.touches[0].clientY + e.touches[1].clientY) / 2) - wrapperRect.top) / scale;
+                pinchStartCamX = window.camX;
+                pinchStartCamY = window.camY;
+                return;
+            }
             if(e.target.closest('.card') || e.target.closest('.marker') || e.target.closest('.bp-badge') || e.target.closest('.cam-btn') || 
                e.target.closest('.hud-sidebar') || e.target.closest('.hud-top') || e.target.closest('.hud-bottom') || 
                e.target.closest('#chat-wrapper') || e.target.closest('#hotkey-guide') || 
                e.target.closest('#search-modal') || e.target.closest('#mulligan-modal')) return; 
-               document.querySelectorAll('.active-touch').forEach(el => el.classList.remove('active-touch'));
-               window.activeCard = null;
+            document.querySelectorAll('.active-touch').forEach(el => el.classList.remove('active-touch'));
+            window.activeCard = null;
+
+            // 手機雙擊空白牌桌快速重置鏡頭
+            if (e.type === 'touchstart' && e.touches && e.touches.length === 1) {
+                const now = Date.now();
+                if (now - lastBoardBgTap < 300) {
+                    lastBoardBgTap = 0;
+                    resetCam();
+                    return;
+                }
+                lastBoardBgTap = now;
+            }
+
             isCamDragging = true;
             let clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
             let clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
@@ -743,6 +836,17 @@ window.appScale = 1;
         }
 
         function doPan(e) {
+            if (isPinching && e.type === 'touchmove' && e.touches && e.touches.length >= 2) {
+                if (e.cancelable) e.preventDefault();
+                const dist = getTouchDist(e.touches[0], e.touches[1]);
+                const nextScale = Math.max(0.3, Math.min(2, pinchStartScale * (dist / pinchStartDist)));
+                const ratio = nextScale / pinchStartScale;
+                window.boardScale = nextScale;
+                window.camX = pinchMidX - (pinchMidX - pinchStartCamX) * ratio;
+                window.camY = pinchMidY - (pinchMidY - pinchStartCamY) * ratio;
+                updateCamera();
+                return;
+            }
             if(!isCamDragging) return;
             if (e.cancelable) e.preventDefault(); 
             let clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
@@ -756,7 +860,10 @@ window.appScale = 1;
             updateCamera();
         }
 
-        function endPan() { isCamDragging = false; }
+        function endPan(e) {
+            isCamDragging = false;
+            if (!e || !e.touches || e.touches.length < 2) isPinching = false;
+        }
 
         window.onload = () => { 
             let savedCustom = JSON.parse(localStorage.getItem('ua_custom_cards')) || [];
@@ -1774,7 +1881,11 @@ function createCardDOM(cardData, networkId, isMine) {
 
             function dragStart(event) {
                 if (event.type === 'mousedown' && window.isTouchDevice) return;
-                if (event.type === 'touchstart') window.isTouchDevice = true;
+                if (event.type === 'touchstart') {
+                    window.isTouchDevice = true;
+                    // 雙指手勢讓給盤面捏合縮放，不誤觸單卡拖曳
+                    if (event.touches && event.touches.length > 1) return;
+                }
                 if (event.type === 'mousedown' && event.button !== 0) return; 
 
                 event.stopPropagation();
@@ -1810,6 +1921,10 @@ function createCardDOM(cardData, networkId, isMine) {
                 let startClientY = clientY;
 
                 function onMove(event) {
+                    if (isTouch && event.touches && event.touches.length > 1) {
+                        onCancelDrag();
+                        return;
+                    }
                     let curClientX = isTouch ? event.touches[0].clientX : event.clientX;
                     let curClientY = isTouch ? event.touches[0].clientY : event.clientY;
                     
@@ -2028,8 +2143,86 @@ function createCardDOM(cardData, networkId, isMine) {
 
         function updateSlotCounts() { document.querySelectorAll('.slot').forEach(slot => { slot.setAttribute('data-count', slot.querySelectorAll('.card').length); }); }
 
+        function populateCardMagnifier(card, previewCard) {
+            let imgSrc = "";
+            let cardId = "";
+            if (card) {
+                if (card.parentElement && (card.parentElement.id.includes('opp-hand') || card.parentElement.id.includes('opp-look'))) return false;
+                if (card.classList.contains('is-flipped')) return false;
+                let frontImg = card.querySelector('.card-front img');
+                if (frontImg) imgSrc = frontImg.src;
+                cardId = card.dataset?.cardId || "";
+            } else if (previewCard) {
+                let img = previewCard.querySelector('img');
+                if (img) imgSrc = img.src;
+                cardId = previewCard.dataset?.cardId || "";
+            }
+            const magView = document.getElementById('card-magnifier');
+            const magImg = document.getElementById('magnifier-img');
+            if (!imgSrc || !magView || !magImg) return false;
+            magImg.src = imgSrc;
+
+            const nameEl = document.getElementById('magnifier-name');
+            const metaEl = document.getElementById('magnifier-meta');
+            const badgesEl = document.getElementById('magnifier-badges');
+            const effEl = document.getElementById('magnifier-effect');
+            const trigEl = document.getElementById('magnifier-trigger');
+
+            ensureCatalogMap();
+            const eng = window.uaEngine;
+            const def = (card && eng && typeof eng.getCardDef === 'function')
+                ? eng.getCardDef(card)
+                : (cardId ? (window.cardCatalogById.get(cardId) || (eng?.getCardDef ? eng.getCardDef({ dataset: { cardId } }) : null)) : null);
+
+            if (def && nameEl && metaEl && effEl && trigEl) {
+                const U = window.UAUtils || {};
+                const dispName = U.getDisplayName ? U.getDisplayName(def) : (def.name || cardId);
+                nameEl.innerHTML = `${dispName}<small>${def.id || cardId}${def.series ? ` ｜ ${def.series}` : ''}</small>`;
+
+                const chips = [];
+                const colZh = (U.COLOR_ZH && U.COLOR_ZH[def.color]) || def.color || '';
+                if (colZh) chips.push(`<span class="mag-chip">${colZh}</span>`);
+                const reqCnt = typeof def.requiredEnergy === 'object' ? (def.requiredEnergy?.count || 0) : (parseInt(def.requiredEnergy, 10) || 0);
+                const genCnt = typeof def.generatedEnergy === 'object' ? (def.generatedEnergy?.count || 0) : (parseInt(def.generatedEnergy, 10) || 0);
+                chips.push(`<span class="mag-chip">需能 ${reqCnt}</span>`);
+                if (genCnt > 0) chips.push(`<span class="mag-chip">產能 ${genCnt}</span>`);
+                chips.push(`<span class="mag-chip">AP ${def.apCost !== undefined ? def.apCost : 1}</span>`);
+
+                if (def.bp) {
+                    const onBoard = !!(card && card.closest && card.closest('#my-front-line, #my-energy-line, #opp-front-line, #opp-energy-line'));
+                    const effBp = (onBoard && eng && typeof eng.getEffectiveCardBp === 'function') ? eng.getEffectiveCardBp(card) : def.bp;
+                    if (effBp !== def.bp) {
+                        const cls = effBp > def.bp ? 'bp-up' : 'bp-down';
+                        chips.push(`<span class="mag-chip ${cls}">BP ${effBp} (原 ${def.bp})</span>`);
+                    } else {
+                        chips.push(`<span class="mag-chip">BP ${def.bp}</span>`);
+                    }
+                }
+                metaEl.innerHTML = chips.join('');
+
+                if (badgesEl) {
+                    const badges = (card && eng && typeof eng.computeBadgesForCard === 'function') ? eng.computeBadgesForCard(card) : [];
+                    badgesEl.innerHTML = badges.map(b => `<span class="mag-badge" style="background:${b.bg || '#47413a'}">${b.text}</span>`).join('');
+                    badgesEl.style.display = badges.length > 0 ? 'flex' : 'none';
+                }
+
+                const effTxt = (U.getDisplayEffectText ? U.getDisplayEffectText(def) : def.effectText) || '';
+                effEl.textContent = (effTxt && effTxt !== '-') ? effTxt : '（無卡片效果）';
+                const trigTxt = (U.getDisplayTriggerText ? U.getDisplayTriggerText(def) : def.triggerText) || '';
+                if (trigTxt && trigTxt !== '-') {
+                    trigEl.textContent = `Trigger：${trigTxt}`;
+                    trigEl.style.display = 'block';
+                } else {
+                    trigEl.style.display = 'none';
+                }
+            }
+            magView.style.display = 'flex';
+            return true;
+        }
+
         let hoveredCard = null, hoveredSlot = null, magnifyTimer = null;
         document.addEventListener('mouseover', e => {
+            if (window.isTouchDevice) return;
             let card = e.target.closest('.card');
             let previewCard = e.target.closest('.preview-card'); 
             let slot = e.target.closest('.slot'); 
@@ -2051,9 +2244,8 @@ function createCardDOM(cardData, networkId, isMine) {
                     }
 
                     let magView = document.getElementById('card-magnifier'), magImg = document.getElementById('magnifier-img');
-                    if(imgSrc && magView && magImg) { 
-                        magImg.src = imgSrc; 
-                        magView.style.display = 'block'; 
+                    if(imgSrc && magView && magImg) {
+                        populateCardMagnifier(card, previewCard);
                     }
                 }, 600); 
             }
@@ -2070,6 +2262,37 @@ function createCardDOM(cardData, networkId, isMine) {
             let slot = e.target.closest('.slot'); 
             if(slot === hoveredSlot) hoveredSlot = null; 
         });
+
+        // 手機觸控長按 450ms 放大看卡面＋中文效果（滑動自動取消、點外部關閉）
+        let touchMagTimer = null, touchMagStartX = 0, touchMagStartY = 0;
+        document.addEventListener('touchstart', e => {
+            window.isTouchDevice = true;
+            const magView = document.getElementById('card-magnifier');
+            if (magView && magView.style.display && magView.style.display !== 'none') {
+                if (e.target.closest('#card-magnifier')) return;
+                magView.style.display = 'none';
+            }
+            if (!e.touches || e.touches.length !== 1) { clearTimeout(touchMagTimer); return; }
+            const card = e.target.closest('.card');
+            const previewCard = e.target.closest('.preview-card');
+            if (!card && !previewCard) return;
+            touchMagStartX = e.touches[0].clientX;
+            touchMagStartY = e.touches[0].clientY;
+            clearTimeout(touchMagTimer);
+            touchMagTimer = setTimeout(() => {
+                if (card && card.classList.contains('dragging')) return;
+                if (populateCardMagnifier(card, previewCard) && navigator.vibrate) navigator.vibrate(25);
+            }, 450);
+        }, { passive: true });
+        document.addEventListener('touchmove', e => {
+            if (!touchMagTimer || !e.touches || e.touches.length === 0) return;
+            if (Math.hypot(e.touches[0].clientX - touchMagStartX, e.touches[0].clientY - touchMagStartY) > 12) {
+                clearTimeout(touchMagTimer);
+                touchMagTimer = null;
+            }
+        }, { passive: true });
+        document.addEventListener('touchend', () => { clearTimeout(touchMagTimer); touchMagTimer = null; }, { passive: true });
+        document.addEventListener('touchcancel', () => { clearTimeout(touchMagTimer); touchMagTimer = null; }, { passive: true });
 
         document.addEventListener('keydown', e => {
             if(document.getElementById('game-scene').style.display === 'none') return;
@@ -2470,9 +2693,17 @@ function createCardDOM(cardData, networkId, isMine) {
             if (map && typeof map === 'object') Object.assign(window.UACardScripts, map);
         };
         (function loadCardScriptsBundle() {
-            const s = document.createElement('script');
-            s.src = encodeURI('腳本.js');
-            s.async = false;
-            s.onerror = () => console.warn('載入 腳本.js 失敗，請確認檔案位於專案根目錄');
-            document.body.appendChild(s);
+            const loadDeferredScript = (src, onErr) => {
+                const s = document.createElement('script');
+                s.src = encodeURI(src);
+                s.async = true;
+                if (onErr) s.onerror = onErr;
+                document.body.appendChild(s);
+            };
+            const boot = () => {
+                loadDeferredScript('ua-v3-catalog.js', () => { window.UA_V3_CATALOG = window.UA_V3_CATALOG || {}; });
+                loadDeferredScript('腳本.js', () => console.warn('載入 腳本.js 失敗，請確認檔案位於專案根目錄'));
+            };
+            if (typeof requestIdleCallback === 'function') requestIdleCallback(boot, { timeout: 1200 });
+            else setTimeout(boot, 80);
         })();

@@ -196,27 +196,175 @@
             return arr && arr.length > 0 ? arr[arr.length - 1] : null;
         }
 
+        getV3IR(def) {
+            const cat = (typeof window !== 'undefined' && window.UA_V3_CATALOG) ? window.UA_V3_CATALOG : null;
+            if (!cat || !def?.id) return null;
+            const bid = String(def.id).replace(/([/_](p\d+|s|sp\d*)|★)+$/i, '');
+            return cat[bid] || null;
+        }
+
+        matchesV3Filter(card, filter, selfCard = null) {
+            if (!filter) return true;
+            if (filter.or) return filter.or.some(sub => this.matchesV3Filter(card, sub, selfCard));
+            if (!card || !card.def) return false;
+            if (filter.excludeSelf && card === selfCard) return false;
+            const d = card.def;
+            const ir = this.getV3IR(d);
+            if (filter.type && d.type !== filter.type) return false;
+            if (filter.color && !ir?.allColor && d.color !== filter.color) return false;
+            if (filter.nameIncludes) {
+                const want = filter.nameIncludes.replace(/\s+/g, '');
+                const okName = (d.name || '').replace(/\s+/g, '').includes(want)
+                    || (Array.isArray(ir?.aliases) && ir.aliases.some(a => a.replace(/\s+/g, '').includes(want)));
+                if (!okName) return false;
+            }
+            if (filter.excludeName && (d.name || '').replace(/\s+/g, '').includes(filter.excludeName.replace(/\s+/g, ''))) return false;
+            if (filter.namesAny && !filter.namesAny.some(n => (d.name || '').replace(/\s+/g, '').includes(n.replace(/\s+/g, '')))) return false;
+            if (filter.traitIncludes && !(Array.isArray(d.traits) && d.traits.some(t => t.includes(filter.traitIncludes)))) return false;
+            if (filter.requireActive && card.isRest) return false;
+            if (filter.requireRest && !card.isRest) return false;
+            if (filter.requireRaided && !card.isRaided) return false;
+            const reqEn = d.requiredEnergy?.count || 0;
+            if (filter.maxEnergy !== undefined && reqEn > filter.maxEnergy) return false;
+            if (filter.minEnergy !== undefined && reqEn < filter.minEnergy) return false;
+            return true;
+        }
+
+        countV3Zone(query, selfCard = null) {
+            const owner = query.owner || 'MY';
+            const zone = query.zone || 'FIELD';
+            if (owner === 'OPP') {
+                const pm = this.playerMirror || {};
+                if (zone === 'HAND') return pm.handCount || 0;
+                if (zone === 'LIFE') return pm.lifeCount || 0;
+                if (zone === 'DECK') return pm.deckCount || 0;
+                if (zone === 'ENERGY') return pm.energyCount || 0;
+                const oppCards = Object.values(pm.front || {}).filter(Boolean);
+                return oppCards.filter(c => this.matchesV3Filter(c, query.filter, selfCard)).length;
+            }
+            let pool = [];
+            if (zone === 'FRONT') pool = FRONT_SLOTS.map(s => this.getSlotTop(s)).filter(Boolean);
+            else if (zone === 'ENERGY') pool = ENERGY_SLOTS.map(s => this.getSlotTop(s)).filter(Boolean);
+            else if (zone === 'FIELD') pool = [...FRONT_SLOTS, ...ENERGY_SLOTS].map(s => this.getSlotTop(s)).filter(Boolean);
+            else if (zone === 'HAND') pool = this.hand || [];
+            else if (zone === 'OUTSIDE') pool = this.outside || [];
+            else if (zone === 'REMOVE') pool = this.remove || [];
+            else if (zone === 'LIFE') pool = this.life || [];
+            else if (zone === 'DECK') pool = this.deck || [];
+            const matched = pool.filter(c => this.matchesV3Filter(c, query.filter, selfCard));
+            if (query.distinctNames) return new Set(matched.map(c => c.def?.name).filter(Boolean)).size;
+            return matched.length;
+        }
+
+        evalV3Cond(cond, card = null, slotId = null, currentBp = undefined) {
+            if (!cond) return true;
+            switch (cond.type) {
+                case 'MY_TURN': return !!(this.phase && this.phase !== '等待中');
+                case 'OPP_TURN': return !(this.phase && this.phase !== '等待中');
+                case 'SELF_IS_ACTIVE': return !!(card && !card.isRest);
+                case 'SELF_IS_REST': return !!(card && card.isRest);
+                case 'SELF_IN_FRONT': return !!(slotId && FRONT_SLOTS.includes(slotId));
+                case 'SELF_IN_ENERGY': return !!(slotId && ENERGY_SLOTS.includes(slotId));
+                case 'SELF_IS_RAIDED': return !!(card && card.isRaided);
+                case 'SELF_BP_GTE': return (currentBp !== undefined ? currentBp : (card?.def?.bp || 0)) >= cond.value;
+                case 'SELF_BP_LTE': return (currentBp !== undefined ? currentBp : (card?.def?.bp || 0)) <= cond.value;
+                case 'COUNT_ZONE': {
+                    const cnt = this.countV3Zone(cond, card);
+                    if (cond.op === 'LTE') return cnt <= cond.count;
+                    if (cond.op === 'EQ') return cnt === cond.count;
+                    return cnt >= cond.count;
+                }
+                case 'HAS_CHAR': return this.hasCharacterOnMyField(cond.name);
+                case 'HAS_CHAR_IN_FRONT': return FRONT_SLOTS.some(s => { const t = this.getSlotTop(s); return t?.def && (t.def.name || '').replace(/\s+/g, '').includes((cond.name || '').replace(/\s+/g, '')); });
+                case 'HAS_ANY_CHAR': return (cond.names || []).some(n => this.hasCharacterOnMyField(n));
+                case 'OUTSIDE_EVENTS_GTE': return (this.outside || []).filter(c => c.def?.type === 'EVENT').length >= cond.count;
+                case 'OUTSIDE_CARDS_GTE': return (this.outside || []).length >= cond.count;
+                case 'FIELD_EMPTY': return [...FRONT_SLOTS, ...ENERGY_SLOTS].every(s => !this.getSlotTop(s));
+                case 'DISTINCT_TRAIT_NAMES_GTE': return this.countV3Zone({ owner: 'MY', zone: 'FIELD', filter: { traitIncludes: cond.trait }, distinctNames: true }, card) >= cond.count;
+                case 'NOT': return !this.evalV3Cond(cond.cond, card, slotId, currentBp);
+                case 'AND': return (cond.all || []).every(sub => this.evalV3Cond(sub, card, slotId, currentBp));
+                case 'OR': return (cond.any || []).some(sub => this.evalV3Cond(sub, card, slotId, currentBp));
+                default: return true;
+            }
+        }
+
+        evalV3Continuous(card, slotId = null) {
+            const out = { bpDelta: 0, impact: 0, damage: 0, snipe: false, step: false, doubleAttack: false, doubleBlock: false, impactNullify: false, unblockableMaxBp: 0, unblockableMinBp: 0, cannotBlock: false, cannotAttack: false, genEnergyBonus: 0 };
+            if (!card || !card.def) return out;
+            const ir = this.getV3IR(card.def);
+            if (!ir) return out;
+            const kw = ir.staticKeywords || {};
+            out.impact = Number(kw.impact) || 0;
+            out.damage = Number(kw.damage) || 0;
+            out.snipe = !!kw.snipe;
+            out.step = !!kw.step;
+            out.doubleAttack = !!kw.doubleAttack;
+            out.doubleBlock = !!kw.doubleBlock;
+            out.impactNullify = !!kw.impactNullify;
+            out.unblockableMaxBp = kw.unblockableMaxBp || 0;
+            out.unblockableMinBp = kw.unblockableMinBp || 0;
+            out.cannotBlock = !!kw.cannotBlock;
+            out.cannotAttack = !!kw.cannotAttack;
+
+            const applyRule = (r) => {
+                if (r.bpDelta) out.bpDelta += r.bpDelta;
+                if (r.bpPerCount && r.bpPerCount.query) {
+                    const cnt = this.countV3Zone(r.bpPerCount.query, card);
+                    out.bpDelta += (r.bpPerCount.maxCount ? Math.min(cnt, r.bpPerCount.maxCount) : cnt) * r.bpPerCount.step;
+                }
+                if (r.grantImpact) out.impact = Math.max(out.impact, r.grantImpact);
+                if (r.grantDamage) out.damage = Math.max(out.damage, r.grantDamage);
+                if (r.grantSnipe) out.snipe = true;
+                if (r.grantStep) out.step = true;
+                if (r.grantDoubleAttack) out.doubleAttack = true;
+                if (r.grantDoubleBlock) out.doubleBlock = true;
+                if (r.grantImpactNullify) out.impactNullify = true;
+                if (r.grantCannotBlock) out.cannotBlock = true;
+                if (r.grantCannotAttack) out.cannotAttack = true;
+                if (r.genEnergyDelta) out.genEnergyBonus += r.genEnergyDelta.count || 0;
+            };
+            const isBpCond = (c) => c && (c.type === 'SELF_BP_GTE' || c.type === 'SELF_BP_LTE' || (c.type === 'AND' && (c.all || []).some(isBpCond)) || (c.type === 'OR' && (c.any || []).some(isBpCond)));
+            const deferred = [];
+            for (const r of ir.continuous || []) {
+                if (r.requireRaided && !card.isRaided) continue;
+                if (isBpCond(r.when)) { deferred.push(r); continue; }
+                if (!this.evalV3Cond(r.when, card, slotId)) continue;
+                applyRule(r);
+            }
+            if (deferred.length > 0) {
+                const curBp = Math.max(0, (card.def.bp || 0) + (slotId ? (this.bpMods[slotId] || 0) : 0) + out.bpDelta);
+                for (const r of deferred) {
+                    if (!this.evalV3Cond(r.when, card, slotId, curBp)) continue;
+                    applyRule(r);
+                }
+            }
+            return out;
+        }
+
         getEffectiveBp(slotId) {
             const top = this.getSlotTop(slotId);
             if (!top || !top.def || !top.def.bp) return 0;
-            return Math.max(0, top.def.bp + (this.bpMods[slotId] || 0));
+            const v3 = this.evalV3Continuous(top, slotId);
+            return Math.max(0, top.def.bp + (this.bpMods[slotId] || 0) + v3.bpDelta);
         }
 
-        getCardKeywords(card) {
+        getCardKeywords(card, slotId = null) {
             const base = parseStaticKeywords(card?.def);
+            const v3 = this.evalV3Continuous(card, slotId);
             const tk = card?.tempKeywords || {};
+            const minCands = [base.unblockableMinBp, v3.unblockableMinBp, tk.UNBLOCKABLE_MIN_BP].filter(v => v && v > 0);
             return {
-                impact: Math.max(base.impact, tk.IMPACT || 0) + (tk.IMPACT_PLUS || 0),
-                damage: Math.max(base.damage, tk.DAMAGE || 1) + (tk.DAMAGE_PLUS || 0),
-                snipe: base.snipe || !!tk.SNIPE,
-                step: base.step || !!tk.STEP,
-                doubleAttack: base.doubleAttack || !!tk.DOUBLE_ATTACK,
-                doubleBlock: base.doubleBlock || !!tk.DOUBLE_BLOCK,
-                impactNullify: base.impactNullify,
-                unblockableMaxBp: Math.max(base.unblockableMaxBp || 0, tk.UNBLOCKABLE_MAX_BP || 0),
-                unblockableMinBp: (base.unblockableMinBp && tk.UNBLOCKABLE_MIN_BP)
-                    ? Math.min(base.unblockableMinBp, tk.UNBLOCKABLE_MIN_BP)
-                    : (base.unblockableMinBp || tk.UNBLOCKABLE_MIN_BP || 0)
+                impact: Math.max(base.impact, v3.impact, tk.IMPACT || 0) + (tk.IMPACT_PLUS || 0),
+                damage: Math.max(base.damage, v3.damage || 1, tk.DAMAGE || 1) + (tk.DAMAGE_PLUS || 0),
+                snipe: base.snipe || v3.snipe || !!tk.SNIPE,
+                step: base.step || v3.step || !!tk.STEP,
+                doubleAttack: base.doubleAttack || v3.doubleAttack || !!tk.DOUBLE_ATTACK,
+                doubleBlock: base.doubleBlock || v3.doubleBlock || !!tk.DOUBLE_BLOCK,
+                impactNullify: base.impactNullify || v3.impactNullify || !!tk.IMPACT_NULLIFY,
+                cannotBlock: v3.cannotBlock || !!tk.CANNOT_BLOCK,
+                cannotAttack: v3.cannotAttack || !!tk.CANNOT_ATTACK,
+                unblockableMaxBp: Math.max(base.unblockableMaxBp || 0, v3.unblockableMaxBp || 0, tk.UNBLOCKABLE_MAX_BP || 0),
+                unblockableMinBp: minCands.length > 0 ? Math.min(...minCands) : 0
             };
         }
 
@@ -374,12 +522,26 @@
             this.hand.forEach((card, handIndex) => {
                 const d = card.def;
                 if (!d) return;
-                const apCost = d.apCost !== undefined ? d.apCost : 1;
+                const ir = this.getV3IR(d);
+                let apCost = d.apCost !== undefined ? d.apCost : 1;
+                if (ir && Array.isArray(ir.apDiscounts)) {
+                    for (const ad of ir.apDiscounts) {
+                        if (this.evalV3Cond(ad.when, card)) apCost = Math.max(0, apCost - (ad.amount || 1));
+                    }
+                }
                 if (apCost > availAp) return;
 
                 const reqCol = d.requiredEnergy?.color || 'NONE';
-                const reqCnt = d.requiredEnergy?.count || 0;
-                if (reqCnt > 0 && reqCol !== 'NONE' && (en[reqCol] || 0) < reqCnt) return;
+                let reqCnt = d.requiredEnergy?.count || 0;
+                if (ir && Array.isArray(ir.energyDiscounts)) {
+                    for (const ed of ir.energyDiscounts) {
+                        if (this.evalV3Cond(ed.when, card)) reqCnt = Math.max(0, reqCnt - (ed.amount || 1));
+                    }
+                }
+                if (reqCnt > 0 && reqCol !== 'NONE') {
+                    const haveEn = ir?.allColor ? (en.ALL || 0) : (en[reqCol] || 0);
+                    if (haveEn < reqCnt) return;
+                }
 
                 if (d.type === 'EVENT') {
                     const compiled = this.compileActions(d.effectText);
@@ -406,11 +568,11 @@
                     });
                 }
 
-                if (d.type === 'CHARACTER' || d.type === 'FIELD') {
+                if ((d.type === 'CHARACTER' || d.type === 'FIELD') && !ir?.raidOnly) {
                     if (emptyEnergy.length > 0) {
                         actions.push({ type: 'NORMAL', handIndex, card, apCost, targetSlot: emptyEnergy[0], line: 'ENERGY' });
                     }
-                    if (d.type === 'CHARACTER' && emptyFront.length > 0) {
+                    if (d.type === 'CHARACTER' && !ir?.cannotPlayFront && emptyFront.length > 0) {
                         actions.push({ type: 'NORMAL', handIndex, card, apCost, targetSlot: emptyFront[0], line: 'FRONT' });
                     }
                 }
@@ -424,7 +586,8 @@
             FRONT_SLOTS.forEach(slotId => {
                 const top = this.getSlotTop(slotId);
                 if (!top || top.isRest || !top.def || top.def.type !== 'CHARACTER') return;
-                const kw = this.getCardKeywords(top);
+                const kw = this.getCardKeywords(top, slotId);
+                if (kw.cannotAttack) return;
                 list.push({
                     slotId,
                     card: top,
@@ -444,10 +607,11 @@
             FRONT_SLOTS.forEach(slotId => {
                 const top = this.getSlotTop(slotId);
                 if (!top || top.isRest || !top.def || top.def.type !== 'CHARACTER') return;
+                const kw = this.getCardKeywords(top, slotId);
+                if (kw.cannotBlock) return;
                 const bp = this.getEffectiveBp(slotId);
                 if (unblockableMaxBp && bp <= unblockableMaxBp) return;
                 if (unblockableMinBp && bp >= unblockableMinBp) return;
-                const kw = this.getCardKeywords(top);
                 list.push({
                     slotId,
                     card: top,

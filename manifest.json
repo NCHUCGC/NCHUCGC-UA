@@ -1,0 +1,12 @@
+{
+  "name": "NCHUCGC｜Union Arena 社團牌表與線上對戰",
+  "short_name": "UA 模擬器",
+  "description": "中興大學卡牌研究社 Union Arena 環境排表、牌組構築與線上規則引擎對戰模擬器",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#12100f",
+  "theme_color": "#1c1a18",
+  "lang": "zh-TW",
+  "icons": []
+}
