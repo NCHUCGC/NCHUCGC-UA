@@ -918,22 +918,22 @@ body.mobile-flow #home-disclaimer-footer {
 /* ---------- 6. 對戰介面進階升級：即時戰況列、行動流、可出牌/可攻擊發光 ---------- */
 #battle-tactical-bar {
     position: absolute;
-    top: 12px;
+    top: 6px;
     left: 50%;
     transform: translateX(-50%);
     z-index: 10005;
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 6px 14px;
+    gap: 8px;
+    padding: 4px 12px;
     border-radius: 999px;
     background: rgba(13, 17, 32, 0.86);
     border: 1px solid rgba(138, 162, 214, 0.32);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55);
     backdrop-filter: blur(8px);
     pointer-events: none;
     white-space: nowrap;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 700;
     color: #e6ecf8;
 }

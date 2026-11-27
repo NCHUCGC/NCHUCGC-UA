@@ -1104,6 +1104,7 @@
 
   return {
     getV3IR,
+    getIR: getV3IR,
     matchesFilter,
     countZone,
     evalCondition,

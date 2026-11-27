@@ -2170,7 +2170,11 @@ injectEngineUI() {
 
             this.renderFieldActionOverlayButtons();
             this.updatePublicInfoHUD();
-            this.updateBattleVisualHints(en, activeAp, maxAp);
+            try {
+                this.updateBattleVisualHints(en, activeAp, maxAp);
+            } catch (e) {
+                console.warn('[BattleVisualHints]', e);
+            }
         }
 
         updateBattleVisualHints(en, activeAp, maxAp) {
@@ -2209,7 +2213,7 @@ injectEngineUI() {
 
                     const reqCol = def.requiredEnergy?.color || 'NONE';
                     let reqCnt = Math.max(0, (def.requiredEnergy?.count || 0) - this.computeAutoEnergyDiscount(def));
-                    const isAllColor = !!(def.allColor || (window.UAV3Bridge && window.UAV3Bridge.getIR(def)?.allColor));
+                    const isAllColor = !!(def.allColor || (window.UAV3Bridge && window.UAV3Bridge.getV3IR(def)?.allColor));
                     const haveEn = (isAllColor || reqCol === 'NONE' || reqCol === 'ANY') ? (en.ALL || 0) : (en[reqCol] || 0);
                     if (haveEn < reqCnt) return;
 
@@ -2217,7 +2221,7 @@ injectEngineUI() {
                     if (canRaid) {
                         cardEl.classList.add('ua-hint-raidable');
                     } else if (def.type === 'EVENT' || hasEmptySlot) {
-                        const ir = window.UAV3Bridge ? window.UAV3Bridge.getIR(def) : null;
+                        const ir = window.UAV3Bridge ? window.UAV3Bridge.getV3IR(def) : null;
                         if (!(ir && ir.raidOnly)) cardEl.classList.add('ua-hint-playable');
                     }
                 });
