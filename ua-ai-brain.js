@@ -115,10 +115,10 @@
 
         decideMulligan(handCards, difficulty = 'normal') {
             if (difficulty === 'random') return false;
-            const hasLowCost = handCards.some(c =>
-                c.def && c.def.type === 'CHARACTER' && (c.def.requiredEnergy?.count ?? 99) <= 1
+            const hasZeroCost = handCards.some(c =>
+                c.def && (c.def.type === 'CHARACTER' || c.def.type === 'FIELD') && (c.def.requiredEnergy?.count ?? 99) === 0
             );
-            return !hasLowCost;
+            return !hasZeroCost;
         },
 
         decideMove(state, legalMoves, difficulty = 'normal') {
@@ -318,13 +318,22 @@
             }
 
             const atkBp = attackInfo.attackerBp || 0;
+            const atkDmg = attackInfo.damage || 1;
+            const atkImp = attackInfo.impact || 0;
+            const myLife = state.life.length;
+
             const winners = legalBlockers
                 .filter(b => b.effectiveBp > atkBp)
                 .sort((a, b) => (b.doubleBlock ? 1 : 0) - (a.doubleBlock ? 1 : 0) || a.effectiveBp - b.effectiveBp);
             if (winners.length > 0) return { blocked: true, slotId: winners[0].slotId };
 
-            if (state.life.length <= 2) {
-                const cheapest = [...legalBlockers].sort((a, b) => a.effectiveBp - b.effectiveBp)[0];
+            // 擋了會輸且對方 [インパクト] >= 傷害時，擋下仍會扣同樣生命並白白退場，絕不擋
+            if (atkImp >= atkDmg) return { blocked: false };
+
+            if (myLife <= 2 || myLife <= atkDmg) {
+                const cheapest = [...legalBlockers].sort((a, b) =>
+                    ((a.doubleBlock ? 1 : 0) - (b.doubleBlock ? 1 : 0)) || (a.effectiveBp - b.effectiveBp)
+                )[0];
                 return { blocked: true, slotId: cheapest.slotId };
             }
             return { blocked: false };

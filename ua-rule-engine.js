@@ -85,21 +85,22 @@ constructor() {
             if (!def || def.type !== 'CHARACTER') return [];
             const rt = this.getRuntime(cardEl);
             const innate = this.getInnateStaticKeywords(def);
+            const v3View = window.UAV3Bridge ? window.UAV3Bridge.evalContinuousView(this, cardEl) : null;
             const badges = [];
 
             const impactVal = this.getCardImpactValue(cardEl);
             if (impactVal > 0) badges.push({ text: `衝擊(${impactVal})`, bg: '#c0392b' });
 
-            const hasSnipe = innate.snipe || !!(rt?.tempKeywords?.SNIPE);
+            const hasSnipe = innate.snipe || !!(v3View?.snipe) || !!(rt?.tempKeywords?.SNIPE);
             if (hasSnipe) badges.push({ text: '狙擊', bg: '#8e44ad' });
 
-            const hasDoubleBlock = innate.doubleBlock || !!(rt?.tempKeywords?.DOUBLE_BLOCK);
+            const hasDoubleBlock = innate.doubleBlock || !!(v3View?.doubleBlock) || !!(rt?.tempKeywords?.DOUBLE_BLOCK);
             if (hasDoubleBlock) badges.push({ text: '2回阻擋', bg: '#2980b9' });
 
-            const hasDoubleAttack = innate.doubleAttack || !!(rt?.tempKeywords?.DOUBLE_ATTACK);
+            const hasDoubleAttack = innate.doubleAttack || !!(v3View?.doubleAttack) || !!(rt?.tempKeywords?.DOUBLE_ATTACK);
             if (hasDoubleAttack) badges.push({ text: '2回攻擊', bg: '#d35400' });
 
-            if (innate.impactNullify) badges.push({ text: '衝擊無效', bg: '#2c3e50' });
+            if (innate.impactNullify || v3View?.impactNullify || rt?.tempKeywords?.IMPACT_NULLIFY) badges.push({ text: '衝擊無效', bg: '#2c3e50' });
             return badges;
         }
 
@@ -209,6 +210,8 @@ constructor() {
             const script = this.getCardScriptById(cardDef.id);
             if (script && typeof script.getApDiscount === 'function') {
                 cost = Math.max(0, cost - (script.getApDiscount(this, cardDef) || 0));
+            } else if (window.UAV3Bridge) {
+                cost = Math.max(0, cost - window.UAV3Bridge.getHandApDiscount(this, cardDef));
             }
             if (!this.pendingApDiscounts || this.pendingApDiscounts.length === 0) return cost;
             for (const disc of this.pendingApDiscounts) {
@@ -230,6 +233,12 @@ constructor() {
                     if (sd > 0) {
                         cost = Math.max(0, cost - sd);
                         showSysMsg(`已套用卡片常駐 AP 減免（-${sd}），實際支付 ${cost} AP！`);
+                    }
+                } else if (window.UAV3Bridge) {
+                    const v3d = window.UAV3Bridge.getHandApDiscount(this, cardDef);
+                    if (v3d > 0) {
+                        cost = Math.max(0, cost - v3d);
+                        showSysMsg(`已套用 v3 常駐 AP 減免（-${v3d}），實際支付 ${cost} AP！`);
                     }
                 }
             }
@@ -1963,6 +1972,10 @@ injectEngineUI() {
                     }
                 }
             }
+            if (window.UAV3Bridge) {
+                const v3View = window.UAV3Bridge.evalContinuousView(this, cardEl);
+                if (v3View && v3View.genEnergyBonus > bonus) bonus = v3View.genEnergyBonus;
+            }
             return bonus;
         }
 
@@ -2051,6 +2064,10 @@ injectEngineUI() {
                 if (/^手札にあるこのカードの必要エナジーを/.test(line)) {
                     totalDiscount += val;
                 }
+            }
+            if (window.UAV3Bridge) {
+                const v3Disc = window.UAV3Bridge.getHandEnergyDiscount(this, cardDef);
+                if (v3Disc > totalDiscount) totalDiscount = v3Disc;
             }
             return totalDiscount;
         }
@@ -2263,6 +2280,8 @@ injectEngineUI() {
                 rt.retireAtEndOfMain = false;
                 rt.persistentBp = 0;
                 rt.persistentKeywords = {};
+                if (rt.usedV3Abilities) rt.usedV3Abilities.clear();
+                rt.v3TempAbilities = [];
             });
 
             // 輪到我方新回合開始時，清除所有殘留與「至下次我方回合開始為止」的 BP 增減
@@ -2801,7 +2820,7 @@ injectEngineUI() {
             rt.enteredThisTurn = true;
             rt.isRaided = false;
 
-            if (def.compiledRules && def.compiledRules.entersActive) {
+            if ((def.compiledRules && def.compiledRules.entersActive) || (window.UAV3Bridge && window.UAV3Bridge.cardEntersActive(this, def))) {
                 mainCard.classList.remove('rest');
             } else {
                 mainCard.classList.add('rest');
@@ -2970,6 +2989,30 @@ injectEngineUI() {
                             slot.appendChild(btn);
                         }
                         return;
+                    }
+
+                    if (window.UAV3Bridge) {
+                        const v3Mains = window.UAV3Bridge.getV3MainAbilities(this, topCard);
+                        if (Array.isArray(v3Mains)) {
+                            v3Mains.forEach((item) => {
+                                const btn = document.createElement('button');
+                                btn.className = 'eng-card-btn';
+                                btn.innerText = '起動メイン';
+                                btn.style.cssText = `
+                                    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+                                    width: 92%; background: linear-gradient(135deg, #f39c12, #d35400); color: #fff;
+                                    border: 2px solid #fff; border-radius: 8px; padding: 8px 6px;
+                                    font-size: 14px; font-weight: 900; cursor: pointer; z-index: 1200;
+                                    box-shadow: 0 4px 12px rgba(0,0,0,0.9); white-space: nowrap;
+                                `;
+                                btn.onclick = (e) => {
+                                    e.stopPropagation();
+                                    window.UAV3Bridge.activateV3MainAbility(this, topCard, item);
+                                };
+                                slot.appendChild(btn);
+                            });
+                            return;
+                        }
                     }
 
                     const mainAbilities = def.parsedAbilities.filter(a => {
@@ -3159,6 +3202,10 @@ injectEngineUI() {
                     script.onEventPlay(this, cardEl, () => { this.updateEnergyHUD(); broadcastMyState(); if (onComplete) onComplete(); });
                     return;
                 }
+            }
+
+            if (window.UAV3Bridge && window.UAV3Bridge.tryTriggerV3(this, cardEl, timing, onComplete)) {
+                return;
             }
 
             if (!def.parsedAbilities) {
@@ -4648,12 +4695,23 @@ executeAbilityActions(sourceCardEl, actions, index = 0, taskContext = { selected
             const script = this.getCardScript(cardEl);
             const rtBp = this.getRuntime(cardEl);
             const raidBpOk = !script?.requireRaided || !!rtBp?.isRaided;
-            const scriptBonus = (script && raidBpOk && typeof script.getContinuousBpBonus === 'function') ? (script.getContinuousBpBonus(this, cardEl) || 0) : 0;
-            return Math.max(0, def.bp + mod + scriptBonus);
+            const hasScriptBp = !!(script && raidBpOk && typeof script.getContinuousBpBonus === 'function');
+            const scriptBonus = hasScriptBp ? (script.getContinuousBpBonus(this, cardEl) || 0) : 0;
+            const v3Bonus = (!hasScriptBp && window.UAV3Bridge) ? (window.UAV3Bridge.evalContinuousView(this, cardEl).bpDelta || 0) : 0;
+            return Math.max(0, def.bp + mod + scriptBonus + v3Bonus);
         }
 
         addSlotBp(slot, delta) {
             if (!slot) return;
+            const topForImmune = this.getTopCardInSlot(slot);
+            if (delta < 0 && topForImmune && window.UAV3Bridge) {
+                const v3v = window.UAV3Bridge.evalContinuousView(this, topForImmune);
+                const rti = this.getRuntime(topForImmune);
+                if (v3v.immuneToBpMinus || rti?.tempKeywords?.IMMUNE_TO_BP_MINUS || rti?.persistentKeywords?.IMMUNE_TO_BP_MINUS) {
+                    showSysMsg(`【${this.getCardDef(topForImmune)?.name || '角色'}】不受 BP 減少效果影響！`);
+                    return;
+                }
+            }
             const tracker = slot.querySelector('.bp-tracker');
             if (!tracker) return;
             const newBp = (parseInt(tracker.dataset.bp, 10) || 0) + delta;
@@ -4736,7 +4794,8 @@ executeAbilityActions(sourceCardEl, actions, index = 0, taskContext = { selected
             rt.attackCountThisTurn++;
 
             const innateAtkKw = this.getInnateStaticKeywords(def);
-            if ((innateAtkKw.doubleAttack || rt.tempKeywords?.DOUBLE_ATTACK) && rt.attackCountThisTurn === 1) {
+            const v3AtkView = window.UAV3Bridge ? window.UAV3Bridge.evalContinuousView(this, attackerCard) : null;
+            if ((innateAtkKw.doubleAttack || v3AtkView?.doubleAttack || rt.tempKeywords?.DOUBLE_ATTACK) && rt.attackCountThisTurn === 1) {
                 attackerCard.classList.remove('rest');
                 showSysMsg(`發動 [2回アタック]：【${def.name}】在第一次攻擊時重新轉為活動狀態！`);
             }
@@ -4774,8 +4833,9 @@ executeAbilityActions(sourceCardEl, actions, index = 0, taskContext = { selected
 
                     const atkScript = this.getCardScript(attackerCard);
                     const scriptUnb = (atkScript && typeof atkScript.getUnblockableRules === 'function') ? (atkScript.getUnblockableRules(this, attackerCard) || {}) : {};
-                    const effUnblockMax = Math.max(innateAtkKw.unblockableMaxBp || 0, rt.tempKeywords.UNBLOCKABLE_MAX_BP || 0, scriptUnb.maxBp || 0);
-                    const minCands = [innateAtkKw.unblockableMinBp, rt.tempKeywords.UNBLOCKABLE_MIN_BP, scriptUnb.minBp].filter(v => v && v > 0);
+                    const v3Unb = window.UAV3Bridge ? window.UAV3Bridge.evalContinuousView(this, attackerCard) : null;
+                    const effUnblockMax = Math.max(innateAtkKw.unblockableMaxBp || 0, v3Unb?.unblockableMaxBp || 0, rt.tempKeywords.UNBLOCKABLE_MAX_BP || 0, scriptUnb.maxBp || 0);
+                    const minCands = [innateAtkKw.unblockableMinBp, v3Unb?.unblockableMinBp, rt.tempKeywords.UNBLOCKABLE_MIN_BP, scriptUnb.minBp].filter(v => v && v > 0);
                     const effUnblockMin = minCands.length > 0 ? Math.min(...minCands) : 0;
                     const effUnblockRaided = !!(rt.tempKeywords.UNBLOCKABLE_BY_RAIDED || scriptUnb.byRaided || (def.effectText || '').includes('レイド状態のキャラにブロックされない'));
                     conn.send({
@@ -4842,6 +4902,9 @@ executeAbilityActions(sourceCardEl, actions, index = 0, taskContext = { selected
 
             const blockers = this.getSlotTopCards('#my-front-line .slot').filter(c => {
                 if (c.classList.contains('rest')) return false;
+                const cV3 = window.UAV3Bridge ? window.UAV3Bridge.evalContinuousView(this, c) : null;
+                const cRt = this.getRuntime(c);
+                if (cV3?.cannotBlock || cRt?.tempKeywords?.CANNOT_BLOCK || cRt?.persistentKeywords?.CANNOT_BLOCK) return false;
                 const bp = this.getEffectiveCardBp(c);
                 if (data.unblockableMaxBp && bp <= data.unblockableMaxBp) return false;
                 if (data.unblockableMinBp && bp >= data.unblockableMinBp) return false;
@@ -4888,7 +4951,8 @@ executeAbilityActions(sourceCardEl, actions, index = 0, taskContext = { selected
                     bRt.blockCountThisTurn++;
 
                     const innateBlkKw = this.getInnateStaticKeywords(bDef);
-                    if ((innateBlkKw.doubleBlock || bRt.tempKeywords?.DOUBLE_BLOCK) && bRt.blockCountThisTurn === 1) {
+                    const v3BlkView = window.UAV3Bridge ? window.UAV3Bridge.evalContinuousView(this, blockerCard) : null;
+                    if ((innateBlkKw.doubleBlock || v3BlkView?.doubleBlock || bRt.tempKeywords?.DOUBLE_BLOCK) && bRt.blockCountThisTurn === 1) {
                         blockerCard.classList.remove('rest');
                         showSysMsg(`發動 [2回ブロック]：【${this.getDisplayName(bDef)}】防禦後重新轉為活動狀態！`);
                     }
@@ -4936,6 +5000,8 @@ executeAbilityActions(sourceCardEl, actions, index = 0, taskContext = { selected
                 const atkScr = this.getCardScript(attackerCard);
                 if (atkScr && typeof atkScr.onBattleWin === 'function') {
                     atkScr.onBattleWin(this, attackerCard);
+                } else if (window.UAV3Bridge) {
+                    window.UAV3Bridge.tryTriggerV3(this, attackerCard, 'ON_BATTLE_WIN');
                 }
                 if (!this.usedNamedAbilityThisTurn.has('SMD_034_WIN_DRAW') &&
                     this.getSlotTopCards('#my-energy-line .slot').some(c => this.getBaseCardId(c.dataset?.cardId) === 'UA43BT/SMD-1-034')) {
@@ -4944,7 +5010,8 @@ executeAbilityActions(sourceCardEl, actions, index = 0, taskContext = { selected
                     showSysMsg('憩来坂商店街大サバゲ―大会：戰鬥獲勝，抽 1 張牌！');
                 }
 
-                const defenderNullifiesImpact = this.getInnateStaticKeywords(defDef).impactNullify;
+                const defenderNullifiesImpact = this.getInnateStaticKeywords(defDef).impactNullify
+                    || (window.UAV3Bridge ? window.UAV3Bridge.evalContinuousView(this, defenderCard).impactNullify : false);
                 if (!defenderNullifiesImpact) {
                     const impactDmg = this.getCardImpactValue(attackerCard);
                     if (impactDmg > 0) {
@@ -4969,6 +5036,9 @@ executeAbilityActions(sourceCardEl, actions, index = 0, taskContext = { selected
             const raidImpOk = !script?.requireRaided || !!rt?.isRaided;
             if (script && raidImpOk && typeof script.getContinuousImpact === 'function') {
                 baseImpact = Math.max(baseImpact, script.getContinuousImpact(this, cardEl) || 0);
+            } else if (window.UAV3Bridge) {
+                const v3Imp = window.UAV3Bridge.evalContinuousView(this, cardEl).impact || 0;
+                baseImpact = Math.max(baseImpact, v3Imp);
             }
             if (rt?.persistentKeywords?.IMPACT) baseImpact = Math.max(baseImpact, rt.persistentKeywords.IMPACT);
             if (rt?.tempKeywords?.IMPACT) baseImpact = Math.max(baseImpact, rt.tempKeywords.IMPACT);
@@ -4985,6 +5055,10 @@ executeAbilityActions(sourceCardEl, actions, index = 0, taskContext = { selected
                 if (!String(v).startsWith('+')) dmg = parseInt(v, 10) || 1;
                 else dmg += parseInt(v, 10) || 0;
             }
+            if (window.UAV3Bridge) {
+                const v3Dmg = window.UAV3Bridge.evalContinuousView(this, cardEl).damage || 0;
+                if (v3Dmg > dmg) dmg = v3Dmg;
+            }
             if (rt?.tempKeywords?.DAMAGE) dmg = Math.max(dmg, rt.tempKeywords.DAMAGE);
             if (rt?.tempKeywords?.DAMAGE_PLUS) dmg += rt.tempKeywords.DAMAGE_PLUS;
             return dmg;
@@ -5000,6 +5074,8 @@ executeAbilityActions(sourceCardEl, actions, index = 0, taskContext = { selected
                     this.updateEnergyHUD();
                     broadcastMyState();
                 });
+            } else if (window.UAV3Bridge) {
+                window.UAV3Bridge.tryTriggerV3(this, attackerCard, 'ON_UNBLOCKED');
             }
         }
 

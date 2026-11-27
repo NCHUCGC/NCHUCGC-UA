@@ -1,0 +1,619 @@
+/* ==========================================================================
+   NCHUCGC 手機版介面大小與觸控操作優化 (mobile-responsive.css)
+   載入順序：放在 theme-playmat.css 之後。
+   設計原則：
+   1. 桌機版 (>960px 非觸控) 100% 維持原始 1600x900 版面不動。
+   2. 非對戰頁 (body.mobile-flow) 解除 1600x900 縮放與直向封鎖，改為原生 100vw×100dvh 流式排版。
+   3. 對戰桌 (body.in-battle.mobile-battle) 保留橫向並動態填滿寬螢幕，加大 HUD/按鈕/彈窗與觸控區。
+   ========================================================================== */
+
+/* ---------- 0. 解除非對戰頁面的直向封鎖：僅對戰桌 (body.in-battle) 要求橫向 ---------- */
+@media screen and (orientation: portrait) {
+    body:not(.in-battle) #portrait-warning {
+        display: none !important;
+    }
+    body:not(.in-battle) #app-canvas {
+        display: flex !important;
+    }
+    body.in-battle #portrait-warning {
+        display: flex !important;
+        gap: 14px;
+        font-size: 20px !important;
+        line-height: 1.5;
+    }
+}
+
+/* 桌機隱藏手機專屬構築切換列 */
+#mobile-builder-tabs {
+    display: none;
+}
+
+/* ---------- 1. 觸控裝置防 :hover 卡住 ---------- */
+@media (hover: none), (pointer: coarse) {
+    .card:hover {
+        --scale: 1;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.8);
+    }
+    .hand-area .card:hover,
+    .look-area .card:hover {
+        --scale: 1;
+        --ty: 0px;
+        margin-right: 0;
+    }
+    #my-hand-area .card:hover {
+        --scale: 1;
+        --ty: 0px;
+        margin-right: 0;
+    }
+    #my-hand-area .card.active-touch {
+        --scale: 1.12;
+        --ty: -44px;
+        --fan-rot: 0deg !important;
+        --fan-y: 0px !important;
+        z-index: 650 !important;
+    }
+    .preview-card:hover {
+        transform: none !important;
+        outline: none !important;
+    }
+}
+
+/* ---------- 2. 非對戰頁：手機原生流式排版 (body.mobile-flow) ---------- */
+body.mobile-flow {
+    touch-action: pan-y;
+}
+
+body.mobile-flow #app-canvas {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    margin: 0 !important;
+    transform: none !important;
+    box-shadow: none !important;
+    padding: calc(8px + env(safe-area-inset-top)) calc(10px + env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom)) calc(10px + env(safe-area-inset-left)) !important;
+    box-sizing: border-box !important;
+}
+
+/* 2.1 頂部導覽列：緊湊＋大觸控熱區＋橫向可滑動分頁 */
+body.mobile-flow #nchucgc-nav {
+    height: auto !important;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 6px 4px 8px !important;
+    margin-bottom: 8px !important;
+    border-bottom: 1px solid var(--rule, #2b3052) !important;
+}
+body.mobile-flow .nav-brand {
+    gap: 6px;
+}
+body.mobile-flow .nav-brand-code {
+    font-size: 19px !important;
+}
+body.mobile-flow .nav-brand-sub {
+    display: none;
+}
+body.mobile-flow .nav-right {
+    margin-left: auto;
+    gap: 6px;
+}
+body.mobile-flow #nav-auth-box {
+    gap: 6px;
+    font-size: 12px;
+}
+body.mobile-flow #nav-auth-box button {
+    min-height: 36px;
+    padding: 6px 10px !important;
+    font-size: 12px !important;
+}
+body.mobile-flow .nav-tabs {
+    order: 3;
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    gap: 4px;
+    padding-bottom: 2px;
+}
+body.mobile-flow .nav-tabs::-webkit-scrollbar {
+    display: none;
+}
+body.mobile-flow .nav-tab {
+    flex: 1 0 auto;
+    min-height: 40px;
+    padding: 8px 12px !important;
+    font-size: 14px !important;
+    white-space: nowrap;
+    text-align: center;
+}
+body.mobile-flow .nav-tab.active::after {
+    left: 10px !important;
+    right: 10px !important;
+}
+
+/* 防止 iOS Safari 點輸入框自動放大（必須 >= 16px） */
+body.mobile-flow input[type="text"],
+body.mobile-flow input[type="search"],
+body.mobile-flow input[type="password"],
+body.mobile-flow input[type="number"],
+body.mobile-flow select,
+body.mobile-flow textarea {
+    font-size: 16px !important;
+    min-height: 42px;
+    box-sizing: border-box;
+}
+body.mobile-flow .start-btn,
+body.mobile-flow .ctrl-btn {
+    min-height: 40px;
+    padding: 8px 14px;
+    font-size: 14px;
+}
+
+/* 2.2 全域連線列 */
+body.mobile-flow #global-match-bar {
+    flex-wrap: wrap;
+    padding: 8px 12px;
+    gap: 8px;
+    font-size: 13px;
+}
+
+/* 2.3 首頁 (#home-scene) */
+body.mobile-flow #home-scene {
+    gap: 12px;
+    padding: 2px 0 20px;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+}
+body.mobile-flow .home-hero {
+    grid-template-columns: 1fr !important;
+    padding: 18px 16px !important;
+    gap: 16px !important;
+    border-radius: 14px !important;
+}
+body.mobile-flow .home-hero::after {
+    inset: 6px;
+    border-radius: 10px;
+}
+body.mobile-flow .hero-title {
+    font-size: clamp(32px, 10vw, 48px) !important;
+}
+body.mobile-flow .hero-title-sub {
+    font-size: 17px !important;
+}
+body.mobile-flow .home-hero-sub {
+    font-size: 13.5px !important;
+}
+body.mobile-flow .hero-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+body.mobile-flow .home-cta-primary,
+body.mobile-flow .home-cta-secondary {
+    width: 100% !important;
+    min-height: 46px;
+    padding: 11px 12px !important;
+    font-size: 15px !important;
+    text-align: center;
+}
+body.mobile-flow .hero-stats {
+    gap: 8px 14px;
+}
+body.mobile-flow .color-bar {
+    height: 26px;
+}
+body.mobile-flow .color-bar .seg {
+    min-width: 38px;
+    font-size: 11px;
+}
+body.mobile-flow .hero-mat {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 10px !important;
+}
+body.mobile-flow .mat-slot {
+    padding: 6px;
+    gap: 6px;
+}
+body.mobile-flow .mat-slot.is-empty {
+    min-height: 140px;
+}
+body.mobile-flow .home-grid {
+    grid-template-columns: 1fr !important;
+    flex: none !important;
+}
+body.mobile-flow .home-panel {
+    padding: 14px !important;
+}
+body.mobile-flow .home-meta-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 10px;
+    overflow-y: visible;
+}
+body.mobile-flow .home-ann-list {
+    overflow-y: visible;
+}
+
+/* 2.4 環境排表 (#tier-scene) */
+body.mobile-flow #tier-scene {
+    padding: 2px 0 24px;
+    -webkit-overflow-scrolling: touch;
+}
+body.mobile-flow .tier-toolbar {
+    padding: 10px !important;
+    gap: 8px;
+}
+body.mobile-flow .tier-search {
+    min-width: 100%;
+    flex: 1 1 100%;
+}
+body.mobile-flow .tier-color-pills {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+}
+body.mobile-flow .tier-color-pills::-webkit-scrollbar {
+    display: none;
+}
+body.mobile-flow .tier-pill {
+    flex-shrink: 0;
+    min-height: 36px;
+    padding: 6px 12px !important;
+    font-size: 13px !important;
+}
+body.mobile-flow .tier-select {
+    flex: 1 1 44%;
+    max-width: none !important;
+}
+body.mobile-flow .tier-jump {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+}
+body.mobile-flow .tier-jump::-webkit-scrollbar {
+    display: none;
+}
+body.mobile-flow .tier-jump-chip {
+    flex-shrink: 0;
+    padding: 6px 12px;
+    font-size: 13px;
+}
+body.mobile-flow .tier-row {
+    flex-direction: column !important;
+    min-height: 0;
+}
+body.mobile-flow .tier-label {
+    width: 100% !important;
+    height: auto;
+    flex-direction: row !important;
+    justify-content: flex-start !important;
+    padding: 8px 14px;
+    font-size: 20px !important;
+    box-sizing: border-box;
+}
+body.mobile-flow .tier-label.UNRATED {
+    border-right: none !important;
+    border-bottom: 1.5px dashed var(--rule, #47413a);
+}
+body.mobile-flow .tier-cards {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    padding: 10px;
+}
+body.mobile-flow .tier-deck-card {
+    width: 100% !important;
+}
+body.mobile-flow #tier-back-top {
+    right: 14px;
+    bottom: calc(16px + env(safe-area-inset-bottom));
+    padding: 10px 14px;
+}
+
+/* 排表詳情／新增／公告彈窗 */
+body.mobile-flow .tier-detail-box,
+body.mobile-flow #tier-detail-content {
+    width: 95vw !important;
+    max-width: 95vw !important;
+    max-height: 88dvh !important;
+    padding: 16px !important;
+    border-radius: 14px !important;
+}
+body.mobile-flow .td-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+}
+body.mobile-flow .td-covers {
+    justify-content: center;
+}
+body.mobile-flow .td-cols,
+body.mobile-flow .ds-stats,
+body.mobile-flow .tier-form-grid,
+body.mobile-flow .td-edit-grid,
+body.mobile-flow .cover-input-row {
+    grid-template-columns: 1fr !important;
+}
+body.mobile-flow .ds-grid {
+    grid-template-columns: repeat(auto-fill, minmax(66px, 1fr));
+    gap: 6px;
+}
+body.mobile-flow .td-actions {
+    flex-wrap: wrap;
+}
+body.mobile-flow .td-actions button {
+    flex: 1 1 44%;
+}
+
+/* 2.5 對戰大廳 (#lobby-scene) */
+body.mobile-flow #lobby-scene {
+    padding: 2px 0 24px;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+}
+body.mobile-flow .lobby-layout {
+    grid-template-columns: 1fr !important;
+    flex: none !important;
+    gap: 12px;
+}
+body.mobile-flow .lobby-panel {
+    padding: 14px !important;
+}
+body.mobile-flow .lobby-room-list {
+    max-height: 360px;
+}
+body.mobile-flow .lobby-room-card {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+}
+body.mobile-flow #nchucgc-invite-toast {
+    left: 12px;
+    right: 12px;
+    width: auto;
+    top: calc(12px + env(safe-area-inset-top));
+}
+
+/* 2.6 牌組構築 (#builder-scene)：手機分頁切換（卡片庫 / 目前牌組） */
+body.mobile-flow #mobile-builder-tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    width: 100%;
+    flex-shrink: 0;
+}
+body.mobile-flow .mob-builder-tab {
+    min-height: 42px;
+    border-radius: 10px;
+    border: 1px solid var(--rule, #353c66);
+    background: var(--ink-2, #181c33);
+    color: var(--paper-dim, #9aa0b8);
+    font-size: 14px;
+    font-weight: 800;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+body.mobile-flow .mob-builder-tab.active {
+    background: var(--paper, #b39ddb);
+    color: var(--ink, #121424);
+    border-color: var(--paper, #b39ddb);
+}
+body.mobile-flow .builder-container {
+    flex-direction: column;
+    gap: 0;
+}
+body.mobile-flow #panel-deck,
+body.mobile-flow #panel-catalog {
+    width: 100%;
+    flex: 1;
+    padding: 10px !important;
+    min-height: 0;
+}
+body.mobile-flow:not(.builder-show-deck) #panel-deck {
+    display: none !important;
+}
+body.mobile-flow.builder-show-deck #panel-catalog {
+    display: none !important;
+}
+body.mobile-flow .deck-controls,
+body.mobile-flow .catalog-header {
+    gap: 6px;
+    padding: 6px;
+    margin-bottom: 8px;
+}
+body.mobile-flow .deck-controls .deck-selector {
+    flex: 1 1 100%;
+}
+body.mobile-flow .deck-controls .ctrl-btn {
+    flex: 1 1 auto;
+    min-height: 38px;
+    font-size: 13px;
+    padding: 6px 8px;
+}
+body.mobile-flow #catalog-grid,
+body.mobile-flow #deck-grid-inner,
+body.mobile-flow #ap-deck-grid {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+    gap: 8px;
+    align-content: start;
+}
+body.mobile-flow .catalog-panel .preview-card,
+body.mobile-flow .deck-panel .preview-card {
+    width: 100% !important;
+    height: auto !important;
+    aspect-ratio: 5 / 7;
+}
+body.mobile-flow #ap-deck-grid {
+    min-height: 80px;
+}
+body.mobile-flow #card-magnifier {
+    left: 50% !important;
+    bottom: calc(16px + env(safe-area-inset-bottom)) !important;
+    transform: translateX(-50%);
+    width: min(68vw, 270px) !important;
+    height: auto !important;
+    aspect-ratio: 5 / 7;
+    margin-top: 0 !important;
+}
+
+/* 手機橫向瀏覽非對戰頁微調（寬度 600–960px） */
+@media (min-width: 600px) {
+    body.mobile-flow .hero-mat {
+        grid-template-columns: repeat(4, 1fr) !important;
+    }
+    body.mobile-flow .home-meta-grid,
+    body.mobile-flow .tier-cards {
+        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    }
+}
+
+/* ---------- 3. 對戰桌（橫向手機）：滿版寬螢幕 + 大觸控按鈕 + 舒適手牌 (body.mobile-battle) ---------- */
+body.mobile-battle #app-canvas {
+    padding: 6px calc(10px + env(safe-area-inset-right)) 6px calc(10px + env(safe-area-inset-left)) !important;
+}
+
+/* 手機沒有實體鍵盤，隱藏左側鍵盤快捷抽屜釋放盤面 */
+body.mobile-battle #hotkey-guide {
+    display: none !important;
+}
+
+/* 右側戰術與階段側欄：放大按鈕與字體，確保縮放後手指好點 */
+body.mobile-battle #hud-right-stack {
+    right: 12px !important;
+    top: 10px !important;
+    width: 176px !important;
+}
+body.mobile-battle #hud-right-stack .hud-sidebar {
+    padding: 10px !important;
+    gap: 8px !important;
+}
+body.mobile-battle .phase-step {
+    padding: 12px 10px !important;
+    font-size: 17px !important;
+    letter-spacing: 1px;
+}
+body.mobile-battle #eng-turn-badge {
+    font-size: 16px !important;
+    padding: 8px 10px !important;
+}
+body.mobile-battle #ua-public-info-hud {
+    font-size: 14px !important;
+}
+body.mobile-battle #btn-back-builder {
+    padding: 11px 12px !important;
+    font-size: 15px !important;
+}
+
+/* 右下鏡頭控制鈕：放大至易點擊尺寸，不再半透明難找 */
+body.mobile-battle .cam-ctrl-box {
+    right: 12px !important;
+    bottom: 14px !important;
+    gap: 10px !important;
+    opacity: 0.94 !important;
+}
+body.mobile-battle .cam-btn {
+    width: 54px !important;
+    height: 54px !important;
+    font-size: 26px !important;
+}
+
+/* 左下動作按鈕（抽卡／復原／結束回合等）加大 */
+body.mobile-battle #my-match-actions {
+    left: 14px !important;
+    bottom: 14px !important;
+    gap: 10px !important;
+}
+body.mobile-battle #my-match-actions button {
+    padding: 12px 16px !important;
+    font-size: 16px !important;
+    border-radius: 10px !important;
+}
+
+/* 手牌區拉高並拉開卡距，方便拇指點選與拖出 */
+body.mobile-battle #my-hand-zone {
+    bottom: -26px !important;
+    transform: translateX(-50%) scale(1.02) !important;
+    width: min(1020px, 64%) !important;
+}
+body.mobile-battle #my-hand-area .card {
+    margin-left: -32px !important;
+}
+body.mobile-battle #my-hand-area .card:first-child {
+    margin-left: 0 !important;
+}
+body.mobile-battle #my-look-zone {
+    right: 82px !important;
+    bottom: 14px !important;
+}
+
+/* 盤面卡槽按鈕（BP、攻擊、起動メイン）明顯放大 */
+body.mobile-battle .bp-badge {
+    padding: 5px 10px !important;
+    font-size: 15px !important;
+    opacity: 0.92 !important;
+}
+body.mobile-battle .bp-tracker {
+    font-size: 20px !important;
+    padding: 3px 12px !important;
+}
+body.mobile-battle .eng-card-btn {
+    font-size: 17px !important;
+    padding: 11px 8px !important;
+}
+
+/* 選牌／確認彈窗與放大鏡：針對手機橫向優化比例與字級 */
+body.mobile-battle #ua-prompt-modal {
+    width: min(92%, 1180px) !important;
+    max-width: 92% !important;
+    max-height: 86% !important;
+    padding: 20px 24px !important;
+}
+body.mobile-battle #ua-prompt-title {
+    font-size: 24px !important;
+}
+body.mobile-battle #ua-prompt-modal button {
+    min-height: 48px !important;
+    font-size: 18px !important;
+    padding: 10px 20px !important;
+}
+body.mobile-battle #drop-menu {
+    padding: 14px !important;
+    gap: 10px !important;
+}
+body.mobile-battle .drop-btn {
+    padding: 14px 22px !important;
+    font-size: 18px !important;
+}
+body.mobile-battle #bp-menu {
+    width: 240px !important;
+    padding: 14px !important;
+    gap: 8px !important;
+}
+body.mobile-battle .bp-btn {
+    padding: 14px 8px !important;
+    font-size: 18px !important;
+}
+body.mobile-battle #card-magnifier {
+    left: 16px !important;
+    top: 16px !important;
+    bottom: auto !important;
+    margin-top: 0 !important;
+    width: 310px !important;
+    height: 434px !important;
+}
+body.mobile-battle .modal-content {
+    width: 92% !important;
+    max-height: 62% !important;
+}
+body.mobile-battle #sys-msg {
+    font-size: 18px !important;
+    padding: 12px 22px !important;
+}
