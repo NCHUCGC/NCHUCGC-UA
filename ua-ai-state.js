@@ -1370,11 +1370,18 @@
             return {
                 slotId,
                 attacker,
+                attackerCardId: attacker.cardId,
+                attackerImageUrl: attacker.def?.imageUrl || '',
+                attackerIsRaided: !!attacker.isRaided,
+                attackerEffectText: attacker.def?.effectText || '',
                 atkBp: this.getEffectiveBp(slotId),
                 impact: finalKw.impact,
                 damage: finalKw.damage,
+                doubleAttack: !!finalKw.doubleAttack,
+                snipe: !!finalKw.snipe,
                 unblockableMaxBp: finalKw.unblockableMaxBp,
                 unblockableMinBp: finalKw.unblockableMinBp,
+                unblockableByRaided: !!(attacker.tempKeywords?.UNBLOCKABLE_BY_RAIDED || (attacker.def?.effectText || '').includes('レイド状態のキャラにブロックされない')),
                 ...effRes
             };
         }

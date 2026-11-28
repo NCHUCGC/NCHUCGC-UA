@@ -1073,6 +1073,31 @@ body.ua-mode-strict #battle-tactical-bar {
     border-color: rgba(255, 209, 102, 0.55);
 }
 
+#btn-quick-extra-draw {
+    position: absolute;
+    left: 50%;
+    bottom: 186px;
+    transform: translateX(-50%);
+    z-index: 10025;
+    padding: 10px 24px;
+    border-radius: 999px;
+    border: 2px solid #5ef2a6;
+    background: linear-gradient(135deg, rgba(22, 84, 62, 0.96), rgba(46, 148, 108, 0.96));
+    color: #ffffff;
+    font-size: 15px;
+    font-weight: 900;
+    letter-spacing: 0.8px;
+    cursor: pointer;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65), 0 0 18px rgba(94, 242, 166, 0.45);
+    transition: transform 0.16s ease, box-shadow 0.16s ease, filter 0.16s ease;
+    white-space: nowrap;
+}
+#btn-quick-extra-draw:hover {
+    transform: translateX(-50%) translateY(-2px) scale(1.03);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.75), 0 0 24px rgba(94, 242, 166, 0.72);
+    filter: brightness(1.08);
+}
+
 #ua-fx-layer {
     position: absolute;
     inset: 0;
@@ -1083,54 +1108,55 @@ body.ua-mode-strict #battle-tactical-bar {
 
 .ua-fx-cutin {
     position: absolute;
-    left: 24px;
-    top: 42%;
+    left: 32px;
+    top: 44%;
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 8px 20px 8px 10px;
-    border-radius: 12px;
-    background: linear-gradient(105deg, rgba(14, 18, 36, 0.96) 0%, rgba(28, 34, 64, 0.92) 72%, rgba(14, 18, 36, 0.25) 100%);
-    border-left: 5px solid var(--fx-accent, #00ffcc);
-    box-shadow: 0 12px 34px rgba(0, 0, 0, 0.72), 0 0 22px color-mix(in srgb, var(--fx-accent, #00ffcc) 45%, transparent);
-    backdrop-filter: blur(6px);
-    animation: uaCutinIn 0.95s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-    max-width: min(420px, 82vw);
+    gap: 18px;
+    padding: 14px 34px 14px 16px;
+    border-radius: 16px;
+    background: linear-gradient(105deg, rgba(12, 16, 34, 0.97) 0%, rgba(28, 36, 70, 0.94) 74%, rgba(12, 16, 34, 0.3) 100%);
+    border-left: 7px solid var(--fx-accent, #00ffcc);
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.8), 0 0 34px color-mix(in srgb, var(--fx-accent, #00ffcc) 55%, transparent);
+    backdrop-filter: blur(8px);
+    animation: uaCutinIn 1.25s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    min-width: 340px;
+    max-width: min(620px, 88vw);
 }
 .ua-fx-cutin.opp {
     left: auto;
-    right: 24px;
-    top: 28%;
+    right: 32px;
+    top: 27%;
     flex-direction: row-reverse;
-    padding: 8px 10px 8px 20px;
+    padding: 14px 16px 14px 34px;
     border-left: none;
-    border-right: 5px solid var(--fx-accent, #ff6b81);
+    border-right: 7px solid var(--fx-accent, #ff6b81);
     text-align: right;
-    background: linear-gradient(255deg, rgba(24, 14, 30, 0.96) 0%, rgba(48, 22, 42, 0.92) 72%, rgba(24, 14, 30, 0.25) 100%);
+    background: linear-gradient(255deg, rgba(28, 12, 32, 0.97) 0%, rgba(56, 22, 46, 0.94) 74%, rgba(28, 12, 32, 0.3) 100%);
     animation-name: uaCutinInOpp;
 }
 .ua-fx-cutin-art {
-    width: 58px;
-    height: 82px;
-    border-radius: 6px;
+    width: 96px;
+    height: 134px;
+    border-radius: 8px;
     object-fit: cover;
-    border: 2px solid var(--fx-accent, #00ffcc);
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.7);
+    border: 2.5px solid var(--fx-accent, #00ffcc);
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.8);
     flex-shrink: 0;
 }
 .ua-fx-cutin-body {
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: 6px;
     min-width: 0;
 }
 .ua-fx-cutin-badge {
     display: inline-block;
     align-self: flex-start;
-    font-size: 11px;
+    font-size: 13px;
     font-weight: 900;
     letter-spacing: 0.08em;
-    padding: 2px 8px;
+    padding: 3px 12px;
     border-radius: 999px;
     background: var(--fx-accent, #00ffcc);
     color: #0b0e18;
@@ -1140,64 +1166,131 @@ body.ua-mode-strict #battle-tactical-bar {
     align-self: flex-end;
 }
 .ua-fx-cutin-name {
-    font-size: 16px;
+    font-size: 24px;
     font-weight: 900;
     color: #ffffff;
-    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.85);
+    text-shadow: 0 3px 10px rgba(0, 0, 0, 0.9);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 .ua-fx-cutin-sub {
-    font-size: 12px;
-    color: #cfd9f2;
-    font-weight: 600;
+    font-size: 14px;
+    color: #dbe4fa;
+    font-weight: 700;
+    line-height: 1.35;
 }
 
 @keyframes uaCutinIn {
-    0%   { opacity: 0; transform: translate(-60px, -50%) skewX(-6deg) scale(0.92); }
-    16%  { opacity: 1; transform: translate(0, -50%) skewX(-3deg) scale(1.02); }
-    78%  { opacity: 1; transform: translate(6px, -50%) skewX(-2deg) scale(1); }
-    100% { opacity: 0; transform: translate(34px, -50%) skewX(0deg) scale(0.96); }
+    0%   { opacity: 0; transform: translate(-80px, -50%) skewX(-6deg) scale(0.9); }
+    14%  { opacity: 1; transform: translate(0, -50%) skewX(-3deg) scale(1.03); }
+    80%  { opacity: 1; transform: translate(8px, -50%) skewX(-1.5deg) scale(1); }
+    100% { opacity: 0; transform: translate(42px, -50%) skewX(0deg) scale(0.96); }
 }
 @keyframes uaCutinInOpp {
-    0%   { opacity: 0; transform: translate(60px, -50%) skewX(6deg) scale(0.92); }
-    16%  { opacity: 1; transform: translate(0, -50%) skewX(3deg) scale(1.02); }
-    78%  { opacity: 1; transform: translate(-6px, -50%) skewX(2deg) scale(1); }
-    100% { opacity: 0; transform: translate(-34px, -50%) skewX(0deg) scale(0.96); }
+    0%   { opacity: 0; transform: translate(80px, -50%) skewX(6deg) scale(0.9); }
+    14%  { opacity: 1; transform: translate(0, -50%) skewX(3deg) scale(1.03); }
+    80%  { opacity: 1; transform: translate(-8px, -50%) skewX(1.5deg) scale(1); }
+    100% { opacity: 0; transform: translate(-42px, -50%) skewX(0deg) scale(0.96); }
 }
 
 /* 場上發動效果卡片脈衝光環 */
 .card.ua-fx-pulse::after {
     content: '';
     position: absolute;
-    inset: -6px;
-    border-radius: 10px;
-    border: 3px solid var(--fx-pulse-color, #00ffcc);
-    box-shadow: 0 0 22px var(--fx-pulse-color, #00ffcc);
+    inset: -10px;
+    border-radius: 12px;
+    border: 4px solid var(--fx-pulse-color, #00ffcc);
+    box-shadow: 0 0 32px var(--fx-pulse-color, #00ffcc);
     pointer-events: none;
-    animation: uaCardPulseRing 0.72s ease-out forwards;
+    animation: uaCardPulseRing 0.85s ease-out forwards;
 }
 @keyframes uaCardPulseRing {
-    0%   { opacity: 0.95; transform: scale(0.96); }
-    100% { opacity: 0; transform: scale(1.24); }
+    0%   { opacity: 0.98; transform: scale(0.95); }
+    100% { opacity: 0; transform: scale(1.3); }
 }
 
 /* 卡槽 BP 變動動態浮字 */
 .ua-bp-float {
     position: absolute;
     left: 50%;
-    top: 12px;
+    top: 8px;
     transform: translateX(-50%);
     z-index: 2500;
-    font-size: 16px;
+    font-size: 22px;
     font-weight: 900;
     pointer-events: none;
     white-space: nowrap;
-    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.95);
-    animation: uaBpFloatUp 0.95s ease-out forwards;
+    text-shadow: 0 3px 10px rgba(0, 0, 0, 0.95);
+    animation: uaBpFloatUp 1.05s ease-out forwards;
 }
 .ua-bp-float.plus { color: #5ef2a6; }
+
+/* 防禦確認視窗內的對手攻擊效果摘要卡片 */
+.ua-atk-info-box {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    text-align: left;
+    background: rgba(255, 77, 109, 0.1);
+    border: 1px solid rgba(255, 107, 129, 0.45);
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin-bottom: 10px;
+}
+.ua-atk-info-art {
+    width: 62px;
+    height: 86px;
+    border-radius: 6px;
+    object-fit: cover;
+    border: 2px solid #ff6b81;
+    flex-shrink: 0;
+}
+.ua-atk-info-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+    flex: 1;
+}
+.ua-atk-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+.ua-atk-tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 900;
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+}
+.ua-atk-eff-lines {
+    font-size: 12px;
+    color: #e6ecf8;
+    line-height: 1.45;
+    white-space: pre-wrap;
+}
+
+body.mobile-battle .ua-fx-cutin {
+    min-width: 240px;
+    padding: 10px 20px 10px 12px;
+    gap: 12px;
+}
+body.mobile-battle .ua-fx-cutin-art {
+    width: 68px;
+    height: 96px;
+}
+body.mobile-battle .ua-fx-cutin-name {
+    font-size: 18px;
+}
+body.mobile-battle #btn-quick-extra-draw {
+    bottom: 124px;
+    padding: 7px 16px;
+    font-size: 13px;
+}
 .ua-bp-float.minus { color: #ff5c7a; }
 @keyframes uaBpFloatUp {
     0%   { opacity: 0; transform: translate(-50%, 10px) scale(0.8); }

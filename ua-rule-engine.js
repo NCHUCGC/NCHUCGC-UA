@@ -2262,10 +2262,16 @@ injectEngineUI() {
             }
 
             const hasFreeExtraDraw = this.getSlotTopCards('#my-front-line .slot').some(c => this.getBaseCardId(c.dataset?.cardId) === 'UA43BT/SMD-1-045');
+            const showExtraDraw = (this.isMyTurn && this.currentPhase === '起始' && !this.usedExtraDraw && (activeAp >= 1 || hasFreeExtraDraw));
             const extraDrawBtn = document.getElementById('btn-extra-draw');
             if (extraDrawBtn) {
                 extraDrawBtn.innerText = hasFreeExtraDraw ? '額外抽卡 (0AP)' : '額外抽卡 (1AP)';
-                extraDrawBtn.style.display = (this.isMyTurn && this.currentPhase === '起始' && !this.usedExtraDraw && (activeAp >= 1 || hasFreeExtraDraw)) ? 'block' : 'none';
+                extraDrawBtn.style.display = showExtraDraw ? 'block' : 'none';
+            }
+            const quickExtraDrawBtn = document.getElementById('btn-quick-extra-draw');
+            if (quickExtraDrawBtn) {
+                quickExtraDrawBtn.innerText = hasFreeExtraDraw ? '額外抽卡 (0AP) [E]' : '額外抽卡 (1AP) [E]';
+                quickExtraDrawBtn.style.display = showExtraDraw ? 'inline-flex' : 'none';
             }
 
             this.renderFieldActionOverlayButtons();
@@ -5210,7 +5216,20 @@ injectEngineUI() {
 
                 if (snipedOppSlot) {
                     const targetCard = this.getTopCardInSlot(snipedOppSlot);
-                    sendSystemChat(`[戰鬥] 對手的【${def.name} (BP ${atkBp})】對你的【${this.getCardDef(targetCard)?.name}】發動了狙擊！`);
+                    const targetName = this.getCardDef(targetCard)?.name || '角色';
+                    sendSystemChat(`[戰鬥] 對手的【${def.name} (BP ${atkBp})】對你的【${targetName}】發動了狙擊！`);
+                    if (conn && isConnected) {
+                        conn.send({
+                            type: 'ENGINE_EVENT',
+                            subType: 'OPP_SNIPE_ATTACK',
+                            attackerCardId: def.id || '',
+                            attackerName: def.name,
+                            attackerBp: atkBp,
+                            attackerImageUrl: attackerCard.querySelector('.card-front img')?.src || def.imageUrl || '',
+                            targetName,
+                            impact: this.getCardImpactValue(attackerCard)
+                        });
+                    }
                     this.resolveCharacterBattle(attackerSlot, attackerCard, snipedOppSlot, targetCard);
                     return;
                 }
@@ -5252,17 +5271,28 @@ injectEngineUI() {
                     ].filter(v => v && v > 0);
                     const effUnblockMin = minCands.length > 0 ? Math.min(...minCands) : 0;
                     const effUnblockRaided = !!(rt.tempKeywords?.UNBLOCKABLE_BY_RAIDED || rt.persistentKeywords?.UNBLOCKABLE_BY_RAIDED || scriptUnb.byRaided || (def.effectText || '').includes('レイド状態のキャラにブロックされない'));
+                    const effImpact = this.getCardImpactValue(attackerCard);
+                    const effDamage = this.getCardDamageValue(attackerCard);
+                    const effDoubleAtk = !!(innateAtkKw.doubleAttack || v3AtkView?.doubleAttack || rt.tempKeywords?.DOUBLE_ATTACK);
+                    const effSnipe = !!(innateAtkKw.snipe || v3AtkView?.snipe || rt.tempKeywords?.SNIPE);
                     conn.send({
                         type: 'ENGINE_EVENT',
                         subType: 'ATTACK_DECLARED',
                         attackId,
+                        attackerCardId: def.id || '',
+                        attackerImageUrl: attackerCard.querySelector('.card-front img')?.src || def.imageUrl || '',
                         attackerName: def.name,
                         attackerBp: atkBp,
                         attackerBaseBp: def.bp || 0,
                         attackerIsRaided: !!rt.isRaided,
+                        impact: effImpact,
+                        damage: effDamage,
+                        doubleAttack: effDoubleAtk,
+                        snipe: effSnipe,
                         unblockableMaxBp: effUnblockMax,
                         unblockableMinBp: effUnblockMin,
-                        unblockableByRaided: effUnblockRaided
+                        unblockableByRaided: effUnblockRaided,
+                        attackerEffectText: def.effectText || ''
                     });
                     showSysMsg('等待對手選擇是否進行防禦 (Block)...');
                 } else if (this.isSoloTestMode) {
@@ -5333,6 +5363,40 @@ injectEngineUI() {
             if (!this.enabled) return;
             this.currentAttackInfo = data;
 
+            const atkDef = data.attackerCardId ? this.getCardDef({ dataset: { cardId: data.attackerCardId } }) : null;
+            const U = window.UAUtils || {};
+            const atkDispName = atkDef && U.getDisplayName ? U.getDisplayName(atkDef) : (data.attackerName || '對手角色');
+            const atkImg = data.attackerImageUrl || atkDef?.imageUrl || '';
+
+            // 彙整對手攻擊角色所有生效中的戰鬥關鍵字與攻擊時效果，讓防守方清楚判斷是否阻擋
+            const atkTags = [];
+            if (data.impact > 0) atkTags.push({ text: `衝擊 (${data.impact})`, bg: '#c0392b' });
+            if (data.damage > 1) atkTags.push({ text: `傷害 (${data.damage})`, bg: '#e67e22' });
+            if (data.doubleAttack) atkTags.push({ text: '2回攻擊', bg: '#d35400' });
+            if (data.snipe) atkTags.push({ text: '狙擊', bg: '#8e44ad' });
+            if (data.unblockableMinBp > 0) atkTags.push({ text: `BP ${data.unblockableMinBp}+ 不可阻擋`, bg: '#16a085' });
+            if (data.unblockableMaxBp > 0) atkTags.push({ text: `BP ${data.unblockableMaxBp} 以下不可阻擋`, bg: '#16a085' });
+            if (data.unblockableByRaided) atkTags.push({ text: '突襲角色不可阻擋', bg: '#16a085' });
+
+            const rawEff = (atkDef && U.getDisplayEffectText ? U.getDisplayEffectText(atkDef) : (data.attackerEffectText || '')) || '';
+            const attackEffLines = rawEff
+                .split('\n')
+                .map(l => l.trim())
+                .filter(l => /\[(?:アタック時|攻擊時|ブロックされた時|被阻擋時|バトル勝利|戰鬥獲勝|インパクト|衝擊|ダメージ|傷害|2回アタック|2回攻擊|狙い撃ち|狙擊)\]/.test(l) || /ブロックされない|不可阻擋|不能阻擋|無法防禦/.test(l));
+            const triggeredLogs = Array.isArray(data.attackLogs) ? data.attackLogs.filter(Boolean) : [];
+
+            if (typeof window.playCardEffectAnim === 'function') {
+                const tagSummary = atkTags.length > 0 ? atkTags.map(t => t.text).join(' · ') : `BP ${data.attackerBp} 宣告攻擊`;
+                window.playCardEffectAnim({
+                    cardName: `${atkDispName}（BP ${data.attackerBp}）`,
+                    imageUrl: atkImg,
+                    badgeText: atkTags.length > 0 ? '對手攻擊・附帶效果' : '對手攻擊宣言',
+                    subText: tagSummary,
+                    accentColor: data.impact > 0 || data.damage > 1 ? '#ff4d6d' : '#ff8c42',
+                    isOpponent: true
+                });
+            }
+
             const blockers = this.getSlotTopCards('#my-front-line .slot').filter(c => {
                 if (c.classList.contains('rest')) return false;
                 const cV3 = window.UAV3Bridge ? window.UAV3Bridge.evalContinuousView(this, c) : null;
@@ -5345,17 +5409,19 @@ injectEngineUI() {
                 return true;
             });
 
+            const basePromptText = blockers.length > 0
+                ? `請點選 1 張我方前線活動的角色進行【防禦 (Block)】，或點擊下方「不防禦（承受生命傷害）」：`
+                : `我方前線目前沒有可進行防禦的角色，請點擊下方按鈕承受傷害並翻開生命區 Trigger：`;
+
             this.promptModal({
-                title: `防禦確認：${data.attackerName} (BP ${data.attackerBp})`, 
-                desc: blockers.length > 0
-                    ? `請點選 1 張我方前線活動的角色進行【防禦 (Block)】，或點擊下方「不防禦（承受生命傷害）」：`
-                    : `我方前線目前沒有可進行防禦的角色，請點擊下方按鈕承受傷害並翻開生命區 Trigger：`,
+                title: `防禦確認：${atkDispName} (BP ${data.attackerBp})`,
+                desc: basePromptText,
                 cards: blockers,
                 selectCount: 1,
                 upTo: true,
                 customButtons: [
                     {
-                        label: '不防禦（承受傷害）',
+                        label: data.damage > 1 ? `不防禦（承受 ${data.damage} 點傷害）` : '不防禦（承受傷害）',
                         color: '#c1596f',
                         onClick: () => {
                             if (conn && isConnected) {
@@ -5422,6 +5488,30 @@ injectEngineUI() {
                     });
                 }
             });
+
+            // 在防禦確認視窗上方插入視覺化的「對手攻擊者資訊＋效果標籤＋攻擊時效果」卡片
+            const descEl = typeof document !== 'undefined' ? document.getElementById('ua-prompt-desc') : null;
+            if (descEl && (atkTags.length > 0 || attackEffLines.length > 0 || triggeredLogs.length > 0 || atkImg)) {
+                const esc = U.escapeHtml || (s => String(s || '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m])));
+                const safeImg = /^(https?:\/\/|data:image\/|\.)/i.test(atkImg) ? atkImg : '';
+                const tagsHtml = atkTags.length > 0
+                    ? `<div class="ua-atk-tags">${atkTags.map(t => `<span class="ua-atk-tag" style="background:${t.bg};">${esc(t.text)}</span>`).join('')}</div>`
+                    : `<div class="ua-atk-tags"><span class="ua-atk-tag" style="background:#475569;">一般攻擊（傷害 1）</span></div>`;
+                const notes = [];
+                if (triggeredLogs.length > 0) notes.push(`剛發動效果：\n${triggeredLogs.join('\n')}`);
+                if (attackEffLines.length > 0) notes.push(attackEffLines.join('\n'));
+                const effHtml = notes.length > 0 ? `<div class="ua-atk-eff-lines">${esc(notes.join('\n'))}</div>` : '';
+                descEl.innerHTML = `
+                    <div class="ua-atk-info-box">
+                        ${safeImg ? `<img class="ua-atk-info-art" src="${esc(safeImg)}" alt="">` : ''}
+                        <div class="ua-atk-info-meta">
+                            ${tagsHtml}
+                            ${effHtml}
+                        </div>
+                    </div>
+                    <div>${esc(basePromptText)}</div>
+                `;
+            }
         }
 
         resolveCharacterBattle(attackerSlot, attackerCard, defenderOppSlot, defenderCard, reportedDefBp = null) {
@@ -6737,6 +6827,23 @@ handleNetworkEvent(data) {
                             });
                         }
                     }
+                    break;
+                }
+                case 'OPP_SNIPE_ATTACK': {
+                    const def = data.attackerCardId ? this.getCardDef({ dataset: { cardId: data.attackerCardId } }) : null;
+                    const dispName = def && window.UAUtils ? window.UAUtils.getDisplayName(def) : (data.attackerName || '對手角色');
+                    const sub = `狙擊目標：${data.targetName || '前線角色'}${data.impact > 0 ? ` · 衝擊(${data.impact})` : ''}`;
+                    if (typeof window.playCardEffectAnim === 'function') {
+                        window.playCardEffectAnim({
+                            cardName: `${dispName}（BP ${data.attackerBp || 0}）`,
+                            imageUrl: data.attackerImageUrl || def?.imageUrl || '',
+                            badgeText: '對手發動狙擊',
+                            subText: sub,
+                            accentColor: '#9b59b6',
+                            isOpponent: true
+                        });
+                    }
+                    showSysMsg(`[狙擊] 對手【${dispName}】狙擊了你的【${data.targetName || '角色'}】！`);
                     break;
                 }
                 case 'OPP_FACEUP_REVEAL': {

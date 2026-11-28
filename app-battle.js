@@ -2195,7 +2195,7 @@ function createCardDOM(cardData, networkId, isMine) {
                 opts.cardEl.classList.remove('ua-fx-pulse');
                 void opts.cardEl.offsetWidth;
                 opts.cardEl.classList.add('ua-fx-pulse');
-                setTimeout(() => { if (opts.cardEl) opts.cardEl.classList.remove('ua-fx-pulse'); }, 760);
+                setTimeout(() => { if (opts.cardEl) opts.cardEl.classList.remove('ua-fx-pulse'); }, 900);
             }
             if (!layer) return;
             const banner = document.createElement('div');
@@ -2214,7 +2214,7 @@ function createCardDOM(cardData, networkId, isMine) {
             const sameSide = layer.querySelectorAll(opts.isOpponent ? '.ua-fx-cutin.opp' : '.ua-fx-cutin:not(.opp)');
             if (sameSide.length >= 2) sameSide[0].remove();
             layer.appendChild(banner);
-            setTimeout(() => { if (banner.parentNode) banner.remove(); }, 980);
+            setTimeout(() => { if (banner.parentNode) banner.remove(); }, 1280);
         };
 
         window.playBpFloatAnim = function(slotEl, delta) {
@@ -2223,7 +2223,7 @@ function createCardDOM(cardData, networkId, isMine) {
             el.className = 'ua-bp-float ' + (delta > 0 ? 'plus' : 'minus');
             el.textContent = (delta > 0 ? '+' : '') + delta + ' BP';
             slotEl.appendChild(el);
-            setTimeout(() => { if (el.parentNode) el.remove(); }, 960);
+            setTimeout(() => { if (el.parentNode) el.remove(); }, 1080);
         };
 
         // 雙擊手牌快速登場／發動（減少自動模式手動拖曳）
@@ -2549,6 +2549,14 @@ function createCardDOM(cardData, networkId, isMine) {
                 }
                 if (typeof window.advanceNextPhase === 'function') {
                     window.advanceNextPhase();
+                }
+                return;
+            }
+
+            if (key === 'e') {
+                if (window.uaEngine && window.uaEngine.enabled && window.uaEngine.isMyTurn && window.uaEngine.currentPhase === '起始' && !window.uaEngine.usedExtraDraw) {
+                    e.preventDefault();
+                    window.uaEngine.executeExtraDraw();
                 }
                 return;
             }

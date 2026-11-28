@@ -466,10 +466,21 @@
                 type: 'ENGINE_EVENT',
                 subType: 'ATTACK_DECLARED',
                 attackId,
+                attackerCardId: atkInfo.attackerCardId || atkInfo.attacker?.cardId || '',
+                attackerImageUrl: atkInfo.attackerImageUrl || atkInfo.attacker?.def?.imageUrl || '',
                 attackerName: atkInfo.attacker.def?.name || '電腦角色',
                 attackerBp: atkInfo.atkBp,
+                attackerBaseBp: atkInfo.attacker?.def?.bp || 0,
+                attackerIsRaided: !!atkInfo.attackerIsRaided,
+                impact: atkInfo.impact || 0,
+                damage: atkInfo.damage || 1,
+                doubleAttack: !!atkInfo.doubleAttack,
+                snipe: !!atkInfo.snipe,
                 unblockableMaxBp: atkInfo.unblockableMaxBp || 0,
-                unblockableMinBp: atkInfo.unblockableMinBp || 0
+                unblockableMinBp: atkInfo.unblockableMinBp || 0,
+                unblockableByRaided: !!atkInfo.unblockableByRaided,
+                attackerEffectText: atkInfo.attackerEffectText || '',
+                attackLogs: Array.isArray(atkInfo.logs) ? atkInfo.logs : []
             });
 
             if (this.waitWatchdog) clearTimeout(this.waitWatchdog);
