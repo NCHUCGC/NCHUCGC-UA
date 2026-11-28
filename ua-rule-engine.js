@@ -2368,8 +2368,13 @@ injectEngineUI() {
                     `#${prefix}-remove-area .card`,
                     `#${prefix}-public-area .card`,
                     `#${prefix}-front-line .card`,
-                    `#${prefix}-energy-line .card`
+                    `#${prefix}-energy-line .card`,
+                    `#${prefix}-deck-area .card`,
+                    `#${prefix}-life-area .card`
                 ].join(', ');
+
+                const faceupDeck = Array.from(document.querySelectorAll(`#${prefix}-deck-area .card`)).filter(c => !c.classList.contains('is-flipped')).length;
+                const faceupLife = Array.from(document.querySelectorAll(`#${prefix}-life-area .card`)).filter(c => !c.classList.contains('is-flipped')).length;
 
                 document.querySelectorAll(publicZones).forEach(c => {
                     if (c.classList.contains('is-flipped')) return;
@@ -2384,6 +2389,7 @@ injectEngineUI() {
 
                 return {
                     handCnt, deckCnt, outCnt,
+                    faceupDeck, faceupLife,
                     remFinal: Math.max(0, 4 - seenFinal),
                     remSpecial: Math.max(0, 4 - seenSpecial),
                     remColor: Math.max(0, 4 - seenColor)
@@ -2392,6 +2398,10 @@ injectEngineUI() {
 
             const opp = countSide('opp');
             const my = countSide('my');
+            const totalFaceupDL = opp.faceupDeck + opp.faceupLife + my.faceupDeck + my.faceupLife;
+            const faceupHtml = totalFaceupDL > 0
+                ? `<div style="margin-top:6px; padding-top:5px; border-top:1px dashed rgba(255,255,255,0.15); font-size:11px; color:#f1c40f;">表側牌頂/生命：共 <b>${totalFaceupDL}</b>（我 ${my.faceupDeck + my.faceupLife} / 敵 ${opp.faceupDeck + opp.faceupLife}）</div>`
+                : '';
             body.innerHTML = `
                 <div style="margin-bottom:6px; padding-bottom:5px; border-bottom:1px dashed rgba(255,255,255,0.15);">
                     <div style="color:#ff8a80; font-weight:bold;">對手</div>
@@ -2403,6 +2413,7 @@ injectEngineUI() {
                     <div style="font-size:11px; color:#ddd;">手牌 ${my.handCnt} / 牌組 ${my.deckCnt} / 場外 ${my.outCnt}</div>
                     <div style="font-size:11px; color:#ddd;">F:<b style="color:#f1c40f;">${my.remFinal}</b> S:<b style="color:#ff7675;">${my.remSpecial}</b> C:<b style="color:#74b9ff;">${my.remColor}</b></div>
                 </div>
+                ${faceupHtml}
             `;
         }
 
@@ -6579,9 +6590,28 @@ handleNetworkEvent(data) {
                     const facedown = Array.from(document.querySelectorAll('#my-life-area .card')).filter(c => c.classList.contains('is-flipped'));
                     const flipN = Math.min(cnt, facedown.length);
                     if (flipN > 0) {
-                        for (let i = 0; i < flipN; i++) facedown[facedown.length - 1 - i].classList.remove('is-flipped');
+                        const flipped = [];
+                        for (let i = 0; i < flipN; i++) {
+                            const lc = facedown[facedown.length - 1 - i];
+                            lc.classList.remove('is-flipped');
+                            flipped.push(lc);
+                        }
                         broadcastMyState();
-                        showSysMsg(`對手效果：我方 ${flipN} 張生命卡已翻為表側！`);
+                        this.updatePublicInfoHUD();
+                        const last = flipped[flipped.length - 1];
+                        const lastDef = this.getCardDef(last);
+                        const names = flipped.map(c => this.getCardDef(c)?.name || c.dataset.cardId).join('、');
+                        showSysMsg(`對手效果：我方 ${flipN} 張生命卡已翻為表側（${names}）！`);
+                        if (conn && isConnected) {
+                            conn.send({
+                                type: 'ENGINE_EVENT',
+                                subType: 'OPP_FACEUP_REVEAL',
+                                zoneLabel: '對手生命翻為表側',
+                                cardId: last?.dataset?.cardId || '',
+                                cardName: names,
+                                imageUrl: last?.querySelector('.card-front img')?.src || lastDef?.imageUrl || ''
+                            });
+                        }
                     }
                     break;
                 }
@@ -6591,8 +6621,9 @@ handleNetworkEvent(data) {
                     const lifeArea = document.getElementById('my-life-area');
                     const cards = slot ? Array.from(slot.querySelectorAll('.card')) : [];
                     if (cards.length > 0 && lifeArea) {
-                        const top = cards[cards.length - 1];
-                        const under = cards.slice(0, cards.length - 1);
+                        const top = this.getTopCardInSlot(slot) || cards[cards.length - 1];
+                        const under = cards.filter(c => c !== top);
+                        const topDef = this.getCardDef(top);
                         updateBpDisplay(slot, 0);
                         under.forEach(uc => this.moveCardToZone(uc, document.getElementById('my-outside-area')));
                         lifeArea.appendChild(top);
@@ -6604,6 +6635,16 @@ handleNetworkEvent(data) {
                         updateSlotCounts();
                         this.updateEnergyHUD();
                         broadcastMyState();
+                        if (conn && isConnected) {
+                            conn.send({
+                                type: 'ENGINE_EVENT',
+                                subType: 'OPP_FACEUP_REVEAL',
+                                zoneLabel: '對手生命區（表側置入）',
+                                cardId: top.dataset?.cardId || '',
+                                cardName: topDef?.name || top.dataset?.cardId || '',
+                                imageUrl: top.querySelector('.card-front img')?.src || topDef?.imageUrl || ''
+                            });
+                        }
                     }
                     break;
                 }
@@ -6612,6 +6653,7 @@ handleNetworkEvent(data) {
                         networkId: c.dataset.networkId,
                         cardId: c.dataset.cardId,
                         name: this.getCardDef(c)?.name || c.dataset.cardId,
+                        bp: this.getCardDef(c)?.bp || 0,
                         imageUrl: c.querySelector('.card-front img')?.src || this.getCardDef(c)?.imageUrl || ''
                     }));
                     if (conn && isConnected) {
@@ -6635,8 +6677,16 @@ handleNetworkEvent(data) {
                     let pickedId = null;
                     list.forEach(item => {
                         const w = document.createElement('div');
-                        w.style.cssText = 'width:110px; height:154px; border-radius:8px; overflow:hidden; border:3px solid rgba(255,255,255,0.25); cursor:pointer;';
-                        w.innerHTML = `<img src="${item.imageUrl}" style="width:100%; height:100%; object-fit:cover;">`;
+                        w.style.cssText = 'width:110px; border-radius:8px; overflow:hidden; border:3px solid rgba(255,255,255,0.25); cursor:pointer; background:#14162a; display:flex; flex-direction:column;';
+                        const img = document.createElement('img');
+                        img.src = item.imageUrl || '';
+                        img.style.cssText = 'width:110px; height:154px; object-fit:cover; display:block;';
+                        img.onerror = function () { if (typeof window.handleImgError === 'function') window.handleImgError(this, item.cardId || ''); };
+                        const lbl = document.createElement('div');
+                        lbl.style.cssText = 'font-size:11px; color:#eee; padding:3px 4px; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;';
+                        lbl.textContent = item.name || item.cardId || '';
+                        w.appendChild(img);
+                        w.appendChild(lbl);
                         w.onclick = () => {
                             pickedId = item.networkId;
                             Array.from(cardsBox.children).forEach(ch => ch.style.borderColor = 'rgba(255,255,255,0.25)');
@@ -6666,15 +6716,45 @@ handleNetworkEvent(data) {
                     const target = Array.from(document.querySelectorAll('#my-hand-area .card')).find(c => c.dataset.networkId === data.networkId);
                     const deckArea = document.getElementById('my-deck-area');
                     if (target && deckArea) {
+                        const tDef = this.getCardDef(target);
                         deckArea.appendChild(target);
                         target.classList.remove('is-flipped', 'rest', 'in-life');
                         target.style.position = 'absolute';
                         recalcStacking(deckArea);
                         recalcStacking(document.getElementById('my-hand-area'));
                         updateSlotCounts();
+                        this.updatePublicInfoHUD();
                         broadcastMyState();
-                        showSysMsg('對手效果：我方 1 張手牌已以表側置於牌組頂端！');
+                        showSysMsg(`對手效果：我方【${tDef?.name || '卡片'}】已以表側置於牌組頂端！`);
+                        if (conn && isConnected) {
+                            conn.send({
+                                type: 'ENGINE_EVENT',
+                                subType: 'OPP_FACEUP_REVEAL',
+                                zoneLabel: '對手牌組頂端（表側）',
+                                cardId: target.dataset?.cardId || '',
+                                cardName: tDef?.name || target.dataset?.cardId || '',
+                                imageUrl: target.querySelector('.card-front img')?.src || tDef?.imageUrl || ''
+                            });
+                        }
                     }
+                    break;
+                }
+                case 'OPP_FACEUP_REVEAL': {
+                    const def = data.cardId ? this.getCardDef({ dataset: { cardId: data.cardId } }) : null;
+                    const dispName = def && window.UAUtils ? window.UAUtils.getDisplayName(def) : (data.cardName || data.cardId || '卡片');
+                    const imgUrl = data.imageUrl || def?.imageUrl || '';
+                    if (typeof window.playCardEffectAnim === 'function') {
+                        window.playCardEffectAnim({
+                            cardName: dispName,
+                            imageUrl: imgUrl,
+                            badgeText: data.zoneLabel || '對手表側公開',
+                            subText: '滑鼠移至對手牌頂或生命區可隨時放大檢視',
+                            accentColor: '#f1c40f',
+                            isOpponent: true
+                        });
+                    }
+                    this.updatePublicInfoHUD();
+                    showSysMsg(`[${data.zoneLabel || '表側公開'}] ${dispName}`);
                     break;
                 }
                 case 'OPP_TRIGGER_REVEAL': {

@@ -629,6 +629,19 @@
         .card.rest { --rot: 90deg !important; }
         .card.in-life { --rot: -90deg !important; }
 
+        /* 雙方牌組頂端或生命區「表側公開」卡片高亮邊框（如黃坂本表側牌頂／表側生命） */
+        #my-deck-area .card:not(.is-flipped),
+        #opp-deck-area .card:not(.is-flipped),
+        #my-life-area .card:not(.is-flipped),
+        #opp-life-area .card:not(.is-flipped) {
+            box-shadow: 0 0 0 2px #f1c40f, 0 0 14px rgba(241, 196, 15, 0.85);
+            border-radius: 6px;
+        }
+        #my-life-area .card:not(.is-flipped),
+        #opp-life-area .card:not(.is-flipped) {
+            --tx: 14px;
+        }
+
         #drop-menu { display: none; position: fixed; z-index: 9999999; background: rgba(20,20,20,0.95); border: 2px solid #6c93c7; border-radius: 8px; padding: 10px; flex-direction: column; gap: 8px; box-shadow: 0 0 15px rgba(108, 147, 199,0.5); }
         .drop-btn { background: #262a42; color: white; border: 1px solid #7f8c8d; padding: 8px 15px; cursor: pointer; border-radius: 4px; font-weight: bold; font-size: 12px;}
         .drop-btn:hover { background: #313456; }

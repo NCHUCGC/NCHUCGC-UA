@@ -2815,7 +2815,7 @@ function createCardDOM(cardData, networkId, isMine) {
                 
                 cards.forEach(card => { 
                     modalContainer.appendChild(card); 
-                    if(!zone.id.includes('life') && !zone.id.includes('opp-')) card.classList.remove('is-flipped'); else if (zone.id.includes('life')) card.classList.add('is-flipped'); 
+                    if (!zone.id.includes('life') && !zone.id.includes('opp-')) card.classList.remove('is-flipped');
                     card.classList.remove('rest', 'in-life'); 
                     card.style.position = 'relative'; card.style.left = '0px'; card.style.top = '0px'; card.style.transform = 'none';
                     card.style.zIndex = '';

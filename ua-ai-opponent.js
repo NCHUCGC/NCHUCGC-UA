@@ -266,10 +266,28 @@
                     break;
                 }
                 case 'FORCE_FLIP_LIFE': {
+                    const cnt = Math.max(1, parseInt(data.count, 10) || 1);
                     const fd = this.st.life.filter(c => c.isFlipped);
-                    if (fd.length > 0) {
-                        fd[fd.length - 1].isFlipped = false;
+                    const flipN = Math.min(cnt, fd.length);
+                    const flippedCards = [];
+                    for (let i = 0; i < flipN; i++) {
+                        const target = fd[fd.length - 1 - i];
+                        target.isFlipped = false;
+                        flippedCards.push(target);
+                    }
+                    if (flippedCards.length > 0) {
                         this.syncBoard();
+                        const last = flippedCards[flippedCards.length - 1];
+                        const names = flippedCards.map(x => x.def?.name || x.cardId).join('、');
+                        this.sendToPlayer({ type: 'CHAT_MSG', isSystem: true, text: `[表側公開] 電腦生命區翻開了【${names}】！` });
+                        this.sendToPlayer({
+                            type: 'ENGINE_EVENT',
+                            subType: 'OPP_FACEUP_REVEAL',
+                            zoneLabel: '對手生命翻為表側',
+                            cardId: last.cardId,
+                            cardName: names,
+                            imageUrl: last.def?.imageUrl || ''
+                        });
                     }
                     break;
                 }
@@ -286,6 +304,16 @@
                         top.isFlipped = false; top.isRest = false; top.isRaided = false;
                         this.st.life.push(top);
                         this.syncBoard();
+                        const cname = top.def?.name || top.cardId;
+                        this.sendToPlayer({ type: 'CHAT_MSG', isSystem: true, text: `[表側公開] 電腦的【${cname}】已表側置於生命區！` });
+                        this.sendToPlayer({
+                            type: 'ENGINE_EVENT',
+                            subType: 'OPP_FACEUP_REVEAL',
+                            zoneLabel: '對手生命區（表側置入）',
+                            cardId: top.cardId,
+                            cardName: cname,
+                            imageUrl: top.def?.imageUrl || ''
+                        });
                     }
                     break;
                 }
@@ -294,6 +322,7 @@
                         networkId: c.networkId,
                         cardId: c.cardId,
                         name: c.def?.name || c.cardId,
+                        bp: c.def?.bp || 0,
                         imageUrl: c.def?.imageUrl || ''
                     }));
                     this.sendToPlayer({ type: 'ENGINE_EVENT', subType: 'OPP_HAND_REVEAL_RESPONSE', cards: list });
@@ -306,6 +335,16 @@
                         c.isFlipped = false; c.isRest = false;
                         this.st.deck.push(c);
                         this.syncBoard();
+                        const cname = c.def?.name || c.cardId;
+                        this.sendToPlayer({ type: 'CHAT_MSG', isSystem: true, text: `[表側公開] 電腦的【${cname}】已表側置於牌組頂端！` });
+                        this.sendToPlayer({
+                            type: 'ENGINE_EVENT',
+                            subType: 'OPP_FACEUP_REVEAL',
+                            zoneLabel: '對手牌組頂端（表側）',
+                            cardId: c.cardId,
+                            cardName: cname,
+                            imageUrl: c.def?.imageUrl || ''
+                        });
                     }
                     break;
                 }

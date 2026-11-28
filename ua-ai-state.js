@@ -1473,7 +1473,7 @@
                 state.push({ id: c.networkId, parent, x, y, zIndex, isFlipped, isRest, inLife, isDragging: false, tilt: '0deg' });
             };
 
-            this.deck.forEach((c, idx) => pushCard(c, 'my-deck-area', '0px', '0px', idx + 1, true, false, false));
+            this.deck.forEach((c, idx) => pushCard(c, 'my-deck-area', '0px', '0px', idx + 1, c.isFlipped !== false, false, false));
             this.hand.forEach((c, idx) => pushCard(c, 'my-hand-area', '0px', '0px', idx + 1, true, false, false));
             this.lookArea.forEach((c, idx) => pushCard(c, 'my-look-area', '0px', '0px', idx + 1, true, false, false));
             this.outside.forEach((c, idx) => pushCard(c, 'my-outside-area', '0px', '0px', idx + 1, false, false, false));

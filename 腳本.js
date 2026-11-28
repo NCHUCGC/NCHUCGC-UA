@@ -18163,16 +18163,41 @@ window.registerCardScripts = window.registerCardScripts || function (map) {
         }
     };
 
-    // UA43BT/SMD-1-017 朝倉 シン（修復：實際要求對手公開手牌並選 1 張表側放牌頂）
+    // UA43BT/SMD-1-017 朝倉 シン（修復：實際要求對手公開手牌並選 1 張表側放牌頂，亦支援單人測試模式）
     S['UA43BT/SMD-1-017'] = {
         requireRaided: true,
         onPlay(engine, cardEl, done) {
             if (typeof conn !== 'undefined' && conn && typeof isConnected !== 'undefined' && isConnected) {
                 conn.send({ type: 'ENGINE_EVENT', subType: 'REVEAL_HAND_FOR_TOP_DECK' });
                 showSysMsg('已要求對手公開手牌...');
-            } else {
-                sendSystemChat('[效果] 〈朝倉 シン〉登場時：請從對手手牌選 1 張表側置於牌頂。');
+                done();
+                return;
             }
+            if (engine.isSoloTestMode) {
+                const oppHand = Array.from(document.querySelectorAll('#opp-hand-area .card'));
+                const oppDeck = document.getElementById('opp-deck-area');
+                if (oppHand.length > 0 && oppDeck) {
+                    engine.promptModal({
+                        title: '朝倉 シン：檢視對手手牌（測試）',
+                        desc: '請點選最多 1 張對手手牌，以表側置於對手牌組頂端：',
+                        cards: oppHand, selectCount: 1, upTo: true,
+                        onConfirm: (sel) => {
+                            if (sel.length > 0) {
+                                oppDeck.appendChild(sel[0]);
+                                sel[0].classList.remove('is-flipped', 'rest', 'in-life');
+                                sel[0].style.position = 'absolute';
+                                recalcStacking(oppDeck);
+                                recalcStacking(document.getElementById('opp-hand-area'));
+                                updateSlotCounts();
+                                engine.updatePublicInfoHUD();
+                            }
+                            done();
+                        }
+                    });
+                    return;
+                }
+            }
+            sendSystemChat('[效果] 〈朝倉 シン〉登場時：請從對手手牌選 1 張表側置於牌頂。');
             done();
         },
         canActivateMain: (e, c, slot) => !!slot.closest('#my-front-line') && !e.getRuntime(c).usedOncePerTurn,
