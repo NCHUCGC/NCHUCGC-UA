@@ -1358,7 +1358,7 @@ window.appScale = 1;
         }
 
         window.rollDice = function() {
-            let result = Math.floor(Math.random() * 6) + 1;
+            let result = getUnbiasedRandomInt(6) + 1;
             showCenterAlert('🎲', '你擲出了：', result, '#6fb897');
             if (conn) conn.send({ type: 'DICE_ROLL', value: result });
         };
@@ -1703,8 +1703,37 @@ window.appScale = 1;
             }
         }
 
-        function shuffleArray(array) { for (let i = array.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [array[i], array[j]] = [array[j], array[i]]; } return array; }
-        function shuffleDOMDeck(deckArea) { let cards = Array.from(deckArea.querySelectorAll('.card')); shuffleArray(cards).forEach(c => deckArea.appendChild(c)); recalcStacking(deckArea); }
+        function getUnbiasedRandomInt(max) {
+            if (max <= 1) return 0;
+            if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+                const array = new Uint32Array(1);
+                const limit = Math.floor(0x100000000 / max) * max;
+                let rand;
+                do {
+                    crypto.getRandomValues(array);
+                    rand = array[0];
+                } while (rand >= limit);
+                return rand % max;
+            }
+            return Math.floor(Math.random() * max);
+        }
+
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = getUnbiasedRandomInt(i + 1);
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+
+        function shuffleDOMDeck(deckArea) {
+            const cards = Array.from(deckArea.querySelectorAll('.card'));
+            shuffleArray(cards);
+            const fragment = document.createDocumentFragment();
+            cards.forEach(c => fragment.appendChild(c));
+            deckArea.appendChild(fragment);
+            recalcStacking(deckArea);
+        }
 
 function createCardDOM(cardData, networkId, isMine) {
             ensureCatalogMap();

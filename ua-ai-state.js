@@ -46,10 +46,25 @@
         return res;
     }
 
+    function getUnbiasedRandomInt(max) {
+        if (max <= 1) return 0;
+        if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+            const array = new Uint32Array(1);
+            const limit = Math.floor(0x100000000 / max) * max;
+            let rand;
+            do {
+                crypto.getRandomValues(array);
+                rand = array[0];
+            } while (rand >= limit);
+            return rand % max;
+        }
+        return Math.floor(Math.random() * max);
+    }
+
     function shuffle(arr) {
         const a = [...arr];
         for (let i = a.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
+            const j = getUnbiasedRandomInt(i + 1);
             [a[i], a[j]] = [a[j], a[i]];
         }
         return a;
@@ -766,7 +781,7 @@
                         if (opts.length === 0) break;
                         let chosen = opts[0];
                         if (difficulty === 'random') {
-                            chosen = opts[Math.floor(Math.random() * opts.length)];
+                            chosen = opts[getUnbiasedRandomInt(opts.length)];
                         } else if (brain && typeof brain.estimateActionsValue === 'function') {
                             let bestScore = -Infinity;
                             opts.forEach(opt => {
