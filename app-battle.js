@@ -1924,11 +1924,18 @@ function createCardDOM(cardData, networkId, isMine) {
                 
                 let isDragging = false, isStackDrag = false, stackCardsData = [];
                 let originalParent = cardElement.parentElement;
+                const isAutoFieldStack = !!(
+                    window.uaEngine && window.uaEngine.enabled &&
+                    originalParent && originalParent.classList.contains('slot') &&
+                    originalParent.closest('#my-front-line, #my-energy-line') &&
+                    originalParent.querySelectorAll('.card').length > 1
+                );
+                if (isAutoFieldStack) isStackDrag = true;
                 
                 clearTimeout(magnifyTimer); document.getElementById('card-magnifier').style.display = 'none';
 
                 var longPressTimer = setTimeout(() => {
-                    if(!isDragging && originalParent && originalParent.classList.contains('slot')) {
+                    if(!isDragging && !isStackDrag && originalParent && originalParent.classList.contains('slot')) {
                         isStackDrag = true; originalParent.querySelectorAll('.card').forEach(c => c.classList.add('stack-glowing'));
                         if (navigator.vibrate) navigator.vibrate(50); 
                     }
@@ -1963,7 +1970,8 @@ function createCardDOM(cardData, networkId, isMine) {
                         
                         if (isStackDrag) {
                             if (stackCardsData.length === 0) {
-                                Array.from(originalParent.querySelectorAll('.card')).forEach(c => {
+                                const ordered = Array.from(originalParent.querySelectorAll('.card')).sort((a, b) => (parseInt(a.style.zIndex, 10) || 0) - (parseInt(b.style.zIndex, 10) || 0));
+                                ordered.forEach(c => {
                                     stackCardsData.push({ el: c });
                                     viewportLayer.appendChild(c); 
                                     c.style.position = 'absolute'; c.classList.add('dragging'); c.classList.remove('in-life', 'stack-glowing'); 

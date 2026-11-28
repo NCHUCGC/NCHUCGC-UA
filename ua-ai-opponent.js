@@ -317,9 +317,21 @@
             if (this.destroyed) return;
             this.flowState = 'MY_TURN';
             if (this.turnWatchdog) clearTimeout(this.turnWatchdog);
-            this.turnWatchdog = setTimeout(() => {
-                if (!this.destroyed && this.flowState !== 'IDLE') this.endAiTurn();
-            }, 60000);
+            const armTurnWatchdog = () => {
+                this.turnWatchdog = setTimeout(() => {
+                    if (this.destroyed || this.flowState === 'IDLE') return;
+                    if (this.flowState === 'WAITING_TRIGGER' || this.flowState === 'WAITING_BLOCK') {
+                        const promptEl = (typeof document !== 'undefined') ? document.getElementById('ua-prompt-modal') : null;
+                        const modalOpen = !!(promptEl && promptEl.style && promptEl.style.display !== 'none' && promptEl.style.display !== '');
+                        if (modalOpen || (typeof window !== 'undefined' && window.uaEngine && window.uaEngine.isResolvingLifeTrigger)) {
+                            armTurnWatchdog();
+                            return;
+                        }
+                    }
+                    this.endAiTurn();
+                }, 60000);
+            };
+            armTurnWatchdog();
 
             this.st.phase = '起始階段';
             this.sendToPlayer({ type: 'PHASE_BROADCAST', phase: '起始' });
@@ -387,8 +399,19 @@
             this.schedule(() => this.runNextAttack(), getStepDelay());
         }
 
+        isPlayerModalBusy() {
+            const promptEl = (typeof document !== 'undefined') ? document.getElementById('ua-prompt-modal') : null;
+            const modalOpen = !!(promptEl && promptEl.style && promptEl.style.display !== 'none' && promptEl.style.display !== '');
+            const engBusy = !!(typeof window !== 'undefined' && window.uaEngine && (window.uaEngine.isResolvingLifeTrigger || window.uaEngine.isResolvingRetire));
+            return modalOpen || engBusy;
+        }
+
         runNextAttack() {
             if (this.destroyed) return;
+            if (this.isPlayerModalBusy()) {
+                this.schedule(() => this.runNextAttack(), 350);
+                return;
+            }
             const choice = this.brain.decideAttack(this.st, this.st.getLegalAttackers(), this.difficulty);
             if (!choice) { this.schedule(() => this.endAiTurn(), getStepDelay()); return; }
 
@@ -455,15 +478,23 @@
         armTriggerWatchdog() {
             if (this.waitWatchdog) clearTimeout(this.waitWatchdog);
             this.waitWatchdog = setTimeout(() => {
-                if (!this.destroyed && this.flowState === 'WAITING_TRIGGER') {
-                    this.flowState = 'MY_TURN';
-                    this.endAiTurn();
+                if (this.destroyed || this.flowState !== 'WAITING_TRIGGER') return;
+                // 若玩家仍在操作觸發／突襲／退場時登場視窗，絕不強行中斷，改為重新展延等待
+                if (this.isPlayerModalBusy()) {
+                    this.armTriggerWatchdog();
+                    return;
                 }
-            }, 35000);
+                this.flowState = 'MY_TURN';
+                this.endAiTurn();
+            }, 45000);
         }
 
         endAiTurn() {
             if (this.destroyed) return;
+            if (this.isPlayerModalBusy()) {
+                this.schedule(() => this.endAiTurn(), 350);
+                return;
+            }
             if (this.turnWatchdog) { clearTimeout(this.turnWatchdog); this.turnWatchdog = null; }
             if (this.waitWatchdog) { clearTimeout(this.waitWatchdog); this.waitWatchdog = null; }
 

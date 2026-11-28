@@ -40,6 +40,9 @@ constructor() {
             this.usedNamedAbilityThisTurn = new Set();
             this.waitingForOppTrigger = false;
             this.oppTriggerTimeoutId = null;
+            this.isResolvingLifeTrigger = false;
+            this.isResolvingRetire = false;
+            this._queuedOppEvents = [];
             this.oppSyncedKeywords = {};
             this.oppSyncedEffectiveBp = {};
             this.triggerActivatedThisTurn = false;
@@ -324,6 +327,10 @@ constructor() {
             this.usedNamedAbilityThisTurn.clear();
             this.waitingForOppTrigger = false;
             if (this.oppTriggerTimeoutId) { clearTimeout(this.oppTriggerTimeoutId); this.oppTriggerTimeoutId = null; }
+            this.isResolvingLifeTrigger = false;
+            this.isResolvingRetire = false;
+            this._queuedOppEvents = [];
+            this._queuedOpponentAttacks = [];
             this.oppSyncedKeywords = {};
             this.oppSyncedEffectiveBp = {};
             this.triggerActivatedThisTurn = false;
@@ -1948,15 +1955,9 @@ injectEngineUI() {
                     ? def.generatedEnergy.color
                     : (def?.color && def.color !== 'NONE' ? def.color : domColor);
 
-                // 新版 cards.js 基礎產生能源解碼（支援 0 / 1 / 2 / 3 球）：
-                // 若為 2 且效果文含自身「発生エナジー+」則還原為基礎 1 球＋動態條件加成；3 球直接保留為 3
-                const effText = (def?.effectText && def.effectText !== '-') ? def.effectText : '';
-                const hasSelfGenBoostText = /発生エナジー\+\[([赤青緑黄紫]+)\]/.test(effText) && !effText.includes('を与える');
-                let rawBase = (def?.generatedEnergy?.count !== undefined && def?.generatedEnergy?.count !== null) ? def.generatedEnergy.count : 1;
-                let baseCnt;
-                if (rawBase >= 3) baseCnt = 3;
-                else if (rawBase === 2) baseCnt = hasSelfGenBoostText ? 1 : 2;
-                else baseCnt = Math.max(0, rawBase);
+                // cards.js 已正規化為官方實際印刷產能（0 / 1 / 2），條件式 発生エナジー+ 由下方動態加成計算
+                const rawBase = (def?.generatedEnergy?.count !== undefined && def?.generatedEnergy?.count !== null) ? def.generatedEnergy.count : 1;
+                const baseCnt = Math.max(0, rawBase);
 
                 let cnt;
                 if (rt && rt.manualEnergyCount !== null) {
@@ -2676,10 +2677,10 @@ injectEngineUI() {
             const cards = Array.from(slot.querySelectorAll('.card'));
             if (cards.length === 0) return null;
             if (cards.length === 1) return cards[0];
-            let best = cards[cards.length - 1];
+            let best = cards[0];
             let bestZ = parseInt(best.style.zIndex, 10);
-            if (isNaN(bestZ)) bestZ = cards.length - 1;
-            for (let i = 0; i < cards.length; i++) {
+            if (isNaN(bestZ)) bestZ = 0;
+            for (let i = 1; i < cards.length; i++) {
                 let z = parseInt(cards[i].style.zIndex, 10);
                 if (isNaN(z)) z = i;
                 if (z >= bestZ) {
@@ -2779,14 +2780,6 @@ injectEngineUI() {
                 return;
             }
 
-            const mainCard = cards[0];
-            const def = this.getCardDef(mainCard);
-            if (!def) {
-                defaultFinalizeFn(cards, dropZone, action, originalParent, endX);
-                this.updateEnergyHUD();
-                return;
-            }
-
             const fromHand = originalParent && originalParent.id === 'my-hand-area';
             const fromFront = originalParent && originalParent.closest('#my-front-line');
             const fromEnergy = originalParent && originalParent.closest('#my-energy-line');
@@ -2794,6 +2787,15 @@ injectEngineUI() {
             const toEnergy = dropZone.closest('#my-energy-line');
             const toOutside = dropZone.id === 'my-outside-area';
             const toRemove = dropZone.id === 'my-remove-area';
+
+            // 若從場上拖曳多張疊牌（突襲堆疊），頂部卡片才是代表該角色的 mainCard（而非底部突襲元）
+            const mainCard = ((fromFront || fromEnergy) && cards.length > 1) ? cards[cards.length - 1] : cards[0];
+            const def = this.getCardDef(mainCard);
+            if (!def) {
+                defaultFinalizeFn(cards, dropZone, action, originalParent, endX);
+                this.updateEnergyHUD();
+                return;
+            }
 
             // 嚴格競技模式防護：禁止從牌組／場外／生命區／移除區手動拉牌，並禁止非移動階段手動移動場上角色
             if (this.strictMode) {
@@ -2822,15 +2824,21 @@ injectEngineUI() {
 
             // A. 場上移動（解除階段硬鎖，確保主要/戰鬥階段的移動效果與手動換位皆可順利操作）
             if ((fromFront || fromEnergy) && (toFront || toEnergy) && originalParent !== dropZone) {
-                if (toFront && !fromFront && this.isCardBlockedFromFront(mainCard, def)) {
-                    showSysMsg(`【${def.name}】依卡片效果無法移動至前線！`);
+                // 確保同一卡槽內的突襲基底／裏側墊底卡一律跟著頂部角色一起移動，絕不分離
+                const leftoverUnder = Array.from(originalParent.querySelectorAll('.card')).filter(c => !cards.includes(c));
+                const moveStack = leftoverUnder.length > 0 ? [...leftoverUnder, ...cards] : cards;
+                const stackTop = moveStack[moveStack.length - 1];
+                const stackDef = this.getCardDef(stackTop) || def;
+
+                if (toFront && !fromFront && this.isCardBlockedFromFront(stackTop, stackDef)) {
+                    showSysMsg(`【${stackDef.name}】依卡片效果無法移動至前線！`);
                     defaultFinalizeFn(cards, null, 'cancel', originalParent, endX);
                     return;
                 }
                 const existingCards = Array.from(dropZone.querySelectorAll('.card'));
                 if (existingCards.length > 0) {
                     // 目標卡槽已有卡片：若是 [ステップ] 退回能源線則自動互換；否則開啟疊牌／交換選單
-                    const hasStep = def.keywords?.includes('ステップ') || def.compiledRules?.staticKeywords?.step || this.getRuntime(mainCard)?.tempKeywords?.STEP;
+                    const hasStep = stackDef.keywords?.includes('ステップ') || stackDef.compiledRules?.staticKeywords?.step || this.getRuntime(stackTop)?.tempKeywords?.STEP;
                     if (fromFront && toEnergy && hasStep && this.currentPhase === '移動') {
                         const targetTop = this.getTopCardInSlot(dropZone);
                         if (this.getCardDef(targetTop)?.type === 'CHARACTER') {
@@ -2842,40 +2850,41 @@ injectEngineUI() {
                             existingCards.forEach(ec => originalParent.appendChild(ec));
                             recalcStacking(originalParent);
                             showSysMsg('發動 [ステップ]：已與能源線的角色互換位置！');
-                            defaultFinalizeFn(cards, dropZone, 'default', originalParent, endX);
+                            defaultFinalizeFn(moveStack, dropZone, 'default', originalParent, endX);
                             this.updateEnergyHUD();
                             return;
                         }
                     }
-                    this.promptOverlayPlacementMenu(cards, mainCard, def, dropZone, originalParent, endX, defaultFinalizeFn, false);
+                    this.promptOverlayPlacementMenu(moveStack, stackTop, stackDef, dropZone, originalParent, endX, defaultFinalizeFn, false);
                     return;
                 }
 
                 if (this.currentPhase !== '移動') {
-                    showSysMsg(`非移動階段移動：【${def.name}】（視為效果移動）`);
+                    showSysMsg(`非移動階段移動：【${stackDef.name}】（視為效果移動）`);
                 } else if (fromFront && toEnergy) {
-                    const hasStep = def.keywords?.includes('ステップ') || def.compiledRules?.staticKeywords?.step || this.getRuntime(mainCard)?.tempKeywords?.STEP;
+                    const hasStep = stackDef.keywords?.includes('ステップ') || stackDef.compiledRules?.staticKeywords?.step || this.getRuntime(stackTop)?.tempKeywords?.STEP;
                     if (!hasStep) {
-                        showSysMsg(`【${def.name}】已退回能源線（若非卡片效果，請注意需具備 [ステップ]）`);
+                        showSysMsg(`【${stackDef.name}】已退回能源線（若非卡片效果，請注意需具備 [ステップ]）`);
                     }
                 }
-                const moveRt = this.getRuntime(mainCard);
+                const moveRt = this.getRuntime(stackTop);
                 const oldTracker = originalParent.querySelector('.bp-tracker');
                 const oldBp = oldTracker ? (parseInt(oldTracker.dataset.bp, 10) || 0) : 0;
                 const carryBp = oldBp || (moveRt?.persistentBp || 0);
                 if (oldTracker) updateBpDisplay(originalParent, 0);
-                defaultFinalizeFn(cards, dropZone, 'default', originalParent, endX);
+                defaultFinalizeFn(moveStack, dropZone, 'default', originalParent, endX);
                 if (toFront && carryBp !== 0) updateBpDisplay(dropZone, carryBp);
                 this.updateEnergyHUD();
                 return;
             }
 
-            // B. 場上移至移除區（允許效果移至移除區，不硬性阻擋）
+            // B. 場上移至移除區（允許效果移至移除區，並自動拆解底下突襲元至場外）
             if ((fromFront || fromEnergy) && toRemove) {
-                const allInSlot = Array.from(originalParent.querySelectorAll('.card'));
-                if (allInSlot.length > 1 && cards.length > 1) {
-                    const topCard = allInSlot[allInSlot.length - 1];
-                    const underCards = allInSlot.slice(0, allInSlot.length - 1);
+                const leftoverUnder = Array.from(originalParent.querySelectorAll('.card')).filter(c => !cards.includes(c));
+                const fullStack = [...leftoverUnder, ...cards];
+                if (fullStack.length > 1) {
+                    const topCard = fullStack[fullStack.length - 1];
+                    const underCards = fullStack.slice(0, fullStack.length - 1);
                     const outsideArea = document.getElementById('my-outside-area');
                     underCards.forEach(uc => this.moveCardToZone(uc, outsideArea));
                     defaultFinalizeFn([topCard], dropZone, action, originalParent, endX);
@@ -2886,15 +2895,16 @@ injectEngineUI() {
                 return;
             }
 
-            // C. 突襲疊牌離場拆解（若返回手牌則記錄本回合有角色離場回手牌）
+            // C. 突襲疊牌離場拆解（無論單卡或整疊拖離場上，底下卡片皆依規則送至場外）
             if ((fromFront || fromEnergy) && !toFront && !toEnergy) {
                 if (dropZone.id === 'my-hand-area' && def.type === 'CHARACTER') {
                     this.bouncedCharThisTurn = true;
                 }
-                const allInSlot = Array.from(originalParent.querySelectorAll('.card'));
-                if (allInSlot.length > 1 && cards.length > 1) {
-                    const topCard = allInSlot[allInSlot.length - 1];
-                    const underCards = allInSlot.slice(0, allInSlot.length - 1);
+                const leftoverUnder = Array.from(originalParent.querySelectorAll('.card')).filter(c => !cards.includes(c));
+                const fullStack = [...leftoverUnder, ...cards];
+                if (fullStack.length > 1) {
+                    const topCard = fullStack[fullStack.length - 1];
+                    const underCards = fullStack.slice(0, fullStack.length - 1);
                     const outsideArea = document.getElementById('my-outside-area');
                     underCards.forEach(uc => this.moveCardToZone(uc, outsideArea));
                     defaultFinalizeFn([topCard], dropZone, action, originalParent, endX);
@@ -5387,11 +5397,14 @@ injectEngineUI() {
                                 showSysMsg(`[測試] 【${this.getDisplayName(bDef)} (BP ${finalBlockerBp})】成功擋下攻擊！`);
                             } else {
                                 showCenterAlert('⚔️', '防禦角色退場', `${data.attackerBp} vs ${finalBlockerBp}`, '#c1596f');
-                                this.retireCardFromSlot(blockerSlot);
-                                if (data.impact > 0 && !innateBlkKw.impactNullify) {
-                                    showSysMsg(`[測試] 對手發動衝擊(${data.impact})，承受 ${data.impact} 點生命傷害！`);
-                                    this.processMyLifeDamage(data.impact);
-                                }
+                                this.retireCardFromSlot(blockerSlot, () => {
+                                    if (data.impact > 0 && !innateBlkKw.impactNullify) {
+                                        showSysMsg(`[測試] 對手發動衝擊(${data.impact})，承受 ${data.impact} 點生命傷害！`);
+                                        this.processMyLifeDamage(data.impact);
+                                    }
+                                    this.updateEnergyHUD();
+                                });
+                                return;
                             }
                             this.updateEnergyHUD();
                         }
@@ -5555,11 +5568,13 @@ injectEngineUI() {
                     alert('我方生命區已歸零，本局對戰落敗！');
                     sendSystemChat('[規則引擎] 對手生命區歸零，恭喜你獲得對戰勝利！');
                 }
-                // 若觸發結算期間有提前到達的對手攻擊宣言，待觸發完全結束後再依序彈出防禦視窗
+                // 若觸發結算期間有提前到達的對手事件（攻擊宣言／後續傷害／回合交替），待觸發完全結束後再依序處理
                 if (Array.isArray(this._queuedOpponentAttacks) && this._queuedOpponentAttacks.length > 0) {
                     const nextAtk = this._queuedOpponentAttacks.shift();
                     setTimeout(() => this.onOpponentAttackDeclared(nextAtk), 60);
+                    return;
                 }
+                this.flushQueuedOppEvents();
             });
         }
 
@@ -5822,13 +5837,25 @@ injectEngineUI() {
             return list;
         }
 
-        retireCardFromSlot(slot) {
-            if (!slot) return;
-            const cards = Array.from(slot.querySelectorAll('.card'));
-            if (cards.length === 0) return;
+        isModalCurrentlyOpen() {
+            const m = typeof document !== 'undefined' ? document.getElementById('ua-prompt-modal') : null;
+            return !!(m && m.style && m.style.display && m.style.display !== 'none');
+        }
 
-            const topCard = cards[cards.length - 1];
-            const underCards = cards.slice(0, cards.length - 1);
+        flushQueuedOppEvents() {
+            if (this.isResolvingLifeTrigger || this.isResolvingRetire || this.isModalCurrentlyOpen()) return;
+            if (!Array.isArray(this._queuedOppEvents) || this._queuedOppEvents.length === 0) return;
+            const nextEvt = this._queuedOppEvents.shift();
+            setTimeout(() => this.handleNetworkEvent(nextEvt), 60);
+        }
+
+        retireCardFromSlot(slot, onComplete = null) {
+            if (!slot) { if (onComplete) onComplete(); return; }
+            const cards = Array.from(slot.querySelectorAll('.card'));
+            if (cards.length === 0) { if (onComplete) onComplete(); return; }
+
+            const topCard = this.getTopCardInSlot(slot) || cards[cards.length - 1];
+            const underCards = cards.filter(c => c !== topCard);
             const outsideArea = document.getElementById('my-outside-area');
             const topRt = this.getRuntime(topCard);
 
@@ -5841,14 +5868,22 @@ injectEngineUI() {
                 underCards.forEach(uc => this.moveCardToZone(uc, outsideArea));
                 this.moveCardToZone(topCard, outsideArea);
 
-                this.triggerCardAbilities(topCard, 'ON_RETIRE');
+                this.triggerCardAbilities(topCard, 'ON_RETIRE', () => {
+                    if (topRt) topRt.isRaided = false;
+                    this.updateEnergyHUD();
+                    broadcastMyState();
+                    if (onComplete) onComplete();
+                });
                 this.updateEnergyHUD();
                 broadcastMyState();
             };
 
             const topScr = this.getCardScript(topCard);
             if (topScr && typeof topScr.onBeforeRetire === 'function') {
-                if (topScr.onBeforeRetire(this, topCard, slot, doRetire) === true) return;
+                if (topScr.onBeforeRetire(this, topCard, slot, doRetire) === true) {
+                    if (onComplete) onComplete();
+                    return;
+                }
             }
             doRetire();
         }
@@ -6373,6 +6408,11 @@ handleNetworkEvent(data) {
                     showSysMsg('對手已設為先攻，你為【後攻玩家】！');
                     break;
                 case 'YOUR_TURN_START':
+                    if (this.isResolvingLifeTrigger || this.isResolvingRetire || this.isModalCurrentlyOpen()) {
+                        this._queuedOppEvents = this._queuedOppEvents || [];
+                        this._queuedOppEvents.push(data);
+                        break;
+                    }
                     if (!this.hasTakenFirstTurn) {
                         this.turnNumber = 1;
                         this.hasTakenFirstTurn = true;
@@ -6392,7 +6432,13 @@ handleNetworkEvent(data) {
                         this.bounceSlotTopCardToHand(slot);
                         break;
                     }
-                    if (slot) this.retireCardFromSlot(slot);
+                    if (slot) {
+                        this.isResolvingRetire = true;
+                        this.retireCardFromSlot(slot, () => {
+                            this.isResolvingRetire = false;
+                            this.flushQueuedOppEvents();
+                        });
+                    }
                     break;
                 }
                 case 'FORCE_BOUNCE_SLOT': {
@@ -6470,10 +6516,10 @@ handleNetworkEvent(data) {
                     break;
                 }
                 case 'ATTACK_DECLARED':
-                    if (this.isResolvingLifeTrigger) {
-                        this._queuedOpponentAttacks = this._queuedOpponentAttacks || [];
-                        this._queuedOpponentAttacks.push(data);
-                        showSysMsg('對手已宣言下一波攻擊，將於目前生命觸發結算完畢後處理');
+                    if (this.isResolvingLifeTrigger || this.isResolvingRetire || this.isModalCurrentlyOpen()) {
+                        this._queuedOppEvents = this._queuedOppEvents || [];
+                        this._queuedOppEvents.push(data);
+                        showSysMsg('對手已宣言下一波攻擊，將於目前效果結算完畢後處理');
                         break;
                     }
                     this.onOpponentAttackDeclared(data);
@@ -6682,6 +6728,11 @@ handleNetworkEvent(data) {
                     break;
                 }
                 case 'TAKE_LIFE_DAMAGE':
+                    if (this.isResolvingRetire || this.isModalCurrentlyOpen()) {
+                        this._queuedOppEvents = this._queuedOppEvents || [];
+                        this._queuedOppEvents.push(data);
+                        break;
+                    }
                     this.processMyLifeDamage(data.count);
                     break;
             }
