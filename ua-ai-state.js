@@ -104,6 +104,8 @@
                 attackCountThisTurn: 0,
                 blockCountThisTurn: 0,
                 tempKeywords: {},
+                persistentBp: 0,
+                persistentKeywords: {},
                 tempEnergyBoost: []
             }));
             this.ap = this.initialApIds.map((cardId, i) => ({
@@ -165,6 +167,7 @@
             });
 
             const bpStates = syncData.bpStates || {};
+            const effBpStates = syncData.kwStates && syncData.kwStates.__effBp ? syncData.kwStates.__effBp : null;
             const frontMirror = {};
             FRONT_SLOTS.forEach(slotId => {
                 const arr = frontSlots[slotId];
@@ -173,13 +176,14 @@
                 const top = arr[arr.length - 1];
                 const def = this.playerCardDefByNetId.get(top.id) || null;
                 const mod = parseInt(bpStates[slotId], 10) || 0;
+                const syncedEff = effBpStates && typeof effBpStates[slotId] === 'number' ? effBpStates[slotId] : null;
                 frontMirror[slotId] = {
                     slotId,
                     networkId: top.id,
                     def,
                     bpMod: mod,
                     isRest: !!top.isRest,
-                    effectiveBp: Math.max(0, (def?.bp || 0) + mod)
+                    effectiveBp: syncedEff !== null ? Math.max(0, syncedEff) : Math.max(0, (def?.bp || 0) + mod)
                 };
             });
 
@@ -1251,6 +1255,8 @@
                     top.attackCountThisTurn = 0;
                     top.blockCountThisTurn = 0;
                     top.tempKeywords = {};
+                    top.persistentBp = 0;
+                    top.persistentKeywords = {};
                     top.tempEnergyBoost = [];
                 }
                 if (this.bpMods.hasOwnProperty(slotId)) this.bpMods[slotId] = 0;
@@ -1437,7 +1443,9 @@
                     top.tempKeywords = {};
                     top.tempEnergyBoost = [];
                 }
-                if (this.bpMods.hasOwnProperty(slotId)) this.bpMods[slotId] = 0;
+                if (this.bpMods.hasOwnProperty(slotId)) {
+                    this.bpMods[slotId] = (top && top.persistentBp) ? top.persistentBp : 0;
+                }
             });
             this.phase = '等待中';
         }

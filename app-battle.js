@@ -966,17 +966,19 @@ window.appScale = 1;
         function updateBpDisplay(slot, bpVal) {
             let tracker = slot.querySelector('.bp-tracker');
             if(!tracker) return;
-            tracker.dataset.bp = bpVal;
-            if(bpVal === 0) {
+            const numVal = parseInt(bpVal, 10) || 0;
+            tracker.dataset.bp = numVal;
+            if(numVal === 0) {
                 tracker.classList.remove('active', 'positive', 'negative');
+                tracker.innerText = '';
             } else {
                 tracker.classList.add('active');
-                if(bpVal > 0) { 
+                if(numVal > 0) { 
                     tracker.classList.add('positive'); tracker.classList.remove('negative');
-                    tracker.innerText = `+${bpVal}`; 
+                    tracker.innerText = `+${numVal}`; 
                 } else { 
                     tracker.classList.add('negative'); tracker.classList.remove('positive');
-                    tracker.innerText = `${bpVal}`; 
+                    tracker.innerText = `${numVal}`; 
                 }
             }
         }
@@ -2272,6 +2274,10 @@ function createCardDOM(cardData, networkId, isMine) {
         window.addEventListener('auxclick', handleMouseSidePhase, true);
 
         window.advanceNextPhase = function() {
+            if (window.uaEngine && window.uaEngine.enabled && window.uaEngine.isFirstPlayer !== null && !window.uaEngine.isMyTurn) {
+                showSysMsg('目前為對手回合，無法切換階段');
+                return;
+            }
             const steps = Array.from(document.querySelectorAll('.phase-step'));
             if (steps.length === 0) return;
             const curIdx = steps.findIndex(s => s.classList.contains('active'));

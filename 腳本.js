@@ -9395,7 +9395,25 @@ window.registerCardScripts = window.registerCardScripts || function (map) {
     // 16. UA40BT/REZ-1-040 ナツキ・スバル (突襲：登場抽1；退場時將突襲基底卡1張休息登場)
     scripts['UA40BT/REZ-1-040'] = {
         requireRaided: true,
-        onPlay(engine, cardEl, onComplete) { engine.drawCards(1); if (onComplete) onComplete(); }
+        onPlay(engine, cardEl, onComplete) { engine.drawCards(1); if (onComplete) onComplete(); },
+        onRetire(engine, cardEl, onComplete) {
+            const rt = engine.getRuntime(cardEl);
+            const bases = (rt?.lastRaidBases || []).filter(c => c && c.parentElement?.id === 'my-outside-area');
+            if (bases.length === 0) { if (onComplete) onComplete(); return; }
+            engine.promptModal({
+                title: '【ナツキ・スバル】退場時：復活突襲基底',
+                desc: '可選擇最多 1 張此角色的突襲基底卡，以休息狀態登場於我方場上：',
+                cards: bases, selectCount: 1, upTo: true,
+                onConfirm: (sel) => {
+                    if (sel.length > 0) {
+                        engine.chooseEmptyFieldSlotAndPlace(sel[0], { allowFront: true, allowEnergy: true, enterRest: true }, (placed) => {
+                            if (placed) engine.triggerCardAbilities(sel[0], 'ON_PLAY', onComplete);
+                            else if (onComplete) onComplete();
+                        });
+                    } else if (onComplete) onComplete();
+                }
+            });
+        }
     };
 
     // 17. UA40BT/REZ-1-041 パトラッシュ (我方回合前線有0費青スバル BP+1000)
@@ -9492,6 +9510,59 @@ window.registerCardScripts = window.registerCardScripts || function (map) {
                     if (onComplete) onComplete();
                 }
             });
+        }
+    };
+
+    // 23. UA40BT/REZ-1-047 リカード・ウェルキン (手牌起動[AP1]：滿足能源且手牌BP>=4000時休息登場並活動其他1張角色)
+    scripts['UA40BT/REZ-1-047'] = {
+        canActivateFromHand(engine, cardEl) {
+            const def = engine.getCardDef(cardEl);
+            if (!def) return false;
+            const hasEmpty = Array.from(document.querySelectorAll('#my-front-line .slot, #my-energy-line .slot')).some(s => s.querySelectorAll('.card').length === 0);
+            if (!hasEmpty) return false;
+            return engine.checkPlayRequirements(def).ok;
+        },
+        onActivateFromHand(engine, cardEl, onComplete) {
+            const def = engine.getCardDef(cardEl);
+            if (!def || !engine.checkPlayRequirements(def).ok) {
+                showSysMsg('目前不滿足〈リカード・ウェルキン〉的必要能源或 AP 條件！');
+                if (onComplete) onComplete();
+                return;
+            }
+            if (!engine.payAp(1)) { if (onComplete) onComplete(); return; }
+            const refBp = getHandRefBp(engine, cardEl) || def.bp || 0;
+            showSysMsg(`公開手牌【リカード・ウェルキン】（BP ${refBp}）`);
+            if (refBp < 4000) {
+                showSysMsg('BP 未達 4000，無法透過手牌起動效果登場。');
+                if (onComplete) onComplete();
+                return;
+            }
+            engine.chooseEmptyFieldSlotAndPlace(cardEl, { allowFront: true, allowEnergy: true, enterRest: true }, (placed) => {
+                if (!placed) { if (onComplete) onComplete(); return; }
+                const others = engine.getSlotTopCards('#my-front-line .slot, #my-energy-line .slot')
+                    .filter(c => c !== cardEl && engine.getCardDef(c)?.type === 'CHARACTER');
+                if (others.length === 0) { if (onComplete) onComplete(); return; }
+                engine.promptModal({
+                    title: '【リカード・ウェルキン】活動我方其他角色',
+                    desc: '選擇我方場上最多 1 張其他角色轉為活動狀態：',
+                    cards: others, selectCount: 1, upTo: true,
+                    onConfirm: (sel) => {
+                        if (sel.length > 0) sel[0].classList.remove('rest');
+                        engine.updateEnergyHUD();
+                        broadcastMyState();
+                        if (onComplete) onComplete();
+                    }
+                });
+            });
+        }
+    };
+
+    // 23b. EX17BT/REZ-2-020 クルシュ・カルステン (不能於前線登場・移動；被突襲時抽1)
+    scripts['EX17BT/REZ-2-020'] = {
+        cannotPlayFront: true,
+        onRaided(engine) {
+            engine.drawCards(1);
+            showSysMsg('【クルシュ・カルステン】被突襲時抽 1 張牌！');
         }
     };
 
@@ -9598,8 +9669,25 @@ window.registerCardScripts = window.registerCardScripts || function (map) {
             });
         },
         onAttack(engine, cardEl, onComplete) {
-            showSysMsg('✨ 【レム】可選擇我方 1 張 0 費青〈ナツキ・スバル〉本回合不被 BP 4000 以上角色防禦！');
-            if (onComplete) onComplete();
+            const cands = engine.getSlotTopCards('#my-front-line .slot, #my-energy-line .slot').filter(c => {
+                const d = engine.getCardDef(c);
+                return d && d.type === 'CHARACTER' && d.color === 'BLUE' && (d.requiredEnergy?.count || 0) === 0 && d.name.includes('ナツキ・スバル');
+            });
+            if (cands.length === 0) { if (onComplete) onComplete(); return; }
+            engine.promptModal({
+                title: '【レム】アタック時：賦予不被 BP4000+ 阻擋',
+                desc: '選擇我方場上最多 1 張 0 費藍色〈ナツキ・スバル〉，本回合不被 BP 4000 以上角色阻擋：',
+                cards: cands, selectCount: 1, upTo: true,
+                onConfirm: (sel) => {
+                    if (sel.length > 0) {
+                        engine.getRuntime(sel[0]).tempKeywords.UNBLOCKABLE_MIN_BP = 4000;
+                        showSysMsg(`【${engine.getCardDef(sel[0])?.name}】本回合不會被 BP 4000 以上角色阻擋！`);
+                        engine.updateEnergyHUD();
+                        broadcastMyState();
+                    }
+                    if (onComplete) onComplete();
+                }
+            });
         }
     };
 
@@ -9762,6 +9850,39 @@ window.registerCardScripts = window.registerCardScripts || function (map) {
     scripts['EX17BT/REZ-2-032'] = {
         getContinuousBpBonus(engine, cardEl) {
             return hasFacedownUnder(cardEl) ? 500 : 0;
+        },
+        getContinuousImpactNullify(engine, cardEl) {
+            return hasFacedownUnder(cardEl);
+        },
+        onBeforeRetire(engine, cardEl, slot, proceedRetire) {
+            if (engine.getEffectiveCardBp(cardEl) < 500) return false;
+            const facedownUnder = Array.from(slot.querySelectorAll('.card')).filter(c => c !== cardEl && c.classList.contains('is-flipped'));
+            if (facedownUnder.length === 0) return false;
+            engine.promptModal({
+                title: '【アル】退場替代效果',
+                desc: 'BP 500 以上的〈アル〉即將退場！是否改將下方 1 張裏側卡片置於場外以留在場上？',
+                cards: [cardEl],
+                customButtons: [
+                    {
+                        label: '棄置 1 張裏側墊底並留場',
+                        color: '#2ecc71',
+                        onClick: () => {
+                            const outsideArea = document.getElementById('my-outside-area');
+                            engine.moveCardToZone(facedownUnder[0], outsideArea);
+                            recalcStacking(slot);
+                            showSysMsg('【アル】以 1 張裏側墊底卡替代退場，繼續留在場上');
+                            engine.updateEnergyHUD();
+                            broadcastMyState();
+                        }
+                    },
+                    {
+                        label: '不發動（正常退場）',
+                        color: '#7f8c8d',
+                        onClick: () => proceedRetire()
+                    }
+                ]
+            });
+            return true;
         },
         onPlay(engine, cardEl, onComplete) {
             if (!engine.hasCharacterOnMyField('プリシラ')) { if (onComplete) onComplete(); return; }
@@ -10033,6 +10154,9 @@ window.registerCardScripts = window.registerCardScripts || function (map) {
 
     // 20. EX17BT/REZ-2-051 リリアナ (能源線6種以上綠角活動自己；橫置其他角色BP+500)
     scripts['EX17BT/REZ-2-051'] = {
+        getContinuousEnergyBonus(engine) {
+            return countDistinctGreenCharNames(engine) >= 4 ? 1 : 0;
+        },
         canActivateMain(engine, cardEl, slot) {
             const canRestBuff = !cardEl.classList.contains('rest');
             const canStand = !!slot.closest('#my-energy-line') && cardEl.classList.contains('rest') && !engine.getRuntime(cardEl).usedOncePerTurn && countDistinctGreenCharNames(engine) >= 6;
@@ -10054,10 +10178,12 @@ window.registerCardScripts = window.registerCardScripts || function (map) {
         }
     };
 
-    // 22. EX17BT/REZ-2-053 レム (起動[ターン1]：棄1抽1)
+    // 22. EX17BT/REZ-2-053 レム (無法於前線登場・移動；起動[ターン1]：本回合曾登場過スバル時棄1抽1)
     scripts['EX17BT/REZ-2-053'] = {
+        cannotPlayFront: true,
         canActivateMain(engine, cardEl) {
-            return !engine.getRuntime(cardEl).usedOncePerTurn && document.querySelectorAll('#my-hand-area .card').length >= 1;
+            const subaruEntered = Array.from(engine.enteredCharNamesThisTurn || []).some(n => n.includes('ナツキ・スバル'));
+            return subaruEntered && !engine.getRuntime(cardEl).usedOncePerTurn && document.querySelectorAll('#my-hand-area .card').length >= 1;
         },
         onActivateMain(engine, cardEl, slot, onComplete) {
             engine.getRuntime(cardEl).usedOncePerTurn = true;
@@ -10144,8 +10270,10 @@ window.registerCardScripts = window.registerCardScripts || function (map) {
     scripts['EX17BT/REZ-2-058'] = {
         requireRaided: true,
         onPlay(engine, cardEl, onComplete) {
-            engine.getRuntime(cardEl).tempKeywords.DOUBLE_ATTACK = 1;
-            showSysMsg('⚡ 【エミリア】本回合獲得 [2回アタック] 與「不會被對手效果選擇」！');
+            const rt = engine.getRuntime(cardEl);
+            rt.tempKeywords.DOUBLE_ATTACK = 1;
+            rt.tempKeywords.UNTARGETABLE_BY_OPP = 1;
+            showSysMsg('【エミリア】本回合獲得 [2回アタック] 與「不會被對手效果選擇」');
             if (onComplete) onComplete();
         },
         onAttack(engine, cardEl, onComplete) {
@@ -10155,6 +10283,106 @@ window.registerCardScripts = window.registerCardScripts || function (map) {
                 engine.addSlotBp(cardEl.parentElement, 1000);
             }
             if (onComplete) onComplete();
+        },
+        onAttackEnd(engine, cardEl, onComplete) {
+            const cands = engine.getSlotTopCards('#my-front-line .slot').filter(c => {
+                if (c === cardEl) return false;
+                if (c.classList.contains('rest')) return false;
+                const d = engine.getCardDef(c);
+                return d && d.type === 'CHARACTER' && d.bp === 2500;
+            });
+            if (cands.length === 0) { if (onComplete) onComplete(); return; }
+            engine.promptModal({
+                title: '【エミリア】アタック終了時效果',
+                desc: '可選擇我方前線 1 張原 BP 2500 的活動角色轉為休息；若如此做，將此〈エミリア〉轉為活動：',
+                cards: cands,
+                selectCount: 1,
+                upTo: true,
+                customButtons: [{
+                    label: '不發動',
+                    color: '#7f8c8d',
+                    onClick: () => { if (onComplete) onComplete(); }
+                }],
+                onConfirm: (selected) => {
+                    if (selected.length > 0) {
+                        selected[0].classList.add('rest');
+                        cardEl.classList.remove('rest');
+                        showSysMsg(`【エミリア】將【${engine.getCardDef(selected[0])?.name || '角色'}】轉為休息，自身重新轉為活動！`);
+                        if (typeof window.playCardEffectAnim === 'function') {
+                            window.playCardEffectAnim({
+                                cardEl,
+                                cardName: window.UAUtils ? window.UAUtils.getDisplayName(engine.getCardDef(cardEl)) : 'エミリア',
+                                badgeText: '攻擊結束發動',
+                                subText: '自身重新轉為活動狀態',
+                                accentColor: '#2ecc71',
+                                isOpponent: false
+                            });
+                        }
+                    }
+                    engine.updateEnergyHUD();
+                    broadcastMyState();
+                    if (onComplete) onComplete();
+                }
+            });
+        }
+    };
+
+    // 28b. EX17BT/REZ-2-059 クルシュ・カルステン ([登場時] 看牌頂 2 張、最多 1 張置場外、餘依序放牌頂)
+    scripts['EX17BT/REZ-2-059'] = {
+        onPlay(engine, cardEl, onComplete) {
+            const deckArea = document.getElementById('my-deck-area');
+            const outsideArea = document.getElementById('my-outside-area');
+            const deckCards = Array.from(deckArea.querySelectorAll('.card'));
+            const lookCnt = Math.min(2, deckCards.length);
+            if (lookCnt === 0) { if (onComplete) onComplete(); return; }
+            const topCards = deckCards.slice(deckCards.length - lookCnt).reverse();
+            engine.promptModal({
+                title: '【クルシュ・カルステン】檢視牌頂 2 張',
+                desc: '請選擇最多 1 張置於場外，其餘將放回牌組頂端：',
+                cards: topCards,
+                selectCount: 1,
+                upTo: true,
+                customButtons: [{
+                    label: '全部保留於牌頂',
+                    color: '#4f739e',
+                    onClick: () => {
+                        engine.updateEnergyHUD();
+                        broadcastMyState();
+                        if (onComplete) onComplete();
+                    }
+                }],
+                onConfirm: (selected) => {
+                    if (selected.length > 0) {
+                        engine.moveCardToZone(selected[0], outsideArea);
+                    }
+                    const rest = topCards.filter(c => !selected.includes(c));
+                    if (rest.length === 2) {
+                        engine.promptModal({
+                            title: '選擇置於最頂端的卡片',
+                            desc: '點選要放在最上面的 1 張（另一張放在第 2 張）：',
+                            cards: rest,
+                            selectCount: 1,
+                            upTo: false,
+                            onConfirm: (topPick) => {
+                                const first = topPick[0] || rest[0];
+                                const second = rest.find(c => c !== first);
+                                [second, first].filter(Boolean).forEach(c => {
+                                    deckArea.appendChild(c);
+                                    c.classList.add('is-flipped');
+                                });
+                                recalcStacking(deckArea);
+                                engine.updateEnergyHUD();
+                                broadcastMyState();
+                                if (onComplete) onComplete();
+                            }
+                        });
+                        return;
+                    }
+                    engine.updateEnergyHUD();
+                    broadcastMyState();
+                    if (onComplete) onComplete();
+                }
+            });
         }
     };
 
@@ -10203,24 +10431,47 @@ window.registerCardScripts = window.registerCardScripts || function (map) {
         onActivateMain(engine, cardEl, slot, onComplete) {
             const rt = engine.getRuntime(cardEl);
             engine.promptModal({
-                title: '✨ 【フェルト】起動メイン二選一', desc: '請選擇 1 項效果：', cards: [],
+                title: '【フェルト】起動メイン二選一', desc: '請選擇 1 項效果：', cards: [],
                 customButtons: [
                     {
-                        label: '⚔️ 至下次我方回合開始前 BP+1000 & 不被 BP4000+ 阻擋', color: '#4f9678',
+                        label: '至下次我方回合開始前 BP+1000 & 不被 BP4000+ 阻擋', color: '#4f9678',
                         onClick: () => {
                             rt.usedOncePerTurn = true;
-                            engine.addSlotBp(slot, 1000);
                             rt.persistentBp = (rt.persistentBp || 0) + 1000;
-                            showSysMsg('✨ 【フェルト】獲得持續 BP+1000 與不被 BP 4000 以上防禦！');
+                            rt.persistentKeywords = rt.persistentKeywords || {};
+                            rt.persistentKeywords.UNBLOCKABLE_MIN_BP = 4000;
+                            rt.tempKeywords.UNBLOCKABLE_MIN_BP = 4000;
+                            engine.addSlotBp(slot, 1000);
+                            showSysMsg('【フェルト】至下次我方回合開始前獲得 BP+1000 與不被 BP 4000 以上角色阻擋！');
                             if (onComplete) onComplete();
                         }
                     },
                     {
-                        label: '⚡ 指定其他 1 張角色本回合於前線也可產生能源', color: '#6c93c7',
+                        label: '指定其他 1 張角色本回合於前線也可產生能源', color: '#6c93c7',
                         onClick: () => {
-                            rt.usedOncePerTurn = true;
-                            showSysMsg('⚡ 請手動點選能源線徽章補計該前線角色的能源！');
-                            if (onComplete) onComplete();
+                            const others = engine.getSlotTopCards('#my-front-line .slot, #my-energy-line .slot')
+                                .filter(c => c !== cardEl && engine.getCardDef(c)?.type === 'CHARACTER');
+                            if (others.length === 0) {
+                                showSysMsg('場上沒有其他角色可供指定！');
+                                if (onComplete) onComplete();
+                                return;
+                            }
+                            engine.promptModal({
+                                title: '【フェルト】指定前線產能角色',
+                                desc: '請選擇我方場上 1 張其他角色，本回合在前線也可產生能源：',
+                                cards: others, selectCount: 1, upTo: false,
+                                onConfirm: (sel) => {
+                                    if (sel.length > 0) {
+                                        rt.usedOncePerTurn = true;
+                                        const trt = engine.getRuntime(sel[0]);
+                                        if (trt) trt.tempKeywords.GENERATE_ENERGY_IN_FRONT = 1;
+                                        showSysMsg(`【${engine.getCardDef(sel[0])?.name || '角色'}】本回合在前線也可自動產生能源！`);
+                                        engine.updateEnergyHUD();
+                                        broadcastMyState();
+                                    }
+                                    if (onComplete) onComplete();
+                                }
+                            });
                         }
                     }
                 ]
@@ -10937,6 +11188,31 @@ window.registerCardScripts = window.registerCardScripts || function (map) {
         }
     };
 
+    // 08. UA40BT/REZ-1-074 ベアトリス (登場選1張我方スバル，至下次我方回合開始前若因非彈手對手效果離場改為回手牌)
+    scripts['UA40BT/REZ-1-074'] = {
+        onPlay(engine, cardEl, onComplete) {
+            const subarus = engine.getSlotTopCards('#my-front-line .slot, #my-energy-line .slot')
+                .filter(c => engine.getCardDef(c)?.name?.includes('ナツキ・スバル'));
+            if (subarus.length === 0) { if (onComplete) onComplete(); return; }
+            engine.promptModal({
+                title: '【ベアトリス】登場時：賦予離場保護',
+                desc: '選擇最多 1 張我方〈ナツキ・スバル〉，至下次我方回合開始前因非彈手之對手效果離場時改為返回手牌：',
+                cards: subarus, selectCount: 1, upTo: true,
+                onConfirm: (sel) => {
+                    if (sel.length > 0) {
+                        const trt = engine.getRuntime(sel[0]);
+                        trt.persistentKeywords = trt.persistentKeywords || {};
+                        trt.persistentKeywords.REPLACE_LEAVE_WITH_BOUNCE = 1;
+                        showSysMsg(`【${engine.getCardDef(sel[0])?.name}】獲得至下次我方回合開始前的離場替代回手保護！`);
+                        engine.updateEnergyHUD();
+                        broadcastMyState();
+                    }
+                    if (onComplete) onComplete();
+                }
+            });
+        }
+    };
+
     // 13. UA40BT/REZ-1-079 ラム (對手場上有黃或藍卡減1紫費)
     scripts['UA40BT/REZ-1-079'] = {
         getEnergyDiscount(engine) {
@@ -10970,6 +11246,26 @@ window.registerCardScripts = window.registerCardScripts || function (map) {
         }
     };
 
+    // 19. UA40BT/REZ-1-085 エミリア (前線起動[ターン1]：下張手牌〈エミリア〉必要能源-紫1)
+    scripts['UA40BT/REZ-1-085'] = {
+        canActivateMain(engine, cardEl, slot) {
+            const rt = engine.getRuntime(cardEl);
+            return !!slot.closest('#my-front-line') && !rt.usedOncePerTurn && (rt.restedByOwnEffectThisTurn || cardEl.classList.contains('rest'));
+        },
+        onActivateMain(engine, cardEl, slot, onComplete) {
+            engine.getRuntime(cardEl).usedOncePerTurn = true;
+            engine.pendingEnergyDiscounts.push({
+                color: 'PURPLE',
+                amount: 1,
+                desc: '下張〈エミリア〉必要能源 -紫×1',
+                matchFn: (d) => !!(d && d.name && d.name.includes('エミリア'))
+            });
+            showSysMsg('【エミリア】本回合下一張從手牌使用的〈エミリア〉必要能源減少 [紫×1]！');
+            engine.updateEnergyHUD();
+            if (onComplete) onComplete();
+        }
+    };
+
     // 22. UA40BT/REZ-1-088 エミリア (前線起動：轉活動並至下次我方回合開始前 BP+1000)
     scripts['UA40BT/REZ-1-088'] = {
         canActivateMain(engine, cardEl, slot) {
@@ -10979,9 +11275,9 @@ window.registerCardScripts = window.registerCardScripts || function (map) {
             const rt = engine.getRuntime(cardEl);
             rt.usedOncePerTurn = true;
             cardEl.classList.remove('rest');
-            engine.addSlotBp(slot, 1000);
             rt.persistentBp = (rt.persistentBp || 0) + 1000;
-            showSysMsg('⚡ 【エミリア】轉為活動，並獲得 BP+1000（持續至下次我方回合開始）！');
+            engine.addSlotBp(slot, 1000);
+            showSysMsg('【エミリア】轉為活動，並獲得 BP+1000（持續至下次我方回合開始）！');
             if (onComplete) onComplete();
         }
     };
@@ -11392,6 +11688,11 @@ window.registerCardScripts = window.registerCardScripts || function (map) {
     scripts['EX17BT/REZ-2-009'] = {
         getEnergyDiscount(engine) {
             return engine.getSlotTopCards('#my-front-line .slot, #my-energy-line .slot').length === 0 ? 2 : 0;
+        },
+        onPlay(engine, cardEl, onComplete) {
+            engine.executeAbilityActions(cardEl, [
+                { type: 'LOOK_AND_ARRANGE_TOP', count: 1, keepUpTo: 1, upTo: true, remainderTo: 'OUTSIDE' }
+            ], 0, { selectedTargets: [], addedFromLook: false }, onComplete);
         }
     };
 
@@ -11791,6 +12092,37 @@ window.registerCardScripts = window.registerCardScripts || function (map) {
             if (!slot) return 0;
             const hasFacedownUnder = Array.from(slot.querySelectorAll('.card')).some(c => c !== cardEl && c.classList.contains('is-flipped'));
             return hasFacedownUnder ? 1000 : 0;
+        },
+        onRetire(engine, cardEl, onComplete) {
+            const rt = engine.getRuntime(cardEl);
+            const handCards = Array.from(document.querySelectorAll('#my-hand-area .card'));
+            const emptyFront = Array.from(document.querySelectorAll('#my-front-line .slot')).find(s => s.querySelectorAll('.card').length === 0);
+            if (!engine.hasCharacterOnMyField('エミリア') || rt?.hadFacedownUnder || handCards.length === 0 || !emptyFront) {
+                if (onComplete) onComplete();
+                return;
+            }
+            engine.promptModal({
+                title: '【ナツキ・スバル】退場時復活效果',
+                desc: '場上有〈エミリア〉且此卡下無裏側卡。是否捨棄 1 張手牌，將此卡休息復活至前線並把捨棄卡裏側墊於下方？',
+                cards: handCards, selectCount: 1, upTo: true,
+                customButtons: [{ label: '不發動', color: '#7f8c8d', onClick: () => { if (onComplete) onComplete(); } }],
+                onConfirm: (sel) => {
+                    if (sel.length > 0) {
+                        const disc = sel[0];
+                        engine.moveCardToZone(disc, emptyFront);
+                        disc.classList.add('is-flipped');
+                        disc.classList.remove('rest');
+                        engine.moveCardToZone(cardEl, emptyFront);
+                        cardEl.classList.add('rest');
+                        cardEl.classList.remove('is-flipped');
+                        recalcStacking(emptyFront);
+                        showSysMsg('【ナツキ・スバル】捨棄 1 張手牌並於前線復活（捨棄卡已裏側墊於下方）！');
+                        engine.updateEnergyHUD();
+                        broadcastMyState();
+                    }
+                    if (onComplete) onComplete();
+                }
+            });
         }
     };
 
@@ -11872,6 +12204,30 @@ window.registerCardScripts = window.registerCardScripts || function (map) {
                     },
                     { label: '❌ 不發動', color: '#7f8c8d', onClick: () => { if (onComplete) onComplete(); } }
                 ]
+            });
+        },
+        canActivateMain(engine, cardEl) {
+            return !engine.getRuntime(cardEl).usedOncePerTurn && document.querySelectorAll('#my-hand-area .card').length >= 1;
+        },
+        onActivateMain(engine, cardEl, slot, onComplete) {
+            const handCards = Array.from(document.querySelectorAll('#my-hand-area .card'));
+            if (handCards.length === 0) { if (onComplete) onComplete(); return; }
+            engine.promptModal({
+                title: '【フェルト】起動メイン（棄 1 手牌）',
+                desc: '捨棄 1 張手牌，本回合此角色不會被 BP 4000 以上角色阻擋：',
+                cards: handCards, selectCount: 1, upTo: false,
+                onConfirm: (disc) => {
+                    if (disc.length > 0) {
+                        const rt = engine.getRuntime(cardEl);
+                        rt.usedOncePerTurn = true;
+                        engine.moveCardToZone(disc[0], document.getElementById('my-outside-area'));
+                        rt.tempKeywords.UNBLOCKABLE_MIN_BP = 4000;
+                        showSysMsg('【フェルト】本回合不會被 BP 4000 以上角色阻擋！');
+                        engine.updateEnergyHUD();
+                        broadcastMyState();
+                    }
+                    if (onComplete) onComplete();
+                }
             });
         }
     };
@@ -13063,7 +13419,12 @@ window.registerCardScripts = window.registerCardScripts || function (map) {
                         title: '選擇［特徴：LABO］', desc: '選擇 1 張獲得「不被 BP 4000 以上角色防禦」：',
                         cards: labos, selectCount: 1, upTo: false,
                         onConfirm: (sel) => {
-                            if (sel.length > 0) showSysMsg(`〈${engine.getCardDef(sel[0])?.name}〉本回合不會被 BP 4000 以上角色防禦。`);
+                            if (sel.length > 0) {
+                                engine.getRuntime(sel[0]).tempKeywords.UNBLOCKABLE_MIN_BP = 4000;
+                                showSysMsg(`〈${engine.getCardDef(sel[0])?.name}〉本回合不會被 BP 4000 以上角色阻擋。`);
+                                engine.updateEnergyHUD();
+                                broadcastMyState();
+                            }
                             if (onComplete) onComplete();
                         }
                     });
@@ -14372,7 +14733,13 @@ window.registerCardScripts = window.registerCardScripts || function (map) {
                 title: '無論だ。フゥーハハハ！', desc: '選擇 1 張我方〈牧瀬 紅莉栖〉本回合 BP+1500 且不被 BP 4000 以上防禦：',
                 cards: kurisus, selectCount: 1, upTo: false,
                 onConfirm: (sel) => {
-                    if (sel.length > 0) engine.addSlotBp(sel[0].parentElement, 1500);
+                    if (sel.length > 0) {
+                        engine.addSlotBp(sel[0].parentElement, 1500);
+                        engine.getRuntime(sel[0]).tempKeywords.UNBLOCKABLE_MIN_BP = 4000;
+                        showSysMsg(`〈${engine.getCardDef(sel[0])?.name}〉本回合 BP+1500 且不會被 BP 4000 以上角色阻擋。`);
+                        engine.updateEnergyHUD();
+                        broadcastMyState();
+                    }
                     finish();
                 }
             });
@@ -14525,7 +14892,14 @@ window.registerCardScripts = window.registerCardScripts || function (map) {
                     onClick: () => engine.promptModal({
                         title: '選擇強化目標', desc: '選擇 1 張非突襲 AP1 其他角色：', cards: cands, selectCount: 1, upTo: false,
                         onConfirm: (sel) => {
-                            if (sel.length > 0) { engine.getRuntime(cardEl).usedOncePerTurn = true; engine.usedNamedAbilityThisTurn.add('るか_無法阻擋'); showSysMsg(`〈${engine.getCardDef(sel[0])?.name}〉本回合不會被 BP 4000 以上防禦。`); }
+                            if (sel.length > 0) {
+                                engine.getRuntime(cardEl).usedOncePerTurn = true;
+                                engine.usedNamedAbilityThisTurn.add('るか_無法阻擋');
+                                engine.getRuntime(sel[0]).tempKeywords.UNBLOCKABLE_MIN_BP = 4000;
+                                showSysMsg(`〈${engine.getCardDef(sel[0])?.name}〉本回合不會被 BP 4000 以上角色阻擋。`);
+                                engine.updateEnergyHUD();
+                                broadcastMyState();
+                            }
                             if (onComplete) onComplete();
                         }
                     })

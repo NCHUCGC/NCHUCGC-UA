@@ -35,6 +35,8 @@ constructor() {
             this.usedEventThisTurn = false;
             this.usedEventCountThisTurn = 0;
             this.pendingApDiscounts = [];
+            this.pendingEnergyDiscounts = [];
+            this.enteredCharNamesThisTurn = new Set();
             this.usedNamedAbilityThisTurn = new Set();
             this.waitingForOppTrigger = false;
             this.oppTriggerTimeoutId = null;
@@ -102,6 +104,23 @@ constructor() {
             if (hasDoubleAttack) badges.push({ text: '2回攻擊', bg: '#d35400' });
 
             if (innate.impactNullify || v3View?.impactNullify || rt?.tempKeywords?.IMPACT_NULLIFY) badges.push({ text: '衝擊無效', bg: '#2c3e50' });
+
+            const effUnbMinCands = [innate.unblockableMinBp, v3View?.unblockableMinBp, rt?.tempKeywords?.UNBLOCKABLE_MIN_BP, rt?.persistentKeywords?.UNBLOCKABLE_MIN_BP].filter(v => v && v > 0);
+            const effUnbMin = effUnbMinCands.length > 0 ? Math.min(...effUnbMinCands) : 0;
+            if (effUnbMin > 0) badges.push({ text: `${effUnbMin}+不可阻擋`, bg: '#16a085' });
+
+            const effUnbMax = Math.max(innate.unblockableMaxBp || 0, v3View?.unblockableMaxBp || 0, rt?.tempKeywords?.UNBLOCKABLE_MAX_BP || 0, rt?.persistentKeywords?.UNBLOCKABLE_MAX_BP || 0);
+            if (effUnbMax > 0) badges.push({ text: `${effUnbMax}↓不可阻擋`, bg: '#16a085' });
+
+            if (rt?.persistentBp && rt.persistentBp !== 0) {
+                badges.push({ text: `持續BP${rt.persistentBp > 0 ? '+' : ''}${rt.persistentBp}`, bg: '#27ae60' });
+            }
+            if (rt?.tempKeywords?.GENERATE_ENERGY_IN_FRONT || rt?.persistentKeywords?.GENERATE_ENERGY_IN_FRONT) {
+                badges.push({ text: '前線產能', bg: '#2980b9' });
+            }
+            if (rt?.persistentKeywords?.REPLACE_LEAVE_WITH_BOUNCE || rt?.tempKeywords?.REPLACE_LEAVE_WITH_BOUNCE) {
+                badges.push({ text: '離場代彈手', bg: '#8e44ad' });
+            }
             return badges;
         }
 
@@ -165,6 +184,10 @@ constructor() {
                 this.moveCardToZone(cardEl, slot);
                 if (enterRest) cardEl.classList.add('rest');
                 else cardEl.classList.remove('rest');
+                const placedDef = this.getCardDef(cardEl);
+                if (placedDef && placedDef.type === 'CHARACTER' && placedDef.name) {
+                    this.enteredCharNamesThisTurn.add(placedDef.name);
+                }
                 this.updateEnergyHUD();
                 broadcastMyState();
                 if (onPlaced) onPlaced(slot);
@@ -296,6 +319,8 @@ constructor() {
             this.usedEventThisTurn = false;
             this.usedEventCountThisTurn = 0;
             this.pendingApDiscounts = [];
+            this.pendingEnergyDiscounts = [];
+            this.enteredCharNamesThisTurn = new Set();
             this.usedNamedAbilityThisTurn.clear();
             this.waitingForOppTrigger = false;
             if (this.oppTriggerTimeoutId) { clearTimeout(this.oppTriggerTimeoutId); this.oppTriggerTimeoutId = null; }
@@ -511,6 +536,11 @@ copyBugReportToClipboard(overrideCardEl = null) {
                     manualEnergyCount: null,
                     tempEnergyBoost: [],
                     tempKeywords: {},
+                    persistentBp: 0,
+                    persistentKeywords: {},
+                    lastRaidBases: [],
+                    hadFacedownUnder: false,
+                    restedByOwnEffectThisTurn: false,
                     retireAtEndOfMain: false,
                     frozenNextTurn: false
                 });
@@ -1871,19 +1901,47 @@ injectEngineUI() {
 
         // ==================== 能源與 AP 計算 ====================
 
+        canCardGenerateEnergyInFront(cardEl, def, slot) {
+            if (!cardEl || !def) return false;
+            const rt = this.getRuntime(cardEl);
+            if (rt?.tempKeywords?.GENERATE_ENERGY_IN_FRONT || rt?.persistentKeywords?.GENERATE_ENERGY_IN_FRONT) return true;
+            const script = this.getCardScript(cardEl);
+            if (script && typeof script.canGenerateEnergyInFront === 'function') {
+                const raidOk = !script.requireRaided || !!rt?.isRaided;
+                if (raidOk && script.canGenerateEnergyInFront(this, cardEl, slot)) return true;
+            }
+            if (window.UAV3Bridge) {
+                const v3v = window.UAV3Bridge.evalContinuousView(this, cardEl);
+                if (v3v && v3v.generateEnergyInFront) return true;
+            }
+            const effText = (def.effectText && def.effectText !== '-') ? def.effectText : '';
+            if (effText) {
+                const lines = effText.split('\n').map(l => l.trim()).filter(Boolean);
+                for (const line of lines) {
+                    if (line.includes('を与える')) continue;
+                    if (line.includes('フロントLにある場合もエナジーを発生させる') || line.includes('フロントLでもエナジーを発生させる')) {
+                        if (!/\[(登場時|起動メイン|アタック時|ブロック時|退場時)\]/.test(line)) return true;
+                    }
+                }
+            }
+            return false;
+        }
+
         calculateMyEnergy() {
             const totals = { RED: 0, BLUE: 0, GREEN: 0, YELLOW: 0, PURPLE: 0, ALL: 0 };
-            const slots = document.querySelectorAll('#my-energy-line .slot');
+            const energySlots = Array.from(document.querySelectorAll('#my-energy-line .slot'));
+            const frontSlots = Array.from(document.querySelectorAll('#my-front-line .slot'));
             const domColor = this.detectMyDeckDominantColor();
 
-            slots.forEach(slot => {
+            const evalSlot = (slot, isFront) => {
                 slot.querySelectorAll('.eng-slot-en-badge').forEach(b => b.remove());
 
                 const cards = slot.querySelectorAll('.card');
                 if (cards.length === 0) return;
-                const topCard = cards[cards.length - 1];
+                const topCard = this.getTopCardInSlot(slot) || cards[cards.length - 1];
                 const def = this.getCardDef(topCard);
                 const rt = this.getRuntime(topCard);
+                if (isFront && !this.canCardGenerateEnergyInFront(topCard, def, slot)) return;
                 const isActive = !topCard.classList.contains('rest');
 
                 let col = (def?.generatedEnergy?.color && def.generatedEnergy.color !== 'NONE')
@@ -1908,8 +1966,10 @@ injectEngineUI() {
                 }
 
                 if (rt && rt.tempEnergyBoost.length > 0) {
-                    rt.tempEnergyBoost.forEach(b => { cnt += b.count; });
+                    rt.tempEnergyBoost.forEach(b => { cnt += (b.count ?? b.amount ?? 1); });
                 }
+
+                if (cnt <= 0 && isFront) return;
 
                 totals[col] = (totals[col] || 0) + cnt;
                 totals.ALL += cnt;
@@ -1917,8 +1977,8 @@ injectEngineUI() {
                 if (this.enabled) {
                     const badge = document.createElement('div');
                     badge.className = 'eng-slot-en-badge';
-                    badge.title = '點擊可循環切換此卡產生 1 / 2 / 3 顆能源';
-                    badge.innerText = `${COLOR_NAMES[col]}×${cnt}`;
+                    badge.title = isFront ? '前線產能生效中（點擊可手動切換 1 / 2 / 3 顆能源）' : '點擊可循環切換此卡產生 1 / 2 / 3 顆能源';
+                    badge.innerText = isFront ? `前線 ${COLOR_NAMES[col]}×${cnt}` : `${COLOR_NAMES[col]}×${cnt}`;
                     badge.style.cssText = `
                         position: absolute; bottom: -10px; left: 50%; transform: translateX(-50%);
                         background: #14162a; color: ${COLOR_HEX[col]}; border: 2px solid ${COLOR_HEX[col]};
@@ -1934,7 +1994,10 @@ injectEngineUI() {
                     };
                     slot.appendChild(badge);
                 }
-            });
+            };
+
+            energySlots.forEach(slot => evalSlot(slot, false));
+            frontSlots.forEach(slot => evalSlot(slot, true));
 
             return totals;
         }
@@ -2004,6 +2067,11 @@ injectEngineUI() {
                         bonus += val;
                     }
                 }
+            }
+            const script = this.getCardScript(cardEl);
+            if (script && typeof script.getContinuousEnergyBonus === 'function') {
+                const sBonus = script.getContinuousEnergyBonus(this, cardEl, slot) || 0;
+                if (sBonus > bonus) bonus = sBonus;
             }
             if (window.UAV3Bridge) {
                 const v3View = window.UAV3Bridge.evalContinuousView(this, cardEl);
@@ -2243,7 +2311,12 @@ injectEngineUI() {
                     if (apNeed > activeAp) return;
 
                     const reqCol = def.requiredEnergy?.color || 'NONE';
-                    let reqCnt = Math.max(0, (def.requiredEnergy?.count || 0) - this.computeAutoEnergyDiscount(def));
+                    const scriptDisc = (this.getCardScriptById(def.id)?.getEnergyDiscount?.(this, def)) || 0;
+                    const pendingDisc = (this.pendingEnergyDiscounts || []).reduce((sum, d) => {
+                        if (!d || (d.color && reqCol && d.color !== reqCol)) return sum;
+                        return (d.matchFn && d.matchFn(def)) ? (sum + (d.amount || 1)) : sum;
+                    }, 0);
+                    let reqCnt = Math.max(0, (def.requiredEnergy?.count || 0) - Math.max(scriptDisc, this.computeAutoEnergyDiscount(def)) - pendingDisc);
                     const isAllColor = !!(def.allColor || (window.UAV3Bridge && window.UAV3Bridge.getV3IR(def)?.allColor));
                     const haveEn = (isAllColor || reqCol === 'NONE' || reqCol === 'ANY') ? (en.ALL || 0) : (en[reqCol] || 0);
                     if (haveEn < reqCnt) return;
@@ -2378,6 +2451,8 @@ injectEngineUI() {
             this.usedEventThisTurn = false;
             this.usedEventCountThisTurn = 0;
             this.pendingApDiscounts = [];
+            this.pendingEnergyDiscounts = [];
+            this.enteredCharNamesThisTurn = new Set();
             this.usedNamedAbilityThisTurn.clear();
             this.triggerActivatedThisTurn = false;
             this.triggeredThisTurn = false;
@@ -2394,6 +2469,7 @@ injectEngineUI() {
                 rt.retireAtEndOfMain = false;
                 rt.persistentBp = 0;
                 rt.persistentKeywords = {};
+                rt.restedByOwnEffectThisTurn = false;
                 if (rt.usedV3Abilities) rt.usedV3Abilities.clear();
                 rt.v3TempAbilities = [];
             });
@@ -2477,6 +2553,13 @@ injectEngineUI() {
                             showSysMsg(`【戰鬥階段結束】${this.getCardDef(topCard)?.name || ''} 返回手牌！`);
                             this.bounceSlotTopCardToHand(slot);
                         }
+                        const sc = this.getCardScript(topCard);
+                        const raidOk = !sc?.requireRaided || !!rt?.isRaided;
+                        if (sc && raidOk && typeof sc.onAttackPhaseEnd === 'function') {
+                            sc.onAttackPhaseEnd(this, topCard);
+                        } else if (window.UAV3Bridge) {
+                            window.UAV3Bridge.tryTriggerV3(this, topCard, 'ON_ATTACK_PHASE_END');
+                        }
                     }
                 });
                 if (this.sakamotoHouseRuleActive) {
@@ -2505,6 +2588,18 @@ injectEngineUI() {
             }
 
             this.onPhaseChanged('結束');
+            document.querySelectorAll('#my-front-line .slot, #my-energy-line .slot').forEach(slot => {
+                const topCard = this.getTopCardInSlot(slot);
+                if (!topCard) return;
+                const rt = this.getRuntime(topCard);
+                const sc = this.getCardScript(topCard);
+                const raidOk = !sc?.requireRaided || !!rt?.isRaided;
+                if (sc && raidOk && typeof sc.onTurnEnd === 'function') {
+                    sc.onTurnEnd(this, topCard);
+                } else if (window.UAV3Bridge) {
+                    window.UAV3Bridge.tryTriggerV3(this, topCard, 'ON_TURN_END');
+                }
+            });
 
             const handCards = Array.from(document.querySelectorAll('#my-hand-area .card'));
             if (handCards.length > 8) {
@@ -2546,8 +2641,10 @@ injectEngineUI() {
                 const keepBp = (rt && rt.persistentBp) ? rt.persistentBp : 0;
                 updateBpDisplay(slot, keepBp);
             });
-            // 對手前線若無持續性 BP 則於交換回合時歸零（若對手有持續性 BP 會在對手同步封包中保留）
-            document.querySelectorAll('#opp-front-line .slot').forEach(slot => updateBpDisplay(slot, 0));
+            // 單人測試模式無對手連線時才直接歸零對手前線；連線／人機對戰改由對手回合開始的同步封包更新，避免覆蓋對手的跨回合 BP
+            if (!(conn && isConnected)) {
+                document.querySelectorAll('#opp-front-line .slot').forEach(slot => updateBpDisplay(slot, 0));
+            }
 
             this.cardRuntime.forEach(rt => {
                 rt.tempEnergyBoost = [];
@@ -2562,13 +2659,14 @@ injectEngineUI() {
             if (firstPhaseBtn) firstPhaseBtn.classList.add('active');
             document.querySelectorAll('.slot.marked').forEach(s => s.classList.remove('marked'));
 
-            showCenterAlert('⛔', '回合結束', '換對手回合', '#c1596f');
+            showCenterAlert('', '回合結束', '換對手回合', '#c1596f');
+            this.updateEnergyHUD();
+            // 先廣播保留 persistentBp 與持續關鍵字後的最新盤面，再通知對手／AI 開始回合，避免競態讀到舊狀態
+            broadcastMyState();
             if (conn && isConnected) {
                 conn.send({ type: 'PHASE_BROADCAST', phase: '結束' });
                 conn.send({ type: 'ENGINE_EVENT', subType: 'YOUR_TURN_START' });
             }
-            this.updateEnergyHUD();
-            broadcastMyState();
         }
 
         // ==================== 出牌與突襲判定 ====================
@@ -2632,15 +2730,20 @@ injectEngineUI() {
             const script = this.getCardScriptById(cardDef.id);
             const scriptDiscount = (script && typeof script.getEnergyDiscount === 'function') ? (script.getEnergyDiscount(this, cardDef) || 0) : 0;
             const autoDiscount = this.computeAutoEnergyDiscount(cardDef);
-            const discount = Math.max(scriptDiscount, autoDiscount);
+            const pendingDiscount = (this.pendingEnergyDiscounts || []).reduce((sum, d) => {
+                if (!d || (d.color && req.color && d.color !== req.color)) return sum;
+                return (d.matchFn && d.matchFn(cardDef)) ? (sum + (d.amount || 1)) : sum;
+            }, 0);
+            const discount = Math.max(scriptDiscount, autoDiscount) + pendingDiscount;
             const neededCount = Math.max(0, req.count - discount);
             if (neededCount > 0 && req.color !== 'NONE') {
                 const myEn = this.calculateMyEnergy();
-                const colorCount = myEn[req.color] || 0;
+                const isAllColor = !!(cardDef.allColor || (window.UAV3Bridge && window.UAV3Bridge.getV3IR(cardDef)?.allColor));
+                const colorCount = isAllColor ? (myEn.ALL || 0) : (myEn[req.color] || 0);
                 if (colorCount < neededCount) {
                     return {
                         ok: false,
-                        reason: `能源不足！【${cardDef.name}】需要 ${COLOR_NAMES[req.color]}×${neededCount}，目前能源線僅產生 ${COLOR_NAMES[req.color]}×${colorCount}。（若能源線有雙球卡，可點擊卡槽下方的能源徽章切換為 ×2）`
+                        reason: `能源不足！【${cardDef.name}】需要 ${COLOR_NAMES[req.color]}×${neededCount}，目前僅產生 ${COLOR_NAMES[req.color]}×${colorCount}。（若能源線有雙球卡，可點擊卡槽下方的能源徽章切換為 ×2）`
                     };
                 }
             }
@@ -2719,6 +2822,11 @@ injectEngineUI() {
 
             // A. 場上移動（解除階段硬鎖，確保主要/戰鬥階段的移動效果與手動換位皆可順利操作）
             if ((fromFront || fromEnergy) && (toFront || toEnergy) && originalParent !== dropZone) {
+                if (toFront && !fromFront && this.isCardBlockedFromFront(mainCard, def)) {
+                    showSysMsg(`【${def.name}】依卡片效果無法移動至前線！`);
+                    defaultFinalizeFn(cards, null, 'cancel', originalParent, endX);
+                    return;
+                }
                 const existingCards = Array.from(dropZone.querySelectorAll('.card'));
                 if (existingCards.length > 0) {
                     // 目標卡槽已有卡片：若是 [ステップ] 退回能源線則自動互換；否則開啟疊牌／交換選單
@@ -2726,6 +2834,11 @@ injectEngineUI() {
                     if (fromFront && toEnergy && hasStep && this.currentPhase === '移動') {
                         const targetTop = this.getTopCardInSlot(dropZone);
                         if (this.getCardDef(targetTop)?.type === 'CHARACTER') {
+                            if (this.isCardBlockedFromFront(targetTop, this.getCardDef(targetTop))) {
+                                showSysMsg(`【${this.getCardDef(targetTop)?.name}】無法移動至前線！`);
+                                defaultFinalizeFn(cards, null, 'cancel', originalParent, endX);
+                                return;
+                            }
                             existingCards.forEach(ec => originalParent.appendChild(ec));
                             recalcStacking(originalParent);
                             showSysMsg('發動 [ステップ]：已與能源線的角色互換位置！');
@@ -2743,10 +2856,16 @@ injectEngineUI() {
                 } else if (fromFront && toEnergy) {
                     const hasStep = def.keywords?.includes('ステップ') || def.compiledRules?.staticKeywords?.step || this.getRuntime(mainCard)?.tempKeywords?.STEP;
                     if (!hasStep) {
-                        showSysMsg(`ℹ️ 【${def.name}】已退回能源線（若非卡片效果，請注意需具備 [ステップ]）`);
+                        showSysMsg(`【${def.name}】已退回能源線（若非卡片效果，請注意需具備 [ステップ]）`);
                     }
                 }
+                const moveRt = this.getRuntime(mainCard);
+                const oldTracker = originalParent.querySelector('.bp-tracker');
+                const oldBp = oldTracker ? (parseInt(oldTracker.dataset.bp, 10) || 0) : 0;
+                const carryBp = oldBp || (moveRt?.persistentBp || 0);
+                if (oldTracker) updateBpDisplay(originalParent, 0);
                 defaultFinalizeFn(cards, dropZone, 'default', originalParent, endX);
+                if (toFront && carryBp !== 0) updateBpDisplay(dropZone, carryBp);
                 this.updateEnergyHUD();
                 return;
             }
@@ -2812,6 +2931,12 @@ injectEngineUI() {
 
                 if (def.type === 'FIELD' && toFront) {
                     showSysMsg('根據規則：場域卡（Field）無法在前線登場，請放置於能源線！');
+                    defaultFinalizeFn(cards, null, 'cancel', originalParent, endX);
+                    return;
+                }
+
+                if (toFront && this.isCardBlockedFromFront(mainCard, def)) {
+                    showSysMsg(`【${def.name}】依卡片效果無法於前線登場，請放置於能源線！`);
                     defaultFinalizeFn(cards, null, 'cancel', originalParent, endX);
                     return;
                 }
@@ -2951,11 +3076,39 @@ injectEngineUI() {
             });
         }
 
+        isCardBlockedFromFront(cardEl, def) {
+            if (!def) return false;
+            const script = this.getCardScriptById(def.id);
+            if (script && script.cannotPlayFront) return true;
+            if (def.effectText && /フロントLに〔登場・移動〕できない/.test(def.effectText)) return true;
+            if (window.UAV3Bridge) {
+                const v3v = cardEl ? window.UAV3Bridge.evalContinuousView(this, cardEl) : null;
+                if (v3v && v3v.cannotMoveToFront) return true;
+                const ir = window.UAV3Bridge.getV3IR(def);
+                if (ir && ir.cannotPlayFront) return true;
+            }
+            return false;
+        }
+
+        consumePendingEnergyDiscount(cardDef) {
+            if (!cardDef || !this.pendingEnergyDiscounts || this.pendingEnergyDiscounts.length === 0) return;
+            const reqCol = cardDef.requiredEnergy?.color || 'NONE';
+            const idx = this.pendingEnergyDiscounts.findIndex(d => (!d.color || d.color === reqCol) && d.matchFn && d.matchFn(cardDef));
+            if (idx !== -1) {
+                const disc = this.pendingEnergyDiscounts.splice(idx, 1)[0];
+                if (disc.desc) showSysMsg(`已套用能源減免效果（${disc.desc}）`);
+            }
+        }
+
         completeNormalPlay(cards, mainCard, def, dropZone, originalParent, endX, defaultFinalizeFn) {
+            this.consumePendingEnergyDiscount(def);
             this.payApForCard(def);
             if (this.isCardTreatedAsEvent(def)) {
                 this.usedEventThisTurn = true;
                 this.usedEventCountThisTurn = (this.usedEventCountThisTurn || 0) + 1;
+            }
+            if (def.type === 'CHARACTER' && def.name) {
+                this.enteredCharNamesThisTurn.add(def.name);
             }
             defaultFinalizeFn(cards, dropZone, 'default', originalParent, endX);
 
@@ -3018,15 +3171,20 @@ injectEngineUI() {
         executeRaidSummon(cardEl, def, targetSlot, moveToFront, originalParent, endX, defaultFinalizeFn, isFreeFromTrigger = false, onComplete = null) {
             const baseCardUnder = this.getTopCardInSlot(targetSlot);
             if (!isFreeFromTrigger) {
+                this.consumePendingEnergyDiscount(def);
                 this.payApForCard(def);
                 if (this.isCardTreatedAsEvent(def)) {
                     this.usedEventThisTurn = true;
                     this.usedEventCountThisTurn = (this.usedEventCountThisTurn || 0) + 1;
                 }
             }
+            if (def?.type === 'CHARACTER' && def.name) {
+                this.enteredCharNamesThisTurn.add(def.name);
+            }
             updateBpDisplay(targetSlot, 0);
 
-            defaultFinalizeFn([cardEl], targetSlot, 'top-faceup', originalParent, endX);
+            const rawFinalize = this._rawFinalizeDrop || defaultFinalizeFn;
+            rawFinalize([cardEl], targetSlot, 'top-faceup', originalParent, endX);
             if (baseCardUnder) {
                 const baseScript = this.getCardScript(baseCardUnder);
                 if (baseScript && typeof baseScript.onRaided === 'function') {
@@ -3202,6 +3360,32 @@ injectEngineUI() {
                         };
                         slot.appendChild(btn);
                     });
+                });
+
+                // 手牌［起動メイン］卡片（如 UA40BT/REZ-1-047 リカード・ウェルキン）
+                document.querySelectorAll('#my-hand-area .card').forEach(cardEl => {
+                    const script = this.getCardScript(cardEl);
+                    if (!script || typeof script.onActivateFromHand !== 'function') return;
+                    const canAct = typeof script.canActivateFromHand === 'function' ? script.canActivateFromHand(this, cardEl) : true;
+                    if (!canAct) return;
+                    const btn = document.createElement('button');
+                    btn.className = 'eng-card-btn';
+                    btn.innerText = '手牌起動';
+                    btn.style.cssText = `
+                        position: absolute; top: 6px; left: 50%; transform: translateX(-50%);
+                        width: 92%; background: linear-gradient(135deg, #2980b9, #1f618d); color: #fff;
+                        border: 2px solid #fff; border-radius: 8px; padding: 5px 4px;
+                        font-size: 12px; font-weight: 900; cursor: pointer; z-index: 1200;
+                        box-shadow: 0 4px 10px rgba(0,0,0,0.9); white-space: nowrap;
+                    `;
+                    btn.onclick = (e) => {
+                        e.stopPropagation();
+                        script.onActivateFromHand(this, cardEl, () => {
+                            this.updateEnergyHUD();
+                            broadcastMyState();
+                        });
+                    };
+                    cardEl.appendChild(btn);
                 });
             }
 
@@ -3945,6 +4129,11 @@ injectEngineUI() {
 
                         const candidates = this.getSlotTopCards(selector).filter(c => {
                             if (act.excludeSelf && c === sourceCardEl) return false;
+                            if (act.owner === 'OPP') {
+                                const cRt = this.getRuntime(c);
+                                if (cRt?.tempKeywords?.UNTARGETABLE_BY_OPP) return false;
+                                if (window.UAV3Bridge && window.UAV3Bridge.evalContinuousView(this, c).untargetableByOpp) return false;
+                            }
                             const d = this.getCardDef(c);
                             if (d && d.type !== 'CHARACTER') return false;
                             if (effectiveMaxBp !== null && effectiveMaxBp !== undefined) {
@@ -4390,11 +4579,11 @@ injectEngineUI() {
                             const targets = act.target === 'SELECTED' ? taskContext.selectedTargets : [sourceCardEl];
                             targets.forEach(t => {
                                 if (t && t.parentElement) {
-                                    this.addSlotBp(t.parentElement, act.amount);
                                     if (act.duration === 'NEXT_MY_TURN') {
                                         const trt = this.getRuntime(t);
                                         if (trt) trt.persistentBp = (trt.persistentBp || 0) + act.amount;
                                     }
+                                    this.addSlotBp(t.parentElement, act.amount);
                                 }
                             });
                         }
@@ -5026,10 +5215,22 @@ injectEngineUI() {
                     const atkScript = this.getCardScript(attackerCard);
                     const scriptUnb = (atkScript && typeof atkScript.getUnblockableRules === 'function') ? (atkScript.getUnblockableRules(this, attackerCard) || {}) : {};
                     const v3Unb = window.UAV3Bridge ? window.UAV3Bridge.evalContinuousView(this, attackerCard) : null;
-                    const effUnblockMax = Math.max(innateAtkKw.unblockableMaxBp || 0, v3Unb?.unblockableMaxBp || 0, rt.tempKeywords.UNBLOCKABLE_MAX_BP || 0, scriptUnb.maxBp || 0);
-                    const minCands = [innateAtkKw.unblockableMinBp, v3Unb?.unblockableMinBp, rt.tempKeywords.UNBLOCKABLE_MIN_BP, scriptUnb.minBp].filter(v => v && v > 0);
+                    const effUnblockMax = Math.max(
+                        innateAtkKw.unblockableMaxBp || 0,
+                        v3Unb?.unblockableMaxBp || 0,
+                        rt.tempKeywords?.UNBLOCKABLE_MAX_BP || 0,
+                        rt.persistentKeywords?.UNBLOCKABLE_MAX_BP || 0,
+                        scriptUnb.maxBp || 0
+                    );
+                    const minCands = [
+                        innateAtkKw.unblockableMinBp,
+                        v3Unb?.unblockableMinBp,
+                        rt.tempKeywords?.UNBLOCKABLE_MIN_BP,
+                        rt.persistentKeywords?.UNBLOCKABLE_MIN_BP,
+                        scriptUnb.minBp
+                    ].filter(v => v && v > 0);
                     const effUnblockMin = minCands.length > 0 ? Math.min(...minCands) : 0;
-                    const effUnblockRaided = !!(rt.tempKeywords.UNBLOCKABLE_BY_RAIDED || scriptUnb.byRaided || (def.effectText || '').includes('レイド状態のキャラにブロックされない'));
+                    const effUnblockRaided = !!(rt.tempKeywords?.UNBLOCKABLE_BY_RAIDED || rt.persistentKeywords?.UNBLOCKABLE_BY_RAIDED || scriptUnb.byRaided || (def.effectText || '').includes('レイド状態のキャラにブロックされない'));
                     conn.send({
                         type: 'ENGINE_EVENT',
                         subType: 'ATTACK_DECLARED',
@@ -5044,25 +5245,44 @@ injectEngineUI() {
                     });
                     showSysMsg('等待對手選擇是否進行防禦 (Block)...');
                 } else if (this.isSoloTestMode) {
-                    const unblockMax = Math.max(innateAtkKw.unblockableMaxBp || 0, rt.tempKeywords.UNBLOCKABLE_MAX_BP || 0);
-                    const unblockMin = (innateAtkKw.unblockableMinBp && rt.tempKeywords.UNBLOCKABLE_MIN_BP)
-                        ? Math.min(innateAtkKw.unblockableMinBp, rt.tempKeywords.UNBLOCKABLE_MIN_BP)
-                        : (innateAtkKw.unblockableMinBp || rt.tempKeywords.UNBLOCKABLE_MIN_BP || 0);
+                    const atkScript = this.getCardScript(attackerCard);
+                    const scriptUnb = (atkScript && typeof atkScript.getUnblockableRules === 'function') ? (atkScript.getUnblockableRules(this, attackerCard) || {}) : {};
+                    const v3Unb = window.UAV3Bridge ? window.UAV3Bridge.evalContinuousView(this, attackerCard) : null;
+                    const unblockMax = Math.max(
+                        innateAtkKw.unblockableMaxBp || 0,
+                        v3Unb?.unblockableMaxBp || 0,
+                        rt.tempKeywords?.UNBLOCKABLE_MAX_BP || 0,
+                        rt.persistentKeywords?.UNBLOCKABLE_MAX_BP || 0,
+                        scriptUnb.maxBp || 0
+                    );
+                    const minCands = [
+                        innateAtkKw.unblockableMinBp,
+                        v3Unb?.unblockableMinBp,
+                        rt.tempKeywords?.UNBLOCKABLE_MIN_BP,
+                        rt.persistentKeywords?.UNBLOCKABLE_MIN_BP,
+                        scriptUnb.minBp
+                    ].filter(v => v && v > 0);
+                    const unblockMin = minCands.length > 0 ? Math.min(...minCands) : 0;
+                    const unblockByRaided = !!(rt.tempKeywords?.UNBLOCKABLE_BY_RAIDED || rt.persistentKeywords?.UNBLOCKABLE_BY_RAIDED || scriptUnb.byRaided || (def.effectText || '').includes('レイド状態のキャラにブロックされない'));
                     const oppBlockers = this.getSlotTopCards('#opp-front-line .slot').filter(c => {
                         if (c.classList.contains('rest')) return false;
                         const bp = this.getEffectiveCardBp(c);
                         if (unblockMax && bp <= unblockMax) return false;
                         if (unblockMin && bp >= unblockMin) return false;
+                        if (unblockByRaided && this.getRuntime(c)?.isRaided) return false;
                         return true;
                     });
                     if (oppBlockers.length === 0) {
                         if (unblockMax > 0) showSysMsg(`[測試] 對手沒有 BP 超過 ${unblockMax} 的可防禦角色，直接命中生命！`);
+                        else if (unblockMin > 0) showSysMsg(`[測試] 對手沒有 BP 低於 ${unblockMin} 的可防禦角色，直接命中生命！`);
                         this.inflictPlayerDamage(attackerCard);
                     } else {
+                        const filterNotes = [];
+                        if (unblockMax) filterNotes.push(`BP ${unblockMax} 以下不可防禦`);
+                        if (unblockMin) filterNotes.push(`BP ${unblockMin} 以上不可防禦`);
                         this.promptModal({
                             title: `【測試】模擬對手防禦：${this.getDisplayName(def)} (BP ${atkBp})`,
-                            desc: `請選擇對手前線 1 張角色進行防禦（測試比 BP 與衝擊），或點擊「不防禦（直擊生命）」：` + (unblockMax ? `
-（已自動過濾 BP ${unblockMax} 以下不可防禦的角色）` : ''),
+                            desc: `請選擇對手前線 1 張角色進行防禦（測試比 BP 與衝擊），或點擊「不防禦（直擊生命）」：` + (filterNotes.length ? `\n（已自動過濾：${filterNotes.join('、')}）` : ''),
                             cards: oppBlockers,
                             selectCount: 1,
                             upTo: true,
@@ -5186,6 +5406,14 @@ injectEngineUI() {
             const atkDef = this.getCardDef(attackerCard);
             const defDef = this.getCardDef(defenderCard);
 
+            const blkScr = this.getCardScript(attackerCard);
+            const blkRaidOk = !blkScr?.requireRaided || !!this.getRuntime(attackerCard)?.isRaided;
+            if (blkScr && blkRaidOk && typeof blkScr.onBlocked === 'function') {
+                blkScr.onBlocked(this, attackerCard, defenderCard);
+            } else if (window.UAV3Bridge) {
+                window.UAV3Bridge.tryTriggerV3(this, attackerCard, 'ON_BLOCKED');
+            }
+
             if (atkBp >= defBp) {
                 showCenterAlert('⚔️', '對戰獲勝！', `${atkBp} vs ${defBp}`, '#6fb897');
                 this.requestRetireOpponentCard(defenderCard);
@@ -5202,7 +5430,9 @@ injectEngineUI() {
                     showSysMsg('憩来坂商店街大サバゲ―大会：戰鬥獲勝，抽 1 張牌！');
                 }
 
+                const defScr = this.getCardScript(defenderCard);
                 const defenderNullifiesImpact = this.getInnateStaticKeywords(defDef).impactNullify
+                    || !!(defScr && typeof defScr.getContinuousImpactNullify === 'function' && defScr.getContinuousImpactNullify(this, defenderCard))
                     || (window.UAV3Bridge ? window.UAV3Bridge.evalContinuousView(this, defenderCard).impactNullify : false);
                 if (!defenderNullifiesImpact) {
                     const impactDmg = this.getCardImpactValue(attackerCard);
@@ -5217,6 +5447,7 @@ injectEngineUI() {
             }
             this.updateEnergyHUD();
             broadcastMyState();
+            this.triggerAttackEnd(attackerCard);
         }
 
         getCardImpactValue(cardEl) {
@@ -5265,9 +5496,12 @@ injectEngineUI() {
                 script.onUnblockedAttack(this, attackerCard, () => {
                     this.updateEnergyHUD();
                     broadcastMyState();
+                    this.triggerAttackEnd(attackerCard);
                 });
-            } else if (window.UAV3Bridge) {
-                window.UAV3Bridge.tryTriggerV3(this, attackerCard, 'ON_UNBLOCKED');
+            } else if (window.UAV3Bridge && window.UAV3Bridge.tryTriggerV3(this, attackerCard, 'ON_UNBLOCKED', () => this.triggerAttackEnd(attackerCard))) {
+                return;
+            } else {
+                this.triggerAttackEnd(attackerCard);
             }
         }
 
@@ -5311,13 +5545,20 @@ injectEngineUI() {
                 flippedCards.push(c);
             }
 
+            this.isResolvingLifeTrigger = true;
             this.resolveTriggerSequence(flippedCards, () => {
+                this.isResolvingLifeTrigger = false;
                 if (conn && isConnected) {
                     conn.send({ type: 'ENGINE_EVENT', subType: 'TRIGGER_RESOLUTION_DONE' });
                 }
                 if (lifeArea.querySelectorAll('.card').length === 0) {
-                    alert('💀 我方生命區已歸零，本局對戰落敗！');
+                    alert('我方生命區已歸零，本局對戰落敗！');
                     sendSystemChat('[規則引擎] 對手生命區歸零，恭喜你獲得對戰勝利！');
+                }
+                // 若觸發結算期間有提前到達的對手攻擊宣言，待觸發完全結束後再依序彈出防禦視窗
+                if (Array.isArray(this._queuedOpponentAttacks) && this._queuedOpponentAttacks.length > 0) {
+                    const nextAtk = this._queuedOpponentAttacks.shift();
+                    setTimeout(() => this.onOpponentAttackDeclared(nextAtk), 60);
                 }
             });
         }
@@ -5472,11 +5713,41 @@ injectEngineUI() {
                         if (selected.length > 0) {
                             const targetSlot = selected[0].parentElement;
                             const isEn = !!targetSlot.closest('#my-energy-line');
-                            this.executeRaidSummon(cardEl, def, targetSlot, isEn, cardEl.parentElement, 0, window.finalizeDrop, true, callback);
+                            this.executeRaidSummon(cardEl, def, targetSlot, isEn, cardEl.parentElement, 0, this._rawFinalizeDrop || window.finalizeDrop, true, callback);
                         } else {
                             this.moveCardToZone(cardEl, handArea);
                             callback();
                         }
+                    }
+                });
+                return;
+            }
+
+            // 專屬替代型 Color Trigger（如 EX17BT/REZ-2-039 綠色スバル：必要能源2以下可替換為原BP2500）
+            if ((trig.type === 'COLOR' || def.triggerText?.includes('[カラー]')) && this.getBaseCardId(def.id) === 'EX17BT/REZ-2-039') {
+                this.moveCardToZone(cardEl, outsideArea);
+                const cands = Array.from(document.querySelectorAll('#my-hand-area .card')).filter(c => {
+                    const d = this.getCardDef(c);
+                    return d && d.type === 'CHARACTER' && d.color === 'GREEN' && (d.apCost ?? 1) === 1
+                        && ((d.requiredEnergy?.count || 0) <= 2 || d.bp === 2500);
+                });
+                if (cands.length === 0) {
+                    showSysMsg('[Trigger: COLOR] 手牌沒有符合條件（需能2以下或原BP2500、AP1的綠色角色）的卡片。');
+                    callback();
+                    return;
+                }
+                this.promptModal({
+                    title: '[Trigger: COLOR] ナツキ・スバル 替代效果',
+                    desc: '請選擇手牌中 1 張「需能 2 以下」或「原 BP 2500」且 AP 1 的綠色角色，以活動狀態登場於場上：',
+                    cards: cands,
+                    selectCount: 1,
+                    upTo: true,
+                    onConfirm: (sel) => {
+                        if (sel.length === 0) { callback(); return; }
+                        this.chooseEmptyFieldSlotAndPlace(sel[0], { allowFront: true, allowEnergy: true, enterRest: false }, (placed) => {
+                            if (placed) this.triggerCardAbilities(sel[0], 'ON_PLAY', callback);
+                            else callback();
+                        });
                     }
                 });
                 return;
@@ -5559,14 +5830,43 @@ injectEngineUI() {
             const topCard = cards[cards.length - 1];
             const underCards = cards.slice(0, cards.length - 1);
             const outsideArea = document.getElementById('my-outside-area');
+            const topRt = this.getRuntime(topCard);
 
-            updateBpDisplay(slot, 0);
-            underCards.forEach(uc => this.moveCardToZone(uc, outsideArea));
-            this.moveCardToZone(topCard, outsideArea);
+            const doRetire = () => {
+                if (topRt) {
+                    topRt.lastRaidBases = underCards.filter(uc => !uc.classList.contains('is-flipped'));
+                    topRt.hadFacedownUnder = underCards.some(uc => uc.classList.contains('is-flipped'));
+                }
+                updateBpDisplay(slot, 0);
+                underCards.forEach(uc => this.moveCardToZone(uc, outsideArea));
+                this.moveCardToZone(topCard, outsideArea);
 
-            this.triggerCardAbilities(topCard, 'ON_RETIRE');
-            this.updateEnergyHUD();
-            broadcastMyState();
+                this.triggerCardAbilities(topCard, 'ON_RETIRE');
+                this.updateEnergyHUD();
+                broadcastMyState();
+            };
+
+            const topScr = this.getCardScript(topCard);
+            if (topScr && typeof topScr.onBeforeRetire === 'function') {
+                if (topScr.onBeforeRetire(this, topCard, slot, doRetire) === true) return;
+            }
+            doRetire();
+        }
+
+        triggerAttackEnd(attackerCard) {
+            if (!attackerCard || !attackerCard.parentElement || !attackerCard.closest('#my-front-line')) return;
+            const rt = this.getRuntime(attackerCard);
+            const sc = this.getCardScript(attackerCard);
+            const raidOk = !sc?.requireRaided || !!rt?.isRaided;
+            const finish = () => {
+                this.updateEnergyHUD();
+                broadcastMyState();
+            };
+            if (sc && raidOk && typeof sc.onAttackEnd === 'function') {
+                sc.onAttackEnd(this, attackerCard, finish);
+            } else if (window.UAV3Bridge) {
+                window.UAV3Bridge.tryTriggerV3(this, attackerCard, 'ON_ATTACK_END', finish);
+            }
         }
 
         playCardFreeFromDeck(cardEl, onComplete = null) {
@@ -5629,7 +5929,7 @@ injectEngineUI() {
                                 const targetSlot = selected[0].parentElement;
                                 const isEn = !!targetSlot.closest('#my-energy-line');
                                 const hasEmptyFront = Array.from(document.querySelectorAll('#my-front-line .slot')).some(s => s.querySelectorAll('.card').length === 0);
-                                this.executeRaidSummon(cardEl, def, targetSlot, isEn && hasEmptyFront, cardEl.parentElement, 0, window.finalizeDrop, true, onComplete);
+                                this.executeRaidSummon(cardEl, def, targetSlot, isEn && hasEmptyFront, cardEl.parentElement, 0, this._rawFinalizeDrop || window.finalizeDrop, true, onComplete);
                             } else {
                                 doNormalFreeSummon();
                             }
@@ -6085,6 +6385,13 @@ handleNetworkEvent(data) {
                 case 'FORCE_RETIRE_SLOT': {
                     if (!this.isValidMySlotId(data.slotId)) return;
                     const slot = document.getElementById(data.slotId);
+                    const top = this.getTopCardInSlot(slot);
+                    const rt = top ? this.getRuntime(top) : null;
+                    if (top && (rt?.persistentKeywords?.REPLACE_LEAVE_WITH_BOUNCE || rt?.tempKeywords?.REPLACE_LEAVE_WITH_BOUNCE)) {
+                        showSysMsg(`【${this.getCardDef(top)?.name || '角色'}】發動離場替代效果：改為返回手牌！`);
+                        this.bounceSlotTopCardToHand(slot);
+                        break;
+                    }
                     if (slot) this.retireCardFromSlot(slot);
                     break;
                 }
@@ -6097,6 +6404,13 @@ handleNetworkEvent(data) {
                 case 'FORCE_BOTTOM_SLOT': {
                     if (!this.isValidMySlotId(data.slotId)) return;
                     const slot = document.getElementById(data.slotId);
+                    const topCheck = this.getTopCardInSlot(slot);
+                    const rtCheck = topCheck ? this.getRuntime(topCheck) : null;
+                    if (topCheck && (rtCheck?.persistentKeywords?.REPLACE_LEAVE_WITH_BOUNCE || rtCheck?.tempKeywords?.REPLACE_LEAVE_WITH_BOUNCE)) {
+                        showSysMsg(`【${this.getCardDef(topCheck)?.name || '角色'}】發動離場替代效果：改為返回手牌！`);
+                        this.bounceSlotTopCardToHand(slot);
+                        break;
+                    }
                     const cards = slot ? Array.from(slot.querySelectorAll('.card')) : [];
                     const deck = document.getElementById('my-deck-area');
                     const outside = document.getElementById('my-outside-area');
@@ -6120,6 +6434,13 @@ handleNetworkEvent(data) {
                 case 'FORCE_REMOVE_SLOT': {
                     if (!this.isValidMySlotId(data.slotId)) return;
                     const slot = document.getElementById(data.slotId);
+                    const topCheck = this.getTopCardInSlot(slot);
+                    const rtCheck = topCheck ? this.getRuntime(topCheck) : null;
+                    if (topCheck && (rtCheck?.persistentKeywords?.REPLACE_LEAVE_WITH_BOUNCE || rtCheck?.tempKeywords?.REPLACE_LEAVE_WITH_BOUNCE)) {
+                        showSysMsg(`【${this.getCardDef(topCheck)?.name || '角色'}】發動離場替代效果：改為返回手牌！`);
+                        this.bounceSlotTopCardToHand(slot);
+                        break;
+                    }
                     const cards = slot ? Array.from(slot.querySelectorAll('.card')) : [];
                     const rem = document.getElementById('my-remove-area');
                     const outside = document.getElementById('my-outside-area');
@@ -6149,6 +6470,12 @@ handleNetworkEvent(data) {
                     break;
                 }
                 case 'ATTACK_DECLARED':
+                    if (this.isResolvingLifeTrigger) {
+                        this._queuedOpponentAttacks = this._queuedOpponentAttacks || [];
+                        this._queuedOpponentAttacks.push(data);
+                        showSysMsg('對手已宣言下一波攻擊，將於目前生命觸發結算完畢後處理');
+                        break;
+                    }
                     this.onOpponentAttackDeclared(data);
                     break;
                 case 'BLOCK_RESPONSE': {
@@ -6368,6 +6695,7 @@ handleNetworkEvent(data) {
         window.uaEngine.injectEngineUI();
 
         const origFinalizeDrop = window.finalizeDrop;
+        window.uaEngine._rawFinalizeDrop = origFinalizeDrop;
         window.finalizeDrop = function (cards, dropZone, action, originalParent, endX) {
             window.uaEngine.interceptCardDrop(cards, dropZone, action, originalParent, endX, origFinalizeDrop);
         };

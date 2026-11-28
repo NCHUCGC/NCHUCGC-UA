@@ -554,9 +554,11 @@
     else if (kind === 'CANNOT_MOVE') bag.CANNOT_MOVE = true;
     else if (kind === 'CANNOT_BLOCK') bag.CANNOT_BLOCK = true;
     else if (kind === 'CANNOT_ATTACK') bag.CANNOT_ATTACK = true;
+    else if (kind === 'GENERATE_ENERGY_IN_FRONT' || kind === 'TEMP_FRONT_ENERGY') bag.GENERATE_ENERGY_IN_FRONT = 1;
+    else if (kind === 'REPLACE_LEAVE_WITH_BOUNCE') bag.REPLACE_LEAVE_WITH_BOUNCE = 1;
     else if (kind === 'TEMP_GEN_ENERGY' && value) {
       rt.tempEnergyBoost = rt.tempEnergyBoost || [];
-      rt.tempEnergyBoost.push({ color: value.color, amount: value.count || 1 });
+      rt.tempEnergyBoost.push({ color: value.color, count: value.count || 1, amount: value.count || 1 });
     } else if (kind === 'TEMP_ABILITY' && value?.timing && value.ab) {
       rt.v3TempAbilities = rt.v3TempAbilities || [];
       rt.v3TempAbilities.push({ timing: value.timing, ab: value.ab, expiresAt: expiresAt || 'END_OF_TURN' });
@@ -635,11 +637,11 @@
         }
         case 'MODIFY_BP': {
           targets(step.target).forEach(c => {
-            if (c.parentElement) engine.addSlotBp(c.parentElement, step.amount || 0);
             if (step.expiresAt === 'NEXT_OWNER_TURN_START') {
               const r = engine.getRuntime(c);
               if (r) r.persistentBp = (r.persistentBp || 0) + (step.amount || 0);
             }
+            if (c.parentElement) engine.addSlotBp(c.parentElement, step.amount || 0);
           });
           next(); return;
         }
@@ -647,11 +649,11 @@
           getZoneCards(engine, step.owner || 'OPP', step.line || 'FRONT')
             .filter(c => matchesFilter(engine, c, step.filter, sourceCardEl))
             .forEach(c => {
-              if (c.parentElement) engine.addSlotBp(c.parentElement, step.amount || 0);
               if (step.expiresAt === 'NEXT_OWNER_TURN_START') {
                 const r = engine.getRuntime(c);
                 if (r) r.persistentBp = (r.persistentBp || 0) + (step.amount || 0);
               }
+              if (c.parentElement) engine.addSlotBp(c.parentElement, step.amount || 0);
             });
           next(); return;
         }
